@@ -1,0 +1,36 @@
+{
+  "name": "3dviewer",
+  "displayName": "3DViewer",
+  "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
+  "version": "0.0.1",
+  "publisher": "3dviewer",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "3dviewer.openReconstruction",
+        "title": "3DViewer: Open Reconstruction"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "tsc --noEmit -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}
