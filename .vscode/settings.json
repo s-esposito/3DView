@@ -1,0 +1,8 @@
+{
+  // node/npm live in a conda env, not on the system PATH. Prepend the env's bin
+  // so integrated terminals (and ./reinstall.sh run from one) resolve npm/node
+  // without activating conda first. ${env:HOME} avoids a hardcoded username path.
+  "terminal.integrated.env.linux": {
+    "PATH": "${env:HOME}/.conda/envs/sam3d-objects/bin:${env:PATH}"
+  }
+}

@@ -14,10 +14,37 @@
   "main": "./out/extension.js",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "3dviewer",
+          "title": "3DViewer",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "3dviewer": [
+        {
+          "id": "3dviewer.welcome",
+          "name": "Reconstruction"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "3dviewer.welcome",
+        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dviewer.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dviewer.openMesh)"
+      }
+    ],
     "commands": [
       {
         "command": "3dviewer.openReconstruction",
         "title": "3DViewer: Open Reconstruction"
+      },
+      {
+        "command": "3dviewer.openMesh",
+        "title": "3DViewer: Open Mesh"
       }
     ]
   },
@@ -25,12 +52,17 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "lint": "tsc --noEmit -p ./"
+    "lint": "tsc --noEmit -p ./",
+    "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/three": "^0.160.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "three": "^0.160.1"
   }
 }
