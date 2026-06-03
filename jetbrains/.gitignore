@@ -1,0 +1,12 @@
+# Gradle
+.gradle/
+build/
+
+# The webview bundle is copied in from ../out by the copyWebview task — it is a
+# build artifact, not source. (Run `npm run build` in the repo root to produce it.)
+src/main/resources/webview/webview.js
+
+# IDE / local
+.idea/
+*.iml
+out/

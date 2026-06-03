@@ -9,7 +9,7 @@
 # Usage: ./reinstall.sh
 set -euo pipefail
 
-# Always operate from the repo root (this script's directory).
+# Operate from this package dir (vscode/); the repo root is its parent.
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Fail early with a clear message if a required tool is missing.
@@ -29,8 +29,8 @@ PUBLISHER=$(node -p "require('./package.json').publisher")
 VSIX="${NAME}-${VERSION}.vsix"
 EXT_ID="${PUBLISHER}.${NAME}"
 
-echo "==> Building bundles"
-npm run build
+echo "==> Building monorepo (core builds the shared webview bundle, then the extension)"
+( cd .. && npm run build )
 
 echo "==> Packaging ${VSIX}"
 npx --yes @vscode/vsce package --allow-missing-repository --out "$VSIX"

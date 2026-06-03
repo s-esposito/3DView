@@ -9,9 +9,11 @@ docs live in [README.md](README.md).
 
 ## Names (intentional, don't "fix")
 
-- Local folder: `colmapview` · npm `name`: `3dviewer` (must be lowercase) ·
-  display name / commands: **3DViewer** · GitHub repo: `s-esposito/3DView`.
-  These differing names are deliberate.
+- Local folder: `colmapview` · GitHub repo: `s-esposito/3DView` · display name /
+  commands: **3DViewer**. npm is a **workspaces monorepo**: root
+  `3dviewer-monorepo`, packages `@3dviewer/core` (shared) and `3dviewer` (the
+  published VS Code extension; must stay lowercase). The PyCharm plugin
+  (`jetbrains/`) is a separate Gradle build. These differing names are deliberate.
 
 ## Environment / commands
 
@@ -20,25 +22,30 @@ docs live in [README.md](README.md).
   `.vscode/settings.json` prepend it via `${env:HOME}` so VS Code tasks and
   integrated terminals work. In a raw shell, prepend it yourself.
 
+Run from the repo root; npm workspaces orchestrate `@3dviewer/core` then `3dviewer`.
+First time: `npm install` at the root (links the workspaces).
+
 ```bash
-npm run build    # esbuild → out/extension.js + out/webview.js, then check-boundaries
-npm run watch    # rebuild on change
-npm run lint     # tsc --noEmit -p ./  — MUST be clean (esbuild does not type-check)
-npm run check    # boundary guard (host-agnostic core); also runs inside `build`
-npm test         # node esbuild.js --test → out/test/, then node --test
-./reinstall.sh   # build + vsce package + code --install-extension --force
+npm run build    # core → out/webview.js (+ check-boundaries); vscode → extension.js + copies webview.js
+npm run watch    # build core once, then watch-rebuild the extension
+npm run lint     # tsc --noEmit in each package — MUST be clean (esbuild does not type-check)
+npm run check    # boundary guard (host-agnostic core); also runs inside core's build
+npm test         # esbuild --test per package, then node --test
+vscode/reinstall.sh   # build monorepo + vsce package + code --install-extension --force
 ```
 
 Always run `npm run lint && npm run build && npm test` after changes; all three
-must pass before considering work done. (`build` runs `scripts/check-boundaries.mjs`,
+must pass before considering work done. (`build` runs `core/scripts/check-boundaries.mjs`,
 which fails if the host-agnostic core mixes host code — see the boundary below.)
+The PyCharm plugin builds separately with Gradle — see `jetbrains/README.md`.
 
 ## Architecture — runtime domains
 
 Two bundles that talk only via `postMessage`, plus a host-agnostic shared core
 (contract + bridge) and a pure parsing layer. Dependencies point inward only.
 See **The no-mixing boundary** below — the shared core carries no host code, so a
-second host (the planned PyCharm/JCEF plugin) can reuse the webview bundle as-is.
+second host (the PyCharm/JCEF plugin in `jetbrains-plugin/`) reuses the webview
+bundle as-is.
 
 ```
 src/
@@ -88,7 +95,8 @@ src/
 
 `src/shared/`, `src/colmap/`, `src/webview/` are **host-agnostic** — no `vscode`,
 no `node:*`, no JVM, no host-specific symbols. **All VS Code code lives in
-`src/host/`; the planned PyCharm code lives in `jetbrains-plugin/`.** The compiled
+`src/host/`; all PyCharm code lives in `jetbrains-plugin/`** (Kotlin/Gradle; see
+its own README — it consumes only the built `out/webview.js`, no TS). The compiled
 `out/webview.js` is identical for both hosts; each host installs its own
 `window.__viewerHost` adapter (a `{ postMessage }`) before the bundle loads — the
 VS Code one (wrapping its native webview API) is the inline script in

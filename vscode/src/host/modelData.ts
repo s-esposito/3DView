@@ -1,8 +1,8 @@
 // Shape a parsed COLMAP model into the render-ready `ModelData` the webview
 // consumes. Pure (no `vscode`), so it can be unit-tested alongside the parser.
 import { loadModel } from "./colmapLoad";
-import { imagesToPoses, modelName, computeBounds } from "../colmap";
-import type { CameraView, ModelData } from "../shared/messages";
+import { imagesToPoses, modelName, computeBounds } from "@3dviewer/core";
+import type { CameraView, ModelData } from "@3dviewer/core";
 
 /** Parse the model at `dir` and shape it for the webview. */
 export function buildModelData(dir: string): ModelData {

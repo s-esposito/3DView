@@ -1,6 +1,6 @@
 // Locate and load COLMAP models from disk for the VS Code host. Uses Node
-// `fs`/`path` (so it lives in the host layer, not the pure `colmap/` library);
-// it consumes the pure parsers from `../colmap`. The PyCharm host reimplements
+// `fs`/`path` (so it lives in the host layer, not the pure core library); it
+// consumes the pure parsers from `@3dviewer/core`. The PyCharm host reimplements
 // this directory discovery in Kotlin and parses in the webview instead.
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,7 +14,7 @@ import {
   parsePoints3DText,
   type ColmapModel,
   type ColmapFormat,
-} from "../colmap";
+} from "@3dviewer/core";
 
 // The three files that make up a model, sans extension.
 const STEMS = ["cameras", "images", "points3D"] as const;

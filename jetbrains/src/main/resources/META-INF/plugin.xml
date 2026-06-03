@@ -1,0 +1,47 @@
+<idea-plugin>
+    <id>dev.colmapview</id>
+    <name>3DViewer</name>
+    <version>0.0.1</version>
+    <vendor email="stefano2142x@gmail.com" url="https://github.com/s-esposito/3DView">Stefano Esposito</vendor>
+
+    <description><![CDATA[
+        View <b>COLMAP reconstructions</b> (a colored point cloud with camera poses,
+        each image textured onto its frustum) and <b>3D meshes</b>
+        (glTF / GLB / OBJ / PLY) in one interactive Three.js scene, embedded in the
+        IDE via JCEF. The same viewer is available as a VS Code extension.
+    ]]></description>
+
+    <idea-version since-build="243"/>
+
+    <!-- PyCharm (and any IntelliJ-based IDE): depend only on the platform module.
+         JCEF is part of the platform, so no further dependency is required. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="3D Viewer" anchor="right"
+                    factoryClass="dev.colmapview.ColmapViewerToolWindowFactory"
+                    icon="/icons/toolWindow.svg"/>
+        <notificationGroup id="3DViewer" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="dev.colmapview.OpenReconstruction"
+                class="dev.colmapview.actions.OpenReconstructionAction"
+                text="3DViewer: Open Reconstruction…"
+                description="Open a COLMAP reconstruction folder in the 3D viewer">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="dev.colmapview.OpenMesh"
+                class="dev.colmapview.actions.OpenMeshAction"
+                text="3DViewer: Open Mesh…"
+                description="Open a mesh (glTF / GLB / OBJ / PLY) in the 3D viewer">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="dev.colmapview.OpenViewer"
+                class="dev.colmapview.actions.OpenViewerAction"
+                text="3DViewer: Open Empty Viewer"
+                description="Open the 3D viewer with an empty scene">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

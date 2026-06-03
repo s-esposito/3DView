@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HostToWebview, WebviewToHost, ModelData } from "../shared/messages";
+import type { HostToWebview, WebviewToHost, ModelData } from "@3dviewer/core";
 import { buildModelData } from "./modelData";
 
 /** What the user asked to open. */

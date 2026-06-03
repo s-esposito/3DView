@@ -1,10 +1,8 @@
-// Unit tests for the pure COLMAP layer. No VS Code needed — these run under
-// plain `node --test` (the bundle is produced by `node esbuild.js --test`).
+// Unit tests for the pure COLMAP library. No VS Code / Node fs needed — these run
+// under plain `node --test` (the bundle is produced by `node esbuild.js --test`).
+// Filesystem discovery/load (colmapLoad) is host code; its test lives in vscode/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 
 import {
   parseCamerasBin,
@@ -17,8 +15,6 @@ import {
   imageToPose,
   intrinsicsFromParams,
 } from "../src/colmap/index";
-// Filesystem discovery/IO lives in the VS Code host layer, not the pure library.
-import { detectFormat, findModelDirs, loadModel } from "../src/host/colmapLoad";
 
 // --- little-endian byte writer, mirrors the COLMAP binary layout ------------
 class ByteWriter {
@@ -158,31 +154,4 @@ test("imageToPose worldFromCamera is orthonormal for a 90-degree z rotation", ()
     assert.ok(Math.abs(dot(col(i), col(i)) - 1) < 1e-9);
   }
   assert.ok(Math.abs(dot(col(0), col(1))) < 1e-9);
-});
-
-// --- locate + load (filesystem orchestration) -------------------------------
-test("detectFormat / findModelDirs / loadModel round-trip a binary model", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "colmap-test-"));
-  try {
-    const modelDir = path.join(root, "sparse", "0");
-    fs.mkdirSync(modelDir, { recursive: true });
-
-    fs.writeFileSync(path.join(modelDir, "cameras.bin"), new ByteWriter()
-      .u64(1).u32(1).i32(1).u64(640).u64(480).f64(500).f64(500).f64(320).f64(240).bytes());
-    fs.writeFileSync(path.join(modelDir, "images.bin"), new ByteWriter()
-      .u64(1).u32(1).f64(1).f64(0).f64(0).f64(0).f64(0).f64(0).f64(0).u32(1).cstr("a.png").u64(0).bytes());
-    fs.writeFileSync(path.join(modelDir, "points3D.bin"), new ByteWriter()
-      .u64(1).u64(1).f64(0).f64(0).f64(0).u8(1).u8(2).u8(3).f64(0).u64(0).bytes());
-
-    assert.equal(detectFormat(modelDir), "bin");
-    const dirs = findModelDirs(root);
-    assert.deepEqual(dirs, [modelDir]);
-
-    const model = loadModel(modelDir);
-    assert.equal(model.cameras.size, 1);
-    assert.equal(model.images.length, 1);
-    assert.equal(model.points.count, 1);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });

@@ -1,0 +1,25 @@
+{
+  "name": "@3dviewer/core",
+  "version": "0.0.1",
+  "description": "Host-agnostic 3D viewer core: COLMAP parsing + the Three.js webview bundle. Consumed by the VS Code extension and the PyCharm plugin.",
+  "license": "MIT",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "node esbuild.js && node scripts/check-boundaries.mjs",
+    "watch": "node esbuild.js --watch",
+    "lint": "tsc --noEmit -p ./",
+    "check": "node scripts/check-boundaries.mjs",
+    "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/three": "^0.160.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "three": "^0.160.1"
+  }
+}

@@ -1,77 +1,22 @@
 {
-  "name": "3dviewer",
-  "displayName": "3DViewer",
-  "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
+  "name": "3dviewer-monorepo",
   "version": "0.0.1",
-  "publisher": "3dviewer",
+  "description": "3DViewer — a host-agnostic Three.js viewer for COLMAP reconstructions and 3D meshes, with VS Code and PyCharm hosts over a shared core.",
   "license": "MIT",
+  "private": true,
   "repository": {
     "type": "git",
     "url": "https://github.com/s-esposito/3DView.git"
   },
-  "engines": {
-    "vscode": "^1.85.0"
-  },
-  "categories": [
-    "Visualization"
+  "workspaces": [
+    "core",
+    "vscode"
   ],
-  "main": "./out/extension.js",
-  "activationEvents": [],
-  "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "3dviewer",
-          "title": "3DViewer",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "3dviewer": [
-        {
-          "id": "3dviewer.welcome",
-          "name": "Reconstruction"
-        }
-      ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "3dviewer.welcome",
-        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dviewer.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dviewer.openMesh)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dviewer.openViewer)"
-      }
-    ],
-    "commands": [
-      {
-        "command": "3dviewer.openReconstruction",
-        "title": "3DViewer: Open Reconstruction"
-      },
-      {
-        "command": "3dviewer.openMesh",
-        "title": "3DViewer: Open Mesh"
-      },
-      {
-        "command": "3dviewer.openViewer",
-        "title": "3DViewer: Open Empty Viewer"
-      }
-    ]
-  },
   "scripts": {
-    "vscode:prepublish": "npm run build",
-    "build": "node esbuild.js && node scripts/check-boundaries.mjs",
-    "watch": "node esbuild.js --watch",
-    "lint": "tsc --noEmit -p ./",
-    "check": "node scripts/check-boundaries.mjs",
-    "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
-  },
-  "devDependencies": {
-    "@types/node": "^20.11.0",
-    "@types/three": "^0.160.0",
-    "@types/vscode": "^1.85.0",
-    "esbuild": "^0.20.0",
-    "typescript": "^5.4.0"
-  },
-  "dependencies": {
-    "three": "^0.160.1"
+    "build": "npm run build -w @3dviewer/core && npm run build -w 3dviewer",
+    "watch": "npm run build -w @3dviewer/core && npm run watch -w 3dviewer",
+    "lint": "npm run lint -w @3dviewer/core && npm run lint -w 3dviewer",
+    "check": "npm run check -w @3dviewer/core",
+    "test": "npm run test -w @3dviewer/core && npm run test -w 3dviewer"
   }
 }
