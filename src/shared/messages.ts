@@ -53,14 +53,22 @@ export interface MeshRef {
   name: string;
 }
 
-/** Extension host -> webview. */
+/** What kind of content the "+" add action should pick. */
+export type AddKind = "colmap" | "mesh";
+
+/**
+ * Extension host -> webview. A scene holds any number of reconstructions and
+ * meshes, each identified by a host-assigned `id` (stable across panel
+ * recreations) so the webview can list, toggle, and remove them.
+ */
 export type HostToWebview =
-  | { type: "ready" }
   | { type: "loading"; message: string }
-  | { type: "model"; data: ModelData }
-  | { type: "mesh"; mesh: MeshRef }
+  | { type: "addReconstruction"; id: string; label: string; data: ModelData }
+  | { type: "addMesh"; id: string; label: string; mesh: MeshRef }
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */
 export type WebviewToHost =
-  | { type: "ready" };
+  | { type: "ready" }
+  | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
+  | { type: "removed"; id: string }; // an item was removed from the scene

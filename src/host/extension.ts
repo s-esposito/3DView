@@ -8,7 +8,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("3dviewer.openReconstruction", () =>
       openReconstruction(context)
     ),
-    vscode.commands.registerCommand("3dviewer.openMesh", () => openMesh(context))
+    vscode.commands.registerCommand("3dviewer.openMesh", () => openMesh(context)),
+    vscode.commands.registerCommand("3dviewer.openViewer", () =>
+      ViewerPanel.open(context)
+    )
   );
 
   // Empty provider for the activity-bar view. With no provider registered VS Code

@@ -86,6 +86,63 @@ export function button(label: string, onClick: () => void): HTMLButtonElement {
   return el;
 }
 
+/** A compact icon/symbol button (e.g. "+" or "✕"). */
+export function iconButton(
+  symbol: string,
+  title: string,
+  onClick: () => void
+): HTMLButtonElement {
+  const el = document.createElement("button");
+  el.className = "viewer-iconbtn";
+  el.textContent = symbol;
+  el.title = title;
+  el.addEventListener("click", onClick);
+  return el;
+}
+
+/** An icon button that opens a small popup menu; closes on outside click. */
+export function menuButton(
+  symbol: string,
+  title: string,
+  entries: Array<{ label: string; onClick: () => void }>
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "viewer-menuwrap";
+  const menu = document.createElement("div");
+  menu.className = "viewer-menu";
+  menu.style.display = "none";
+
+  const close = () => {
+    menu.style.display = "none";
+    document.removeEventListener("click", close);
+  };
+  for (const entry of entries) {
+    const item = document.createElement("button");
+    item.className = "viewer-menu-item";
+    item.textContent = entry.label;
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      close();
+      entry.onClick();
+    });
+    menu.appendChild(item);
+  }
+
+  const trigger = iconButton(symbol, title, () => {});
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opening = menu.style.display === "none";
+    menu.style.display = opening ? "block" : "none";
+    if (opening) {
+      // Defer so this same click doesn't immediately close it.
+      setTimeout(() => document.addEventListener("click", close), 0);
+    }
+  });
+
+  wrap.append(trigger, menu);
+  return wrap;
+}
+
 /** A label/value row used by the info popup. */
 export function keyValue(label: string, value: string): HTMLElement {
   const el = document.createElement("div");

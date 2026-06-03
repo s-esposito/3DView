@@ -1,7 +1,7 @@
 // Webview entry point. Wires the VS Code message channel, keyboard shortcuts,
 // and status text to the Viewer and its UI. All real work lives in the modules.
 import type { HostToWebview, WebviewToHost } from "../shared/messages";
-import { Viewer, Layer } from "./viewer";
+import { Viewer, GlobalToggle } from "./viewer";
 import { ControlPanel } from "./ui/controlPanel";
 import { InfoPopup, BackButton } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
@@ -39,15 +39,22 @@ viewer.onChange = () => {
 };
 viewer.onError = (message) => showStatus(`Error: ${message}`);
 
+// The Scene "+" asks the host to open a picker; removal tells the host to forget.
+viewer.onRequestAdd = (kind) => vscode.postMessage({ type: "requestAdd", kind });
+viewer.onRemoveItem = (id) => vscode.postMessage({ type: "removed", id });
+
+// Show the empty scene and its controls immediately, before any content loads.
+panel.render();
+showStatus("Open a reconstruction or mesh — or use + in the Scene panel.");
+
 // Keyboard shortcuts map to the same Viewer API the panel uses.
-const LAYER_KEYS: Record<string, Layer> = {
+const TOGGLE_KEYS: Record<string, GlobalToggle> = {
   p: "points",
   f: "frustums",
   i: "images",
   b: "box",
   g: "grid",
   a: "axes",
-  m: "mesh",
 };
 window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement) {
@@ -67,9 +74,9 @@ window.addEventListener("keydown", (e) => {
     panel.render();
     return;
   }
-  const layer = LAYER_KEYS[key];
-  if (layer) {
-    viewer.toggle(layer);
+  const toggle = TOGGLE_KEYS[key];
+  if (toggle) {
+    viewer.toggleGlobal(toggle);
     panel.render();
   }
 });
@@ -79,33 +86,27 @@ function showStatus(message: string) {
   status.textContent = message;
 }
 
-/** Reflect what's loaded; hide the overlay once there's something to see. */
+/** Hide the overlay once the scene has content; otherwise show a prompt. */
 function updateStatus() {
-  const { points, cameras, meshName } = viewer.getSummary();
-  if (points === 0 && cameras === 0 && !meshName) {
-    showStatus("Nothing to display.");
-  } else if (points === 0 && cameras > 0 && !meshName) {
-    showStatus(`No points — showing ${cameras} cameras only.`);
-  } else {
+  if (viewer.getState().items.length > 0) {
     status.style.display = "none";
+  } else {
+    showStatus("Open a reconstruction or mesh — or use + in the Scene panel.");
   }
 }
 
 window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
   const msg = event.data;
   switch (msg.type) {
-    case "ready":
-      showStatus("Open a reconstruction or mesh to begin.");
-      break;
     case "loading":
       showStatus(msg.message);
       break;
-    case "model":
-      viewer.setModel(msg.data); // fires onChange → panel + status
+    case "addReconstruction":
+      viewer.addReconstruction(msg.id, msg.label, msg.data); // fires onChange
       break;
-    case "mesh":
-      showStatus(`Loading ${msg.mesh.name}…`);
-      viewer.setMesh(msg.mesh.uri, msg.mesh.name); // async; fires onChange/onError
+    case "addMesh":
+      showStatus(`Loading ${msg.label}…`);
+      viewer.addMesh(msg.id, msg.label, msg.mesh.uri, msg.mesh.name); // async; onChange/onError
       break;
     case "error":
       showStatus(`Error: ${msg.message}`);
@@ -113,5 +114,5 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
   }
 });
 
-// Tell the host we are alive and ready to receive a model.
+// Tell the host we are alive and ready to receive content.
 vscode.postMessage({ type: "ready" });

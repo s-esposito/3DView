@@ -1,8 +1,9 @@
-// The camera layer: one Three.js group per registered image, each with a frustum
-// wireframe and (optionally) a textured image plane. Owns hover/selection
-// highlighting, click picking, and lazy texture loading.
+// The camera sub-layer of a reconstruction: one Three.js group per registered
+// image, each with a frustum wireframe and (optionally) a textured image plane.
+// Owns hover/selection highlighting and lazy texture loading. Picking is done by
+// the Viewer across all layers; each group is stamped with its owning layer id.
 import * as THREE from "three";
-import type { ModelData, CameraView } from "../shared/messages";
+import type { ModelData } from "../shared/messages";
 import { ThumbnailLoader } from "./textures";
 import {
   frustumCorners,
@@ -14,9 +15,15 @@ import {
 
 const FRUSTUM_HOVER = 0x9ad1ff;
 const FRUSTUM_SELECTED = 0xffcc00;
-// Cap on how many image textures are resident at once. Only the cameras nearest
-// the current view are loaded; the rest stay as bare frustums until approached.
+// Cap on how many image textures are resident at once (per reconstruction). Only
+// the cameras nearest the current view are loaded; the rest stay bare frustums.
 const MAX_RESIDENT_TEXTURES = 48;
+
+/** Identifies a picked camera: which reconstruction layer and which camera. */
+export interface CameraHit {
+  layerId: string;
+  index: number;
+}
 
 interface CameraRecord {
   index: number;
@@ -31,17 +38,19 @@ interface CameraRecord {
 
 export class CameraLayer {
   readonly object = new THREE.Group();
-  private records: CameraRecord[] = [];
+  private records = new Map<number, CameraRecord>();
   private hovered = -1;
   private selected = -1;
   private readonly tmp = new THREE.Vector3();
 
-  constructor(private readonly loader: ThumbnailLoader) {}
+  constructor(
+    private readonly loader: ThumbnailLoader,
+    private readonly layerId: string
+  ) {}
 
   /** (Re)build all per-camera objects for a model at the given frustum scale. */
   build(data: ModelData, scale: number, showImages: boolean): void {
     this.clear();
-    this.loader.clear();
     data.cameras.forEach((cam, index) => {
       if (!cam.fx || !cam.fy) {
         return; // no usable intrinsics
@@ -59,8 +68,9 @@ export class CameraLayer {
       }
 
       group.userData.cameraIndex = index;
+      group.userData.layerId = this.layerId;
       this.object.add(group);
-      this.records.push({
+      this.records.set(index, {
         index,
         group,
         lineMaterial: lines.material as THREE.LineBasicMaterial,
@@ -83,7 +93,7 @@ export class CameraLayer {
    * change.
    */
   refreshTextures(viewerPosition: THREE.Vector3, rootMatrixWorld: THREE.Matrix4): void {
-    const textured = this.records.filter((r) => r.planeMaterial && r.uri);
+    const textured = [...this.records.values()].filter((r) => r.planeMaterial && r.uri);
     if (textured.length === 0) {
       return;
     }
@@ -137,22 +147,6 @@ export class CameraLayer {
     r.loaded = false;
   }
 
-  // --- Picking --------------------------------------------------------------
-  /** Camera index under the given ray, or -1. */
-  pick(raycaster: THREE.Raycaster): number {
-    const hits = raycaster.intersectObject(this.object, true);
-    for (const hit of hits) {
-      let obj: THREE.Object3D | null = hit.object;
-      while (obj && obj.userData.cameraIndex === undefined) {
-        obj = obj.parent;
-      }
-      if (obj && typeof obj.userData.cameraIndex === "number") {
-        return obj.userData.cameraIndex as number;
-      }
-    }
-    return -1;
-  }
-
   // --- Hover / selection ----------------------------------------------------
   setHover(index: number): void {
     if (index === this.hovered) {
@@ -168,7 +162,7 @@ export class CameraLayer {
   select(index: number): void {
     this.clearSelection();
     this.selected = index;
-    const group = this.find(index);
+    const group = this.records.get(index)?.group;
     if (group) {
       group.visible = false;
     }
@@ -178,7 +172,7 @@ export class CameraLayer {
     const prev = this.selected;
     this.selected = -1;
     if (prev >= 0) {
-      const group = this.find(prev);
+      const group = this.records.get(prev)?.group;
       if (group) {
         group.visible = true;
       }
@@ -187,10 +181,11 @@ export class CameraLayer {
   }
 
   clear(): void {
+    this.loader.clear();
     for (const child of [...this.object.children]) {
       disposeObject(child); // detaches from `object` and frees GPU resources
     }
-    this.records = [];
+    this.records.clear();
     this.hovered = -1;
     this.selected = -1;
   }
@@ -209,14 +204,6 @@ export class CameraLayer {
     if (index < 0) {
       return;
     }
-    this.records[this.indexOf(index)]?.lineMaterial.color.setHex(this.colorFor(index));
-  }
-
-  private find(index: number): THREE.Object3D | undefined {
-    return this.records[this.indexOf(index)]?.group;
-  }
-
-  private indexOf(cameraIndex: number): number {
-    return this.records.findIndex((r) => r.index === cameraIndex);
+    this.records.get(index)?.lineMaterial.color.setHex(this.colorFor(index));
   }
 }

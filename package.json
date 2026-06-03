@@ -34,7 +34,7 @@
     "viewsWelcome": [
       {
         "view": "3dviewer.welcome",
-        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dviewer.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dviewer.openMesh)"
+        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dviewer.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dviewer.openMesh)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dviewer.openViewer)"
       }
     ],
     "commands": [
@@ -45,6 +45,10 @@
       {
         "command": "3dviewer.openMesh",
         "title": "3DViewer: Open Mesh"
+      },
+      {
+        "command": "3dviewer.openViewer",
+        "title": "3DViewer: Open Empty Viewer"
       }
     ]
   },

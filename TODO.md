@@ -142,17 +142,15 @@ COLMAP parser + pose math (no VS Code needed). If/when behavior that touches the
 ## Future (post-v1, requested — design for extensibility now)
 
 These are **not v1**, but the scene/message architecture should not preclude them:
-1. ~~**Mesh viewing**~~ **IN PROGRESS** (coexists with COLMAP in one scene).
-   *3DViewer: Open Mesh* loads `.glb`/`.gltf`/`.obj`/`.ply` via three.js loaders
-   (`webview/meshLayer.ts`) as a `Viewer` layer alongside points/cameras; union
-   bounds drive fit-to-view, with a **Mesh (M)** toggle. Scene lighting (hemisphere
-   + directional) was added for lit materials. Loading uses `asWebviewUri` +
-   `connect-src` in the CSP (loaders fetch the file and sibling assets). Because
-   `localResourceRoots` is fixed at panel creation, `host/panel.ts` remembers the
-   loaded COLMAP + mesh (`Content`) and **replays** them after a recreate when a
-   new folder must be allowed — so coexistence survives opening files in different
-   dirs. STILL TODO: OBJ **.mtl/textures** (currently default material only),
-   PLY large-cloud handling, multiple simultaneous meshes, per-mesh transform UI.
+1. ~~**Mesh viewing**~~ **DONE** (multiple reconstructions + meshes in one scene).
+   A scene is a list of `SceneLayer`s (`ReconstructionLayer` / `MeshLayer`). The
+   **Scene** panel section lists items with show/hide + remove and a **"+"** menu
+   to add a reconstruction or mesh; the "+" posts `requestAdd` → host runs the
+   picker → `addReconstruction`/`addMesh` (id-keyed). Meshes load `.glb/.gltf/.obj/
+   .ply` (`meshLayer.ts`); scene lighting added for lit materials. Loading uses
+   `asWebviewUri` + `connect-src`. `host/panel.ts` tracks the item list and replays
+   it after a `localResourceRoots` recreate. STILL TODO: OBJ **.mtl/textures**
+   (default material only), PLY large-cloud handling, per-item transform UI.
 2. **3D Gaussian Splatting** (à la the *gaussian-viewer*): render `.ply`/`.splat`
    3DGS reconstructions. This needs a splat rasterizer (custom shaders / sorting),
    which is heavier than `THREE.Points` and may warrant a dedicated renderer
@@ -214,4 +212,8 @@ Text format mirrors this with `#`-comment headers; see
       distance-based loading with a resident cap (`cameraLayer.ts`)
 - [x] Modular refactor: split runtime domains (shared/host/webview) and broke the
       webview monolith into Viewer + layers + ui modules (see Architecture)
+- [x] Open empty viewer (default grid scene) + activity-bar button
+- [x] Scene of multiple reconstructions + meshes: SceneLayer abstraction, Scene
+      panel (add via "+", per-item show/hide + remove), cross-layer pick/POV
+      (`cameraInteraction.ts`)
 - [ ] Roadmap step 5 (remaining): load progress, large-cloud + texture-budget handling, last-folder memory

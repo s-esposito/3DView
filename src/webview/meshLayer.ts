@@ -1,13 +1,55 @@
-// Loads a mesh file into a Three.js object, dispatching to the right loader by
-// extension. Returns the object plus its local-space bounds. Asset siblings
-// (.bin, .mtl, textures) resolve relative to the file's webview URI.
+// The mesh layer: holds at most one loaded mesh (glTF/GLB/OBJ/PLY) under a
+// container group, mirroring CameraLayer so the Viewer treats all scene sources
+// uniformly. Asset siblings (.bin, .mtl, textures) resolve relative to the
+// file's webview URI.
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
+import { disposeObject } from "./builders";
+import type { SceneLayer } from "./sceneLayer";
 
-export interface LoadedMesh {
+/** A single loaded mesh (glTF/GLB/OBJ/PLY) as a scene layer. */
+export class MeshLayer implements SceneLayer {
+  readonly kind = "mesh" as const;
+  readonly object = new THREE.Group();
+  visible = true;
+
+  private current?: THREE.Object3D;
+  private currentBounds?: Bounds;
+
+  constructor(
+    readonly id: string,
+    readonly label: string
+  ) {}
+
+  bounds(): Bounds | undefined {
+    return this.currentBounds;
+  }
+
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    this.object.visible = visible;
+  }
+
+  /** Load the mesh file and add it under this layer's group. */
+  async load(uri: string, name: string): Promise<void> {
+    const { object, bounds } = await loadMesh(uri, name);
+    this.current = object;
+    this.currentBounds = bounds;
+    this.object.add(object);
+  }
+
+  dispose(): void {
+    disposeObject(this.current);
+    disposeObject(this.object);
+    this.current = undefined;
+    this.currentBounds = undefined;
+  }
+}
+
+interface LoadedMesh {
   object: THREE.Object3D;
   bounds: Bounds;
 }
@@ -16,7 +58,7 @@ const gltfLoader = new GLTFLoader();
 const objLoader = new OBJLoader();
 const plyLoader = new PLYLoader();
 
-export function loadMesh(uri: string, name: string): Promise<LoadedMesh> {
+function loadMesh(uri: string, name: string): Promise<LoadedMesh> {
   const ext = name.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "glb":
@@ -33,20 +75,19 @@ export function loadMesh(uri: string, name: string): Promise<LoadedMesh> {
 
 /** Promisified loader.load with normalized errors. */
 function load<T>(
-  loader: { load: (
-    url: string,
-    onLoad: (result: T) => void,
-    onProgress?: (e: ProgressEvent) => void,
-    onError?: (err: unknown) => void
-  ) => void },
+  loader: {
+    load: (
+      url: string,
+      onLoad: (result: T) => void,
+      onProgress?: (e: ProgressEvent) => void,
+      onError?: (err: unknown) => void
+    ) => void;
+  },
   uri: string
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    loader.load(
-      uri,
-      resolve,
-      undefined,
-      (err) => reject(err instanceof Error ? err : new Error(String(err)))
+    loader.load(uri, resolve, undefined, (err) =>
+      reject(err instanceof Error ? err : new Error(String(err)))
     );
   });
 }

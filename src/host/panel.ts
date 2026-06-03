@@ -9,17 +9,20 @@ export type OpenTarget =
   | { kind: "colmap"; modelDir: string; imagesDir?: string }
   | { kind: "mesh"; file: string };
 
-/** The content currently shown, so it can be replayed after a panel recreate. */
-interface Content {
-  colmap?: { modelDir: string; imagesDir?: string };
-  mesh?: string;
+/** A scene item the panel tracks so it can be replayed after a recreate. */
+interface Item {
+  id: string;
+  target: OpenTarget;
 }
 
+let idCounter = 0;
+const nextId = (kind: string) => `${kind}-${++idCounter}`;
+
 /**
- * Owns the singleton webview panel. Content (a COLMAP reconstruction and/or a
- * mesh) coexists in one scene. `localResourceRoots` is fixed at panel creation,
- * so when a new target needs a folder the panel doesn't already allow, we
- * recreate it with the union of roots and replay the remembered content.
+ * Owns the singleton webview panel. A scene holds any number of reconstructions
+ * and meshes. `localResourceRoots` is fixed at panel creation, so when a new
+ * item needs a folder the panel doesn't allow yet, we recreate the panel with
+ * the union of roots and replay all tracked items.
  */
 export class ViewerPanel {
   public static current: ViewerPanel | undefined;
@@ -28,44 +31,39 @@ export class ViewerPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly allowedRoots: string[];
-  private content: Content;
-  private imagesRoot: string | undefined;
+  private content: Item[];
   private webviewReady = false;
   private readonly pending: Array<() => void> = [];
 
-  /** Open a target, creating/revealing the panel and preserving existing content. */
-  public static open(context: vscode.ExtensionContext, target: OpenTarget) {
+  /** Open the viewer, optionally adding `target`. Preserves existing content. */
+  public static open(context: vscode.ExtensionContext, target?: OpenTarget) {
     const column = vscode.window.activeTextEditor?.viewColumn;
     const current = ViewerPanel.current;
 
-    // Intended content after applying this target (existing content carried over).
-    const content: Content = current ? { ...current.content } : {};
-    if (target.kind === "colmap") {
-      content.colmap = { modelDir: target.modelDir, imagesDir: target.imagesDir };
-    } else {
-      content.mesh = target.file;
+    const content: Item[] = current ? [...current.content] : [];
+    if (target) {
+      content.push({ id: nextId(target.kind), target });
     }
     const roots = rootsFor(content);
 
     if (current && roots.every((r) => current.allowedRoots.includes(r))) {
-      // Existing panel already allows everything we need: just apply the delta.
       current.content = content;
       current.panel.reveal(column);
-      current.apply(target);
+      if (content.length > 0 && target) {
+        current.applyItem(content[content.length - 1]);
+      }
       return;
     }
 
-    // Need a panel whose roots cover all content; recreate and replay.
     current?.dispose();
-    const panel = ViewerPanel.create(context, column, roots, content);
-    panel.replay();
+    ViewerPanel.create(context, column, roots, content).replay();
   }
 
   private static create(
     context: vscode.ExtensionContext,
     column: vscode.ViewColumn | undefined,
     roots: string[],
-    content: Content
+    content: Item[]
   ): ViewerPanel {
     const localResourceRoots = [
       vscode.Uri.joinPath(context.extensionUri, "out"),
@@ -75,11 +73,7 @@ export class ViewerPanel {
       ViewerPanel.viewType,
       "3DViewer",
       column ?? vscode.ViewColumn.One,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots,
-      }
+      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots }
     );
     const panel = new ViewerPanel(webviewPanel, context, roots, content);
     ViewerPanel.current = panel;
@@ -90,7 +84,7 @@ export class ViewerPanel {
     panel: vscode.WebviewPanel,
     context: vscode.ExtensionContext,
     roots: string[],
-    content: Content
+    content: Item[]
   ) {
     this.panel = panel;
     this.allowedRoots = roots;
@@ -104,31 +98,42 @@ export class ViewerPanel {
     );
   }
 
-  /** Re-send all remembered content to a freshly created webview. */
+  /** Re-send all tracked items to a freshly created webview. */
   private replay() {
-    if (this.content.colmap) {
-      this.apply({ kind: "colmap", ...this.content.colmap });
-    }
-    if (this.content.mesh) {
-      this.apply({ kind: "mesh", file: this.content.mesh });
+    for (const item of this.content) {
+      this.applyItem(item);
     }
   }
 
   private onMessage(msg: WebviewToHost) {
-    if (msg.type === "ready") {
-      this.webviewReady = true;
-      for (const action of this.pending.splice(0)) {
-        action();
-      }
+    switch (msg.type) {
+      case "ready":
+        this.webviewReady = true;
+        for (const action of this.pending.splice(0)) {
+          action();
+        }
+        break;
+      case "requestAdd":
+        // Reuse the same pickers as the commands; they call back into open().
+        void vscode.commands.executeCommand(
+          msg.kind === "colmap" ? "3dviewer.openReconstruction" : "3dviewer.openMesh"
+        );
+        break;
+      case "removed":
+        this.content = this.content.filter((i) => i.id !== msg.id);
+        break;
     }
   }
 
-  /** Run a target now if the webview is up, else queue it until "ready". */
-  private apply(target: OpenTarget) {
-    const action =
-      target.kind === "colmap"
-        ? () => this.loadColmap(target.modelDir, target.imagesDir)
-        : () => this.postMesh(target.file);
+  /** Run an item now if the webview is up, else queue it until "ready". */
+  private applyItem(item: Item) {
+    const action = () => {
+      if (item.target.kind === "colmap") {
+        void this.loadColmap(item.id, item.target.modelDir, item.target.imagesDir);
+      } else {
+        this.postMesh(item.id, item.target.file);
+      }
+    };
     if (this.webviewReady) {
       action();
     } else {
@@ -136,48 +141,45 @@ export class ViewerPanel {
     }
   }
 
-  private async loadColmap(modelDir: string, imagesDir?: string) {
-    this.imagesRoot = imagesDir;
+  private async loadColmap(id: string, modelDir: string, imagesDir?: string) {
     try {
       const data = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
           title: "3DViewer: loading reconstruction…",
         },
-        // Parsing is synchronous; defer a tick so the progress UI can paint.
         async () => Promise.resolve().then(() => buildModelData(modelDir))
       );
-      this.attachImageUris(data);
-      this.post({ type: "model", data });
+      if (imagesDir) {
+        this.attachImageUris(data, imagesDir);
+      }
+      this.post({ type: "addReconstruction", id, label: labelFor(modelDir), data });
     } catch (err) {
+      this.content = this.content.filter((i) => i.id !== id);
       this.reportError(err);
     }
   }
 
-  private postMesh(file: string) {
+  private postMesh(id: string, file: string) {
     const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
-    this.post({ type: "mesh", mesh: { uri, name: path.basename(file) } });
+    const name = path.basename(file);
+    this.post({ type: "addMesh", id, label: name, mesh: { uri, name } });
   }
 
   /**
    * Resolve each camera's source image to a webview URI, when the file exists
-   * under the allowed images root. Leaves `imageUri` undefined otherwise.
+   * under `imagesRoot`. Leaves `imageUri` undefined otherwise.
    */
-  private attachImageUris(data: ModelData) {
-    if (!this.imagesRoot) {
-      return;
-    }
+  private attachImageUris(data: ModelData, imagesRoot: string) {
     for (const cam of data.cameras) {
-      const file = path.join(this.imagesRoot, cam.name);
+      const file = path.join(imagesRoot, cam.name);
       // Guard against `name` escaping the images root (e.g. "../secret").
-      const rel = path.relative(this.imagesRoot, file);
+      const rel = path.relative(imagesRoot, file);
       if (rel.startsWith("..") || path.isAbsolute(rel)) {
         continue;
       }
       if (fs.existsSync(file)) {
-        cam.imageUri = this.panel.webview
-          .asWebviewUri(vscode.Uri.file(file))
-          .toString();
+        cam.imageUri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
       }
     }
   }
@@ -227,6 +229,7 @@ export class ViewerPanel {
   <title>3DViewer</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
+    canvas { display: block; position: fixed; top: 0; left: 0; }
     #status {
       position: fixed; inset: 0;
       display: flex; align-items: center; justify-content: center;
@@ -244,16 +247,23 @@ export class ViewerPanel {
   }
 }
 
-/** Absolute folders that must be in `localResourceRoots` for the given content. */
-function rootsFor(content: Content): string[] {
+/** Absolute folders that must be in `localResourceRoots` for the given items. */
+function rootsFor(content: Item[]): string[] {
   const roots = new Set<string>();
-  if (content.colmap?.imagesDir) {
-    roots.add(path.resolve(content.colmap.imagesDir));
-  }
-  if (content.mesh) {
-    roots.add(path.resolve(path.dirname(content.mesh)));
+  for (const { target } of content) {
+    if (target.kind === "colmap" && target.imagesDir) {
+      roots.add(path.resolve(target.imagesDir));
+    } else if (target.kind === "mesh") {
+      roots.add(path.resolve(path.dirname(target.file)));
+    }
   }
   return [...roots];
+}
+
+/** Readable label for a model dir, disambiguating numeric dirs like sparse/0. */
+function labelFor(modelDir: string): string {
+  const base = path.basename(modelDir);
+  return /^\d+$/.test(base) ? `${path.basename(path.dirname(modelDir))}/${base}` : base;
 }
 
 function getNonce(): string {
