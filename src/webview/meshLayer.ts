@@ -7,7 +7,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
-import { disposeObject } from "./builders";
+import { buildBox, disposeObject } from "./builders";
 import type { SceneLayer } from "./sceneLayer";
 
 /** A single loaded mesh (glTF/GLB/OBJ/PLY) as a scene layer. */
@@ -18,6 +18,7 @@ export class MeshLayer implements SceneLayer {
 
   private current?: THREE.Object3D;
   private currentBounds?: Bounds;
+  private box?: THREE.Box3Helper;
 
   constructor(
     readonly id: string,
@@ -33,19 +34,28 @@ export class MeshLayer implements SceneLayer {
     this.object.visible = visible;
   }
 
-  /** Load the mesh file and add it under this layer's group. */
+  setBoxVisible(visible: boolean): void {
+    if (this.box) {
+      this.box.visible = visible;
+    }
+  }
+
+  /** Load the mesh file and add it (plus a bounding box) under this layer's group. */
   async load(uri: string, name: string): Promise<void> {
     const { object, bounds } = await loadMesh(uri, name);
     this.current = object;
     this.currentBounds = bounds;
     this.object.add(object);
+    this.box = buildBox(bounds);
+    this.object.add(this.box);
   }
 
   dispose(): void {
     disposeObject(this.current);
-    disposeObject(this.object);
+    disposeObject(this.object); // also disposes the box (a child of object)
     this.current = undefined;
     this.currentBounds = undefined;
+    this.box = undefined;
   }
 }
 

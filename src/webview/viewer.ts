@@ -11,6 +11,10 @@ import { SceneLayer, ReconstructionLayer, DisplayOptions } from "./sceneLayer";
 import { MeshLayer } from "./meshLayer";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
+// Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
+// worth the marginal sharpness for point clouds. Never below 1.
+const MAX_PIXEL_RATIO = 1.5;
+
 /** Scene-wide toggles the control panel exposes. */
 export type GlobalToggle = "points" | "frustums" | "images" | "box" | "grid" | "axes";
 export type Orientation = "raw" | "upright";
@@ -37,6 +41,7 @@ export interface ViewerState {
   frustumScaleMax: number;
   hasPoints: boolean;
   hasCameras: boolean;
+  hasMesh: boolean;
   items: SceneItem[];
 }
 
@@ -79,10 +84,13 @@ export class Viewer {
   private orientation: Orientation = "raw";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
+  // On-demand rendering: render only when the camera is moving (damping) or
+  // something requested a redraw, instead of re-rasterizing the cloud every frame.
+  private needsRender = true;
 
   constructor(container: HTMLElement = document.body) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
 
@@ -117,6 +125,7 @@ export class Viewer {
       frustumScale: () => this.opts.frustumScale,
       boundsDiagonal: () => diagonalOf(this.bounds),
       onSelect: (cam) => this.onSelect?.(cam),
+      requestRender: this.requestRender,
     });
 
     window.addEventListener("resize", () => this.onResize());
@@ -143,6 +152,7 @@ export class Viewer {
       frustumScaleMax: this.frustumScaleMax,
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
+      hasMesh: this.layers.some((l) => l.kind === "mesh"),
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -159,7 +169,7 @@ export class Viewer {
       this.opts.frustumScale = this.frustumScaleMax / 80;
       this.frustumInitialized = true;
     }
-    this.attach(new ReconstructionLayer(id, label, data, this.opts));
+    this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender));
   }
 
   addMesh(id: string, label: string, uri: string, name: string): void {
@@ -171,6 +181,7 @@ export class Viewer {
       .load(uri, name)
       .then(() => {
         layer.setVisible(true);
+        layer.setBoxVisible(this.opts.box);
         this.refreshScene();
       })
       .catch((err: Error) => {
@@ -181,6 +192,7 @@ export class Viewer {
 
   setItemVisible(id: string, visible: boolean): void {
     this.byId.get(id)?.setVisible(visible);
+    this.requestRender();
   }
 
   removeItem(id: string): void {
@@ -203,20 +215,26 @@ export class Viewer {
       case "grid":
         this.showGrid = on;
         if (this.grid) this.grid.visible = on;
-        return;
+        break;
       case "axes":
         this.showAxes = on;
         if (this.axes) this.axes.visible = on;
-        return;
+        break;
       case "images":
         this.opts.images = on;
         this.reconstructionLayers().forEach((l) => l.rebuildCameras(this.opts));
         this.refreshTextures();
-        return;
+        break;
+      case "box":
+        // Boxes wrap both reconstructions and meshes.
+        this.opts.box = on;
+        this.layers.forEach((l) => l.setBoxVisible(on));
+        break;
       default:
-        this.opts[toggle] = on; // points | frustums | box
+        this.opts[toggle] = on; // points | frustums
         this.reconstructionLayers().forEach((l) => l.applyOptions(this.opts));
     }
+    this.requestRender();
   }
 
   toggleGlobal(toggle: GlobalToggle): void {
@@ -226,12 +244,14 @@ export class Viewer {
   setPointSize(size: number): void {
     this.opts.pointSize = size;
     this.reconstructionLayers().forEach((l) => l.applyOptions(this.opts));
+    this.requestRender();
   }
 
   setFrustumScale(scale: number): void {
     this.opts.frustumScale = scale;
     this.reconstructionLayers().forEach((l) => l.rebuildCameras(this.opts));
     this.refreshTextures();
+    this.requestRender();
   }
 
   setOrientation(orientation: Orientation): void {
@@ -295,6 +315,7 @@ export class Viewer {
     this.grid = buildGrid(this.bounds);
     this.grid.visible = this.showGrid;
     this.root.add(this.grid);
+    this.requestRender();
   }
 
   private refreshTextures(): void {
@@ -334,17 +355,30 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(center);
     this.controls.update();
+    this.requestRender();
   }
 
   private onResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.requestRender();
   }
+
+  /** Request a redraw on the next frame (for changes that don't move the camera). */
+  private requestRender = (): void => {
+    this.needsRender = true;
+  };
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    // OrbitControls.update() returns true while the camera is still moving
+    // (incl. damping glide); render then, or whenever a redraw was requested.
+    const moving = this.controls.update();
+    if (moving || this.needsRender) {
+      this.renderer.render(this.scene, this.camera);
+      this.needsRender = false;
+    }
   };
 }

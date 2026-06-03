@@ -27,6 +27,8 @@ export interface SceneLayer {
   /** Per-item visibility (the Scene list show/hide). */
   visible: boolean;
   setVisible(visible: boolean): void;
+  /** Toggle this layer's bounding box (the global "Box" display option). */
+  setBoxVisible(visible: boolean): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -47,10 +49,11 @@ export class ReconstructionLayer implements SceneLayer {
     readonly id: string,
     readonly label: string,
     readonly data: ModelData,
-    opts: DisplayOptions
+    opts: DisplayOptions,
+    onTextureChange: () => void = () => {}
   ) {
     this.localBounds = computeLocalBounds(data);
-    this.cameras = new CameraLayer(new ThumbnailLoader(), id);
+    this.cameras = new CameraLayer(new ThumbnailLoader(), id, onTextureChange);
     this.object.add(this.cameras.object);
 
     if (data.count > 0) {
@@ -80,6 +83,12 @@ export class ReconstructionLayer implements SceneLayer {
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.object.visible = visible;
+  }
+
+  setBoxVisible(visible: boolean): void {
+    if (this.box) {
+      this.box.visible = visible;
+    }
   }
 
   /** Apply scene-wide options that don't require rebuilding geometry. */

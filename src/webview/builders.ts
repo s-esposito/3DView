@@ -14,6 +14,17 @@ export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
   geometry.setAttribute("position", new THREE.BufferAttribute(data.positions, 3));
   // Uint8 rgb, normalized to 0..1 in the shader.
   geometry.setAttribute("color", new THREE.BufferAttribute(data.colors, 3, true));
+  // Set the bounding sphere from the host-supplied AABB so Three doesn't scan the
+  // whole position buffer on first render (a per-cloud first-frame hitch). Radius
+  // is half the space diagonal — undersizing would wrongly frustum-cull points.
+  const { min, max } = data.bounds;
+  const center = new THREE.Vector3(
+    (min[0] + max[0]) / 2,
+    (min[1] + max[1]) / 2,
+    (min[2] + max[2]) / 2
+  );
+  const radius = 0.5 * Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  geometry.boundingSphere = new THREE.Sphere(center, Math.max(radius, 1e-6));
   const material = new THREE.PointsMaterial({
     size: pointSize,
     vertexColors: true,

@@ -31,6 +31,8 @@ interface CameraRecord {
   lineMaterial: THREE.LineBasicMaterial;
   planeMaterial?: THREE.MeshBasicMaterial;
   uri?: string;
+  width: number;
+  height: number;
   centerLocal: THREE.Vector3;
   requested: boolean;
   loaded: boolean;
@@ -45,7 +47,10 @@ export class CameraLayer {
 
   constructor(
     private readonly loader: ThumbnailLoader,
-    private readonly layerId: string
+    private readonly layerId: string,
+    // Notified when a texture is applied or evicted (async), so the Viewer can
+    // redraw under on-demand rendering. No-op by default.
+    private readonly onTextureChange: () => void = () => {}
   ) {}
 
   /** (Re)build all per-camera objects for a model at the given frustum scale. */
@@ -76,6 +81,8 @@ export class CameraLayer {
         lineMaterial: lines.material as THREE.LineBasicMaterial,
         planeMaterial,
         uri: cam.imageUri,
+        width: cam.width,
+        height: cam.height,
         centerLocal: new THREE.Vector3(...cam.center),
         requested: false,
         loaded: false,
@@ -122,7 +129,7 @@ export class CameraLayer {
   private requestTexture(r: CameraRecord): void {
     r.requested = true;
     const uri = r.uri!;
-    this.loader.load(uri, (texture) => {
+    this.loader.load(uri, { width: r.width, height: r.height }, (texture) => {
       // The record may have been evicted or rebuilt before the load finished.
       if (!r.planeMaterial || !r.requested) {
         texture.dispose();
@@ -133,6 +140,7 @@ export class CameraLayer {
       r.planeMaterial.opacity = 1;
       r.planeMaterial.needsUpdate = true;
       r.loaded = true;
+      this.onTextureChange();
     });
   }
 
@@ -145,6 +153,7 @@ export class CameraLayer {
     }
     r.requested = false;
     r.loaded = false;
+    this.onTextureChange();
   }
 
   // --- Hover / selection ----------------------------------------------------

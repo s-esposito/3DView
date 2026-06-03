@@ -18,14 +18,14 @@ export function parsePoints3DBin(data: Uint8Array): PointCloud {
   const positions = new Float32Array(count * 3);
   const colors = new Uint8Array(count * 3);
   for (let i = 0; i < count; i++) {
-    r.readUint64(); // point3D_id (unused)
+    r.skip(8); // point3D_id (uint64, unused) — skip avoids a per-point BigInt
     positions[i * 3] = r.readFloat64();
     positions[i * 3 + 1] = r.readFloat64();
     positions[i * 3 + 2] = r.readFloat64();
     colors[i * 3] = r.readUint8();
     colors[i * 3 + 1] = r.readUint8();
     colors[i * 3 + 2] = r.readUint8();
-    r.readFloat64(); // reprojection error (unused)
+    r.skip(8); // reprojection error (float64, unused)
     const trackLen = r.readUint64();
     r.skip(trackLen * TRACK_ELEM_BYTES);
   }

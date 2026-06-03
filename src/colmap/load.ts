@@ -127,7 +127,10 @@ export function loadModel(dir: string): ColmapModel {
 }
 
 function read(p: string): Uint8Array {
-  return new Uint8Array(fs.readFileSync(p));
+  // View the Node Buffer directly (no extra full-file copy); BinaryReader honors
+  // byteOffset/byteLength, so a Buffer that shares a pooled ArrayBuffer is safe.
+  const buf = fs.readFileSync(p);
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
 function readText(p: string): string {

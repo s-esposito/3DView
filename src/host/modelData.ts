@@ -41,22 +41,27 @@ export function buildModelData(dir: string): ModelData {
 
 /** Axis-aligned bounds over an interleaved xyz position array. */
 export function computeBounds(positions: Float32Array): Bounds {
-  const min: [number, number, number] = [Infinity, Infinity, Infinity];
-  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  // Scalar locals (not tuple indexing) so the single O(n) scan JITs tightly.
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
   for (let i = 0; i < positions.length; i += 3) {
-    for (let a = 0; a < 3; a++) {
-      const v = positions[i + a];
-      if (v < min[a]) {
-        min[a] = v;
-      }
-      if (v > max[a]) {
-        max[a] = v;
-      }
-    }
+    const x = positions[i];
+    const y = positions[i + 1];
+    const z = positions[i + 2];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
   // Empty cloud: fall back to a unit box so downstream math stays finite.
-  if (!Number.isFinite(min[0])) {
+  if (!Number.isFinite(minX)) {
     return { min: [-1, -1, -1], max: [1, 1, 1] };
   }
-  return { min, max };
+  return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
 }

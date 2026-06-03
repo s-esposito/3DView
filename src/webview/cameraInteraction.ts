@@ -24,6 +24,8 @@ export interface InteractionDeps {
   boundsDiagonal: () => number;
   /** Notified with the selected camera on POV entry, and null on exit. */
   onSelect: (cam: CameraView | null) => void;
+  /** Request a redraw (hover/selection change colors without moving the camera). */
+  requestRender: () => void;
 }
 
 export class CameraInteraction {
@@ -125,6 +127,7 @@ export class CameraInteraction {
     }
     this.hovered = hit ?? undefined;
     document.body.style.cursor = hit ? "pointer" : "default";
+    this.deps.requestRender();
   }
 
   private select(hit: CameraHit): void {
@@ -139,6 +142,7 @@ export class CameraInteraction {
     this.flyTo(cam);
     this.povActive = true;
     this.deps.onSelect(cam);
+    this.deps.requestRender();
   }
 
   private deselect(): void {
@@ -153,6 +157,7 @@ export class CameraInteraction {
       this.povActive = false;
     }
     this.deps.onSelect(null);
+    this.deps.requestRender();
   }
 
   /** Position the viewer camera at a reconstruction camera, looking where it did. */

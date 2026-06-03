@@ -72,7 +72,7 @@ export class ControlPanel {
         checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
-    if (s.hasPoints) {
+    if (s.hasPoints || s.hasMesh) {
       toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
     }
     toggles.append(

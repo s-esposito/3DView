@@ -216,4 +216,9 @@ Text format mirrors this with `#`-comment headers; see
 - [x] Scene of multiple reconstructions + meshes: SceneLayer abstraction, Scene
       panel (add via "+", per-item show/hide + remove), cross-layer pick/POV
       (`cameraInteraction.ts`)
+- [x] Bounding box around meshes too (global Box toggle spans all layers)
+- [x] Large-cloud perf: on-demand rendering (dirty-flag + `requestRender`),
+      pixel-ratio cap (1.5), precomputed bounding sphere, parser skip reads /
+      no file copy / flattened bounds. STILL TODO: host-side decimation + a
+      max-points VS Code setting (BI-2); interaction-time LOD (BI-3, if needed)
 - [ ] Roadmap step 5 (remaining): load progress, large-cloud + texture-budget handling, last-folder memory

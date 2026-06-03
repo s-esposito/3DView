@@ -95,6 +95,20 @@ is global across the scene.
 - **Raw COLMAP axes.** Points/poses stay in COLMAP's +x-right/+y-down/+z-forward
   world frame. No implicit up-flip. The "upright (U)" toggle only rotates `root`
   180° about X for viewing; fit-to-view re-bounds in world space.
+- **On-demand rendering (don't freeze the view).** `viewer.ts animate()` only
+  calls `renderer.render` when `controls.update()` reports motion (incl. damping)
+  OR `needsRender` is set. Anything that changes what's on screen *without moving
+  the camera* MUST call `requestRender()` — every Viewer mutator
+  (`setGlobal`/`setPointSize`/`setFrustumScale`/`setItemVisible`/`fitCamera`/
+  `rebuildHelpers`/`onResize`), interaction hover/select/deselect (via
+  `InteractionDeps.requestRender`), and async texture load/evict (via
+  `CameraLayer`'s `onTextureChange` → `Viewer.requestRender`). Forgetting this
+  leaves the view frozen until the next interaction. Don't also add an
+  OrbitControls `'change'` listener — `update()` already covers damping.
+- **Render cost knobs:** pixel ratio is capped at `MAX_PIXEL_RATIO` (1.5) in
+  `viewer.ts` (re-applied on resize); `buildPoints` sets `geometry.boundingSphere`
+  from `data.bounds` (radius = ½ space diagonal) to skip Three's O(n) first-frame
+  scan. The point cloud is never raycast (picking is frustums only).
 - **`shared/messages.ts` is the single source of truth** for the host↔webview
   contract. Extend the `HostToWebview`/`WebviewToHost` unions there and handle in
   `main.ts`. Keep it dependency-free.
@@ -114,9 +128,13 @@ is global across the scene.
   root (`..`/absolute) before building a webview URI.
 - **postMessage has no transfer list** in VS Code webviews — typed arrays are
   structured-cloned (copied), not transferred.
-- **Texture budget:** frustum textures are downscaled (`THUMB_MAX=512`),
-  concurrency-limited (`MAX_CONCURRENT_LOADS=6`), and only the nearest
-  `MAX_RESIDENT_TEXTURES=48` are resident (see `cameraLayer.ts`/`textures.ts`).
+- **Texture budget:** frustum textures decode **at scale** (fetch blob →
+  `createImageBitmap(blob, {resizeWidth/Height})`, sized from the camera's pixel
+  dims; `<img>` fallback if `fetch` is blocked), downscaled to `maxSize=256`,
+  concurrency-limited (8), and only the nearest `MAX_RESIDENT_TEXTURES=48` are
+  resident (see `textures.ts`/`cameraLayer.ts`). The flip is baked into the
+  bitmap (`imageOrientation:"flipY"` + `texture.flipY=false`) — ImageBitmap
+  ignores `flipY`. The click-popup uses the full-res `<img>` (one at a time).
 - **Precision caveat:** point positions are downcast float64→float32 in
   `points3d.ts` (~7 sig digits). Fine for normalized scenes; revisit for
   geo-referenced coordinates (would need an origin offset).
