@@ -1,12 +1,20 @@
-// Locate and load COLMAP models from disk. Uses Node `fs`/`path` only — no
-// `vscode` — so it stays out of the editor layer and is straightforward to test.
+// Locate and load COLMAP models from disk for the VS Code host. Uses Node
+// `fs`/`path` (so it lives in the host layer, not the pure `colmap/` library);
+// it consumes the pure parsers from `../colmap`. The PyCharm host reimplements
+// this directory discovery in Kotlin and parses in the webview instead.
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { parseCamerasBin, parseCamerasText } from "./cameras";
-import { parseImagesBin, parseImagesText } from "./images";
-import { parsePoints3DBin, parsePoints3DText } from "./points3d";
-import { ColmapModel, ColmapFormat } from "./types";
+import {
+  parseCamerasBin,
+  parseCamerasText,
+  parseImagesBin,
+  parseImagesText,
+  parsePoints3DBin,
+  parsePoints3DText,
+  type ColmapModel,
+  type ColmapFormat,
+} from "../colmap";
 
 // The three files that make up a model, sans extension.
 const STEMS = ["cameras", "images", "points3D"] as const;

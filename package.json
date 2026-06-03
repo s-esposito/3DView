@@ -58,9 +58,10 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.js",
+    "build": "node esbuild.js && node scripts/check-boundaries.mjs",
     "watch": "node esbuild.js --watch",
     "lint": "tsc --noEmit -p ./",
+    "check": "node scripts/check-boundaries.mjs",
     "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {

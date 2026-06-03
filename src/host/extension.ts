@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { ViewerPanel } from "./panel";
-import { findModelDirs, findImagesDir } from "../colmap";
+import { findModelDirs, findImagesDir } from "./colmapLoad";
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(

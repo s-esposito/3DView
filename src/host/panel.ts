@@ -241,6 +241,10 @@ export class ViewerPanel {
 </head>
 <body>
   <div id="status">Loading…</div>
+  <!-- VS Code host adapter: expose the neutral bridge the host-agnostic bundle
+       expects (window.__viewerHost), wrapping VS Code's acquireVsCodeApi(). This
+       is the ONLY place acquireVsCodeApi is named; the bundle never references it. -->
+  <script nonce="${nonce}">window.__viewerHost = acquireVsCodeApi();</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

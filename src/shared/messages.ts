@@ -64,6 +64,17 @@ export type AddKind = "colmap" | "mesh";
 export type HostToWebview =
   | { type: "loading"; message: string }
   | { type: "addReconstruction"; id: string; label: string; data: ModelData }
+  // Like addReconstruction, but the webview fetches + parses the model itself from
+  // URLs the host serves (so the host need not parse or ship a big ModelData). The
+  // VS Code host uses addReconstruction; the PyCharm/JCEF host uses this.
+  | {
+      type: "loadColmap";
+      id: string;
+      label: string;
+      format: "bin" | "txt";
+      urls: { cameras: string; images: string; points3d: string };
+      imageBaseUrl?: string;
+    }
   | { type: "addMesh"; id: string; label: string; mesh: MeshRef }
   | { type: "error"; message: string };
 

@@ -1,18 +1,18 @@
-// Webview entry point. Wires the VS Code message channel, keyboard shortcuts,
-// and status text to the Viewer and its UI. All real work lives in the modules.
-import type { HostToWebview, WebviewToHost } from "../shared/messages";
+// Webview entry point. Wires the host message channel, keyboard shortcuts, and
+// status text to the Viewer and its UI. All real work lives in the modules. This
+// bundle is host-agnostic: it talks to the embedding IDE only through the
+// `window.__viewerHost` bridge (see shared/hostBridge), never a host-specific API.
+import type { HostToWebview } from "../shared/messages";
+import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import { ControlPanel } from "./ui/controlPanel";
 import { InfoPopup } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
+import { loadColmapFromUrls } from "./colmapLoader";
 
-declare function acquireVsCodeApi(): {
-  postMessage(msg: WebviewToHost): void;
-  getState(): unknown;
-  setState(state: unknown): void;
-};
-
-const vscode = acquireVsCodeApi();
+// The host (VS Code or PyCharm/JCEF) installs `window.__viewerHost` before this
+// bundle runs; we never reference a host-specific API directly.
+const host = getHostBridge();
 const status = document.getElementById("status")!;
 
 ensureStyles();
@@ -38,8 +38,8 @@ viewer.onChange = () => {
 viewer.onError = (message) => showStatus(`Error: ${message}`);
 
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
-viewer.onRequestAdd = (kind) => vscode.postMessage({ type: "requestAdd", kind });
-viewer.onRemoveItem = (id) => vscode.postMessage({ type: "removed", id });
+viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
+viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
@@ -107,6 +107,16 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
       showStatus(`Loading ${msg.label}…`);
       viewer.addMesh(msg.id, msg.label, msg.mesh.uri, msg.mesh.name); // async; onChange/onError
       break;
+    case "loadColmap":
+      // The host hands us URLs (not parsed data); fetch + parse in-browser, then
+      // converge on the same addReconstruction path the inline `data` case uses.
+      showStatus(`Loading ${msg.label}…`);
+      loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl)
+        .then((data) => viewer.addReconstruction(msg.id, msg.label, data))
+        .catch((err) =>
+          showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
+        );
+      break;
     case "error":
       showStatus(`Error: ${msg.message}`);
       break;
@@ -114,4 +124,4 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
 });
 
 // Tell the host we are alive and ready to receive content.
-vscode.postMessage({ type: "ready" });
+host.postMessage({ type: "ready" });

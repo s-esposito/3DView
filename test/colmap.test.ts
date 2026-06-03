@@ -15,11 +15,10 @@ import {
   parsePoints3DText,
   quaternionToRotation,
   imageToPose,
-  detectFormat,
-  findModelDirs,
-  loadModel,
   intrinsicsFromParams,
 } from "../src/colmap/index";
+// Filesystem discovery/IO lives in the VS Code host layer, not the pure library.
+import { detectFormat, findModelDirs, loadModel } from "../src/host/colmapLoad";
 
 // --- little-endian byte writer, mirrors the COLMAP binary layout ------------
 class ByteWriter {

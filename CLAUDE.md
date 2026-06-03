@@ -21,41 +21,53 @@ docs live in [README.md](README.md).
   integrated terminals work. In a raw shell, prepend it yourself.
 
 ```bash
-npm run build    # esbuild → out/extension.js (node/cjs) + out/webview.js (browser/iife)
+npm run build    # esbuild → out/extension.js + out/webview.js, then check-boundaries
 npm run watch    # rebuild on change
 npm run lint     # tsc --noEmit -p ./  — MUST be clean (esbuild does not type-check)
+npm run check    # boundary guard (host-agnostic core); also runs inside `build`
 npm test         # node esbuild.js --test → out/test/, then node --test
 ./reinstall.sh   # build + vsce package + code --install-extension --force
 ```
 
 Always run `npm run lint && npm run build && npm test` after changes; all three
-must pass before considering work done.
+must pass before considering work done. (`build` runs `scripts/check-boundaries.mjs`,
+which fails if the host-agnostic core mixes host code — see the boundary below.)
 
 ## Architecture — runtime domains
 
-Two bundles that talk only via `postMessage`, plus shared types and a pure
-parsing layer. Dependencies point inward only.
+Two bundles that talk only via `postMessage`, plus a host-agnostic shared core
+(contract + bridge) and a pure parsing layer. Dependencies point inward only.
+See **The no-mixing boundary** below — the shared core carries no host code, so a
+second host (the planned PyCharm/JCEF plugin) can reuse the webview bundle as-is.
 
 ```
 src/
-  shared/messages.ts   Message contract + DTOs. The ONLY module imported by both
-                       runtimes — keep it free of vscode / Node / DOM / three.
-  colmap/              Pure COLMAP parsing + pose math + fs locate/load. No vscode.
+  shared/              Host-agnostic seam imported by BOTH runtimes — no vscode /
+                       Node / DOM / three.
+    messages.ts          Message contract + DTOs (HostToWebview/WebviewToHost)
+    hostBridge.ts        getHostBridge(): the neutral window.__viewerHost channel
+  colmap/              Pure, host-agnostic COLMAP library: parsing + pose math +
+                       bounds, over byte buffers/strings. No vscode, NO Node fs.
                        Unit-tested in test/colmap.test.ts.
     reader.ts            little-endian binary cursor
     cameras.ts/images.ts/points3d.ts   .bin + .txt parsers
     pose.ts              qvec/tvec → camera center (-R^T t) + worldFromCamera (R^T)
+    bounds.ts            computeBounds(positions) → axis-aligned Bounds
     types.ts             Camera/Image/PointCloud + model→params, modelName()
-    load.ts              detectFormat, findModelDirs, findImagesDir, loadModel (fs)
-    index.ts             public surface
-  host/                Extension host (Node + vscode). → out/extension.js
+    index.ts             public surface (pure only)
+  host/                VS Code host (Node + vscode). → out/extension.js
     extension.ts         activate(): commands (openReconstruction/openMesh/openViewer),
                          folder/file pickers, quick-pick
+    colmapLoad.ts        fs discovery + load: detectFormat/findModelDirs/
+                         findImagesDir/loadModel (Node fs; VS-Code-host only)
     panel.ts             ViewerPanel singleton: webview lifecycle, CSP, image URIs,
-                         scene-item tracking (ids) + replay (see invariants)
+                         scene-item tracking (ids) + replay; injects the VS Code
+                         window.__viewerHost adapter into the page
     modelData.ts         pure: parsed model → render-ready ModelData DTO
-  webview/             Browser UI (DOM + three). → out/webview.js
-    main.ts              entry/glue: message channel, keyboard, status text
+  webview/             Host-agnostic browser UI (DOM + three). → out/webview.js
+    main.ts              entry/glue: host bridge, message channel, keyboard, status
+    colmapLoader.ts      loadColmapFromUrls(): fetch model files → pure parsers →
+                         ModelData (used by URL-based hosts, e.g. PyCharm)
     viewer.ts            Viewer: scene graph, camera, layer list, global display
                          options, bounds/fit, helpers. THE seam the UI + host drive.
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer (points+cameras+box)
@@ -66,11 +78,25 @@ src/
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
-    theme.ts             VS Code theme CSS var → THREE.Color
+    theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     ui/                  styles.ts (injected CSS), components.ts (dom helpers incl.
                          iconButton/menuButton), controlPanel.ts (Scene list + global
-                         controls), overlays.ts (InfoPopup + BackButton)
+                         controls), overlays.ts (InfoPopup)
 ```
+
+### The no-mixing boundary
+
+`src/shared/`, `src/colmap/`, `src/webview/` are **host-agnostic** — no `vscode`,
+no `node:*`, no JVM, no host-specific symbols. **All VS Code code lives in
+`src/host/`; the planned PyCharm code lives in `jetbrains-plugin/`.** The compiled
+`out/webview.js` is identical for both hosts; each host installs its own
+`window.__viewerHost` adapter (a `{ postMessage }`) before the bundle loads — the
+VS Code one (wrapping its native webview API) is the inline script in
+`panel.ts` `getHtml()`. Only two things couple a host to the core: the
+`messages.ts` contract and the `window.__viewerHost` bridge. `scripts/check-boundaries.mjs`
+(run by `npm run build`) fails the build if the core imports `vscode`/Node/`host`,
+or if `out/webview.js` contains `acquireVsCodeApi`/a Node `require`. Don't add
+host-specific code to the shared layers to "make it work" — adapt at the bridge.
 
 **The `Viewer` is the central seam.** A scene is a **list of `SceneLayer`s**
 (reconstructions + meshes) under a single `root` group; helpers (grid/axes) and
@@ -111,9 +137,21 @@ is global across the scene.
   scan. The point cloud is never raycast (picking is frustums only).
 - **`shared/messages.ts` is the single source of truth** for the host↔webview
   contract. Extend the `HostToWebview`/`WebviewToHost` unions there and handle in
-  `main.ts`. Keep it dependency-free.
-- **`colmap/` is pure** (no `vscode`, no DOM) so it stays unit-testable. New
-  parsing logic goes here with a test.
+  `main.ts`. Keep it dependency-free. Reconstructions arrive two ways:
+  `addReconstruction` (host ships a parsed `ModelData`; used by VS Code) and
+  `loadColmap` (host ships URLs, the webview fetches + parses via
+  `colmapLoader.ts`; used by URL-based hosts like PyCharm). Both converge on
+  `viewer.addReconstruction`.
+- **Host-agnostic bundle / the host bridge.** The webview never calls a
+  host-specific API; it reads `window.__viewerHost` via
+  `shared/hostBridge.getHostBridge()`. Each host installs that adapter before the
+  bundle loads (VS Code: inline script in `panel.ts` `getHtml`). Keep
+  `acquireVsCodeApi` and any Node/`vscode` import out of `shared`/`colmap`/`webview`
+  — `npm run check` enforces it.
+- **`colmap/` is pure** (no `vscode`, no DOM, **no Node `fs`/`path`**) so it stays
+  unit-testable and reusable in the browser. New parsing/pose/bounds logic goes
+  here with a test. Filesystem discovery/IO is host code (`host/colmapLoad.ts`),
+  not part of this library.
 - **CSP** (`host/panel.ts` getHtml): `default-src 'none'`; nonce'd script only;
   `img-src` + `connect-src` scoped to `webview.cspSource` (plus `blob:`/`data:`
   for images). Frustum images load via `<img>` (img-src); mesh loaders fetch via
