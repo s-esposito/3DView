@@ -40,6 +40,21 @@ export class MeshLayer implements SceneLayer {
     }
   }
 
+  setWireframe(on: boolean): void {
+    this.current?.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) {
+        return;
+      }
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if ("wireframe" in mat) {
+          (mat as THREE.MeshStandardMaterial).wireframe = on;
+        }
+      }
+    });
+  }
+
   /** Load the mesh file and add it (plus a bounding box) under this layer's group. */
   async load(uri: string, name: string): Promise<void> {
     const { object, bounds } = await loadMesh(uri, name);

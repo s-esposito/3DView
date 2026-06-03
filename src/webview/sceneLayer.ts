@@ -29,6 +29,8 @@ export interface SceneLayer {
   setVisible(visible: boolean): void;
   /** Toggle this layer's bounding box (the global "Box" display option). */
   setBoxVisible(visible: boolean): void;
+  /** Render meshes as wireframe (the global "Wireframe" option); no-op otherwise. */
+  setWireframe(on: boolean): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -90,6 +92,9 @@ export class ReconstructionLayer implements SceneLayer {
       this.box.visible = visible;
     }
   }
+
+  // Reconstructions are points + lines — no meaningful wireframe.
+  setWireframe(): void {}
 
   /** Apply scene-wide options that don't require rebuilding geometry. */
   applyOptions(opts: DisplayOptions): void {

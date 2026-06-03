@@ -75,6 +75,11 @@ export class ControlPanel {
     if (s.hasPoints || s.hasMesh) {
       toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
     }
+    if (s.hasMesh) {
+      toggles.append(
+        checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
+      );
+    }
     toggles.append(
       checkbox("Grid (G)", s.grid, (on) => this.viewer.setGlobal("grid", on)),
       checkbox("Axes (A)", s.axes, (on) => this.viewer.setGlobal("axes", on))

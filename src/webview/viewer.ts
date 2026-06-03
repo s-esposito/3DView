@@ -16,7 +16,14 @@ import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 const MAX_PIXEL_RATIO = 1.5;
 
 /** Scene-wide toggles the control panel exposes. */
-export type GlobalToggle = "points" | "frustums" | "images" | "box" | "grid" | "axes";
+export type GlobalToggle =
+  | "points"
+  | "frustums"
+  | "images"
+  | "box"
+  | "grid"
+  | "axes"
+  | "wireframe";
 export type Orientation = "raw" | "upright";
 
 /** One entry in the Scene list. */
@@ -35,6 +42,7 @@ export interface ViewerState {
   box: boolean;
   grid: boolean;
   axes: boolean;
+  wireframe: boolean;
   orientation: Orientation;
   pointSize: number;
   frustumScale: number;
@@ -81,6 +89,7 @@ export class Viewer {
   };
   private showGrid = true;
   private showAxes = false;
+  private wireframe = false;
   private orientation: Orientation = "raw";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
@@ -146,6 +155,7 @@ export class Viewer {
       box: this.opts.box,
       grid: this.showGrid,
       axes: this.showAxes,
+      wireframe: this.wireframe,
       orientation: this.orientation,
       pointSize: this.opts.pointSize,
       frustumScale: this.opts.frustumScale,
@@ -182,6 +192,7 @@ export class Viewer {
       .then(() => {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
+        layer.setWireframe(this.wireframe);
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -229,6 +240,10 @@ export class Viewer {
         // Boxes wrap both reconstructions and meshes.
         this.opts.box = on;
         this.layers.forEach((l) => l.setBoxVisible(on));
+        break;
+      case "wireframe":
+        this.wireframe = on;
+        this.layers.forEach((l) => l.setWireframe(on));
         break;
       default:
         this.opts[toggle] = on; // points | frustums
