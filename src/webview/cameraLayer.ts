@@ -167,25 +167,18 @@ export class CameraLayer {
     this.applyColor(index);
   }
 
-  /** Select a camera: highlight it and hide its own frustum (for POV). */
+  /** Select a camera: highlight its frustum (it stays visible). */
   select(index: number): void {
     this.clearSelection();
     this.selected = index;
-    const group = this.records.get(index)?.group;
-    if (group) {
-      group.visible = false;
-    }
+    this.applyColor(index);
   }
 
   clearSelection(): void {
     const prev = this.selected;
     this.selected = -1;
     if (prev >= 0) {
-      const group = this.records.get(prev)?.group;
-      if (group) {
-        group.visible = true;
-      }
-      this.applyColor(prev);
+      this.applyColor(prev); // back to hover/default color
     }
   }
 

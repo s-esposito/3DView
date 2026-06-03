@@ -182,7 +182,7 @@ export class Viewer {
       .then(() => {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
-        this.refreshScene();
+        this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
         this.removeItem(id);
@@ -276,18 +276,28 @@ export class Viewer {
     this.fitCamera();
   }
 
+  /** Clear the camera-selection highlight without leaving the current view. */
+  clearSelection(): void {
+    this.interaction.clearSelection();
+  }
+
   // --- Scene maintenance ----------------------------------------------------
   private attach(layer: SceneLayer): void {
+    const first = this.layers.length === 0;
     this.layers.push(layer);
     this.byId.set(layer.id, layer);
     this.root.add(layer.object);
-    this.refreshScene();
+    this.refreshScene(first);
   }
 
-  private refreshScene(): void {
+  /** Recompute bounds/helpers after a content change; only re-fit when asked
+   * (so adding to an existing scene doesn't move the user's view). */
+  private refreshScene(fit: boolean): void {
     this.recomputeBounds();
-    this.rebuildHelpers();
-    this.fitCamera();
+    this.rebuildHelpers(); // requests a render
+    if (fit) {
+      this.fitCamera();
+    }
     this.refreshTextures();
     this.onChange?.();
   }

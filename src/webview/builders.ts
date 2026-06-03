@@ -105,16 +105,18 @@ export function buildImagePlane(corners: number[][]): THREE.Mesh {
   return new THREE.Mesh(geometry, material);
 }
 
-/** Metric grid in the XZ plane: 1-unit cells, lines on integer world coords. */
+/**
+ * Metric grid in the XZ plane, always centered on the world origin (0, 0, 0).
+ * 1-unit cells; an even, integer size keeps lines on integer world coordinates.
+ * Size reaches from the origin out to the farthest point of the scene (plus
+ * padding) so a scene offset from the origin is still covered.
+ */
 export function buildGrid(b: Bounds): THREE.GridHelper {
-  const extentX = b.max[0] - b.min[0];
-  const extentZ = b.max[2] - b.min[2];
-  const size = Math.max(2, Math.ceil(Math.max(extentX, extentZ) * GRID_PADDING));
-  const grid = new THREE.GridHelper(size, size, 0x999999, 0x555555);
-  const cx = Math.round((b.min[0] + b.max[0]) / 2);
-  const cz = Math.round((b.min[2] + b.max[2]) / 2);
-  grid.position.set(cx, b.min[1], cz);
-  return grid;
+  const reachX = Math.max(Math.abs(b.min[0]), Math.abs(b.max[0]));
+  const reachZ = Math.max(Math.abs(b.min[2]), Math.abs(b.max[2]));
+  const size = Math.max(2, Math.ceil(2 * Math.max(reachX, reachZ) * GRID_PADDING));
+  // GridHelper is centered at its (default) origin position, in the XZ plane.
+  return new THREE.GridHelper(size, size, 0x999999, 0x555555);
 }
 
 /** Wireframe box around the given (point-cloud) bounds. */

@@ -118,12 +118,19 @@ is global across the scene.
   `img-src` + `connect-src` scoped to `webview.cspSource` (plus `blob:`/`data:`
   for images). Frustum images load via `<img>` (img-src); mesh loaders fetch via
   `connect-src`. If you add asset types/workers, update the CSP.
-- **`localResourceRoots` is fixed at panel creation.** To allow a new folder
-  (images dir, mesh dir) the panel must be recreated. `ViewerPanel` therefore
-  tracks the scene-item list (each with an id + `OpenTarget`) and **replays** all
-  items after a recreate, so multiple reconstructions + meshes coexist even when
-  their folders differ. Item ids are stable across recreates (module-level
-  counter). Preserve this when adding resource-backed content.
+- **`localResourceRoots` is fixed at panel creation**, and recreating the panel
+  reloads the whole webview ("restart from scratch"). To avoid that on every add,
+  `rootsFor` allows the **filesystem/drive root** of each opened path, so adding
+  content from any new folder is already covered and the panel is reused (no
+  reload). `ViewerPanel` still tracks the scene-item list (id + `OpenTarget`) and
+  **replays** it if a recreate is ever forced (e.g. a different drive on Windows);
+  ids are stable across recreates (module-level counter). The broad root is safe
+  because the host only ever builds URIs for opened content (mesh files; images
+  under a model's dir, path-escape-guarded). Don't narrow `rootsFor` back to exact
+  folders — it reintroduces the reload-on-add bug.
+- **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
+  camera only when the scene was empty; adding to an existing scene keeps the
+  user's current view. `resetView()` (R) is the explicit re-fit.
 - **Image-name path guard:** `attachImageUris` rejects names escaping the images
   root (`..`/absolute) before building a webview URI.
 - **postMessage has no transfer list** in VS Code webviews — typed arrays are

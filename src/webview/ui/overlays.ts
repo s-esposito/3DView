@@ -1,5 +1,4 @@
-// Transient overlays: the per-camera info popup and the "back to global view"
-// button shown while in point-of-view mode.
+// Transient overlay: the per-camera info popup shown while in point-of-view mode.
 import type { CameraView } from "../../shared/messages";
 import { keyValue } from "./components";
 
@@ -18,7 +17,7 @@ export class InfoPopup {
     title.textContent = cam.name || `image ${cam.imageId}`;
     const close = document.createElement("button");
     close.className = "viewer-popup-close";
-    close.title = "Back to global view (Esc)";
+    close.title = "Close";
     close.textContent = "✕";
     close.addEventListener("click", onClose);
     head.append(title, close);
@@ -53,27 +52,5 @@ export class InfoPopup {
 
   hide(): void {
     document.getElementById("popup")?.remove();
-  }
-}
-
-/** Floating "back to global view" button, shown only in point-of-view mode. */
-export class BackButton {
-  private readonly el: HTMLButtonElement;
-
-  constructor(onClick: () => void) {
-    this.el = document.createElement("button");
-    this.el.className = "viewer-btn viewer-back";
-    this.el.textContent = "← Back to global view";
-    this.el.style.display = "none";
-    this.el.addEventListener("click", onClick);
-    document.body.appendChild(this.el);
-  }
-
-  show(): void {
-    this.el.style.display = "block";
-  }
-
-  hide(): void {
-    this.el.style.display = "none";
   }
 }

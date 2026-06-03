@@ -38,7 +38,6 @@ const CSS = `
 .viewer-btn{display:block;width:100%;margin-top:12px;padding:5px 8px;cursor:pointer;color:var(--vscode-button-foreground,#fff);background:var(--vscode-button-background,#0e639c);border:none;border-radius:4px;font:inherit}
 .viewer-btn:hover{background:var(--vscode-button-hoverBackground,#1177bb)}
 .viewer-hint{margin-top:12px;color:var(--vscode-descriptionForeground,#999);font-style:italic;line-height:1.45}
-.viewer-back{position:fixed;top:12px;left:12px;width:auto;margin:0;z-index:10}
 .viewer-popup{position:fixed;left:12px;bottom:12px;width:300px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:var(--vscode-editorWidget-background,rgba(30,30,30,0.94));border:1px solid var(--vscode-widget-border,rgba(255,255,255,0.15));border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);overflow:hidden;z-index:10}
 .viewer-popup-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--vscode-list-hoverBackground,rgba(255,255,255,0.05))}
 .viewer-popup-title{font-weight:600;word-break:break-all}

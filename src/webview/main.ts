@@ -3,7 +3,7 @@
 import type { HostToWebview, WebviewToHost } from "../shared/messages";
 import { Viewer, GlobalToggle } from "./viewer";
 import { ControlPanel } from "./ui/controlPanel";
-import { InfoPopup, BackButton } from "./ui/overlays";
+import { InfoPopup } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 
 declare function acquireVsCodeApi(): {
@@ -19,16 +19,14 @@ ensureStyles();
 const viewer = new Viewer();
 const panel = new ControlPanel(viewer);
 const popup = new InfoPopup();
-const backButton = new BackButton(() => viewer.exitPov());
 
-// POV entry/exit drives the popup and back button.
+// Selecting a camera shows its info popup; closing it (✕) clears the highlight
+// but keeps the view; deselecting (Esc / exit POV) hides it.
 viewer.onSelect = (cam) => {
   if (cam) {
-    popup.show(cam, () => viewer.exitPov());
-    backButton.show();
+    popup.show(cam, () => viewer.clearSelection());
   } else {
     popup.hide();
-    backButton.hide();
   }
 };
 

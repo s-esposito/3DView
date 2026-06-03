@@ -247,14 +247,22 @@ export class ViewerPanel {
   }
 }
 
-/** Absolute folders that must be in `localResourceRoots` for the given items. */
+/**
+ * Filesystem roots that must be in `localResourceRoots` for the given items.
+ *
+ * We use the drive/filesystem root of each opened path (e.g. "/" on posix) rather
+ * than the exact folder, so adding content from a new folder does NOT force a
+ * panel recreate — which would reload the whole viewer from scratch. This is
+ * safe: the host only ever builds webview URIs for opened content (mesh files,
+ * and images under a model's images dir guarded against path escapes), so a
+ * broad root never widens what is actually loadable.
+ */
 function rootsFor(content: Item[]): string[] {
   const roots = new Set<string>();
   for (const { target } of content) {
-    if (target.kind === "colmap" && target.imagesDir) {
-      roots.add(path.resolve(target.imagesDir));
-    } else if (target.kind === "mesh") {
-      roots.add(path.resolve(path.dirname(target.file)));
+    const p = target.kind === "colmap" ? target.imagesDir : target.file;
+    if (p) {
+      roots.add(path.parse(path.resolve(p)).root);
     }
   }
   return [...roots];

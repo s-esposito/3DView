@@ -50,6 +50,17 @@ export class CameraInteraction {
     this.deselect();
   }
 
+  /** Clear the selection highlight (frustum back to its normal color) but keep
+   * the current view — used when the info popup is closed. */
+  clearSelection(): void {
+    if (this.selected) {
+      this.layer(this.selected.layerId)?.cameras.clearSelection();
+      this.selected = undefined;
+    }
+    this.deps.onSelect(null);
+    this.deps.requestRender();
+  }
+
   /** Drop hover/selection that referenced a layer being removed. */
   handleRemoved(layerId: string): void {
     if (this.selected?.layerId === layerId) {
@@ -146,18 +157,13 @@ export class CameraInteraction {
   }
 
   private deselect(): void {
-    if (this.selected) {
-      this.layer(this.selected.layerId)?.cameras.clearSelection();
-      this.selected = undefined;
-    }
+    this.clearSelection(); // clear highlight + selection, hide popup, request render
     if (this.povActive) {
       this.deps.camera.fov = DEFAULT_FOV;
       this.deps.camera.up.set(0, 1, 0);
       this.deps.camera.updateProjectionMatrix();
       this.povActive = false;
     }
-    this.deps.onSelect(null);
-    this.deps.requestRender();
   }
 
   /** Position the viewer camera at a reconstruction camera, looking where it did. */
@@ -177,11 +183,14 @@ export class CameraInteraction {
     const up = new THREE.Vector3(-m[1], -m[4], -m[7])
       .transformDirection(root.matrixWorld)
       .normalize();
-    const dist = this.deps.boundsDiagonal() * 0.15;
+    const diag = this.deps.boundsDiagonal();
+    const back = diag * 0.1; // sit a bit behind the lens so the frustum is in view
+    const targetDist = diag * 0.15;
 
     camera.up.copy(up);
-    camera.position.copy(center);
-    controls.target.copy(center.clone().addScaledVector(forward, dist));
+    // Behind the camera center, looking along its view direction.
+    camera.position.copy(center).addScaledVector(forward, -back);
+    controls.target.copy(center.clone().addScaledVector(forward, targetDist));
     if (cam.fy > 0) {
       const fovY = THREE.MathUtils.radToDeg(2 * Math.atan(cam.height / 2 / cam.fy));
       if (Number.isFinite(fovY) && fovY > 1 && fovY < 170) {
