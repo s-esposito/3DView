@@ -4,6 +4,8 @@ A VS Code extension for viewing **COLMAP reconstructions** and **3D meshes** in
 the editor — a colored point cloud, camera frustums with the source images, and
 glTF/OBJ/PLY meshes, all in one interactive Three.js scene.
 
+**🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models and meshes in the browser (no install required).
+
 ![3DViewer](imgs/teaser.png)
 
 ## Features
