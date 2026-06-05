@@ -230,7 +230,12 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - Packaging (`vsce`, run in `vscode/`): `.vscodeignore` excludes `src/`, `test/`,
   maps, `*.vsix`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
   README ship. `@3dviewer/core` is a devDependency (esbuild bundles it in), so it is
-  not packaged.
+  not packaged. `vscode_build.sh` passes `vsce --no-dependencies`: because this is a
+  workspace, `@3dviewer/core` is hoisted to the **root** `node_modules` and symlinked
+  to `../../core` (outside the package), so without the flag vsce follows that symlink
+  out of `vscode/` and tries to package the whole repo root (failing with `invalid
+  relative path: extension/../…`). The flag is safe — esbuild already inlines core, so
+  there are no runtime deps to ship. Don't remove it.
 - The demo is deployed to GitHub Pages via `.github/workflows/deploy-demo.yml` on
   pushes to the `main` branch.
 

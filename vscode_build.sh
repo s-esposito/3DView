@@ -27,7 +27,7 @@ cd vscode
 NAME=$(node -p "require('./package.json').name")
 VERSION=$(node -p "require('./package.json').version")
 VSIX="${NAME}-${VERSION}.vsix"
-npx --yes @vscode/vsce package --allow-missing-repository --out "$VSIX"
+npx --yes @vscode/vsce package --allow-missing-repository --no-dependencies --out "$VSIX"
 
 echo
 echo "Done: vscode/${VSIX}"
