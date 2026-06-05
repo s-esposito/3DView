@@ -1,9 +1,10 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path
-    d="M12 2 21 7 21 17 12 22 3 17 3 7 Z M3 7 12 12 21 7 M12 12 12 22"
-    stroke="currentColor"
-    stroke-width="1.6"
-    stroke-linejoin="round"
-    stroke-linecap="round"
-  />
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- Filled, faceted cube (monochrome). VS Code masks activity-bar icons from
+       filled regions, so a fill-based shape renders where a thin stroke-only
+       wireframe (fill="none") comes out blank. Small gaps keep the 3D read. -->
+  <g fill="currentColor">
+    <path d="M12 2.8 20 7.4 12 11.3 4 7.4 Z" />
+    <path d="M4 8 11.4 12.4 11.4 20.6 4 16.4 Z" />
+    <path d="M20 8 12.6 12.4 12.6 20.6 20 16.4 Z" />
+  </g>
 </svg>

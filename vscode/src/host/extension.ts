@@ -1,32 +1,41 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
-import { ViewerPanel } from "./panel";
+import { ViewerPanel, pathOf, type OpenTarget } from "./panel";
 import { findModelDirs, findImagesDir } from "./colmapLoad";
+import { RecentsProvider } from "./recents";
+
+// Single source for the mesh formats — used by the open dialog, the drop filter,
+// and the drop error message.
+const MESH_EXTS = ["glb", "gltf", "obj", "ply"];
 
 export function activate(context: vscode.ExtensionContext) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("3dviewer.openReconstruction", () =>
-      openReconstruction(context)
-    ),
-    vscode.commands.registerCommand("3dviewer.openMesh", () => openMesh(context)),
-    vscode.commands.registerCommand("3dviewer.openViewer", () =>
-      ViewerPanel.open(context)
-    )
-  );
+  // The Activity Bar "3DViewer" view is a recents launcher (drag-drop + click to
+  // re-open). The 3D scene itself opens in a separate editor webview panel.
+  const recents = new RecentsProvider(context, (uris) => openDropped(context, recents, uris));
 
-  // Empty provider for the activity-bar view. With no provider registered VS Code
-  // shows a "no data provider" message; an empty one lets the `viewsWelcome`
-  // contribution (the "Open Reconstruction" button) render instead. A model
-  // browser can replace this later.
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("3dviewer.welcome", {
-      getChildren: () => [],
-      getTreeItem: (element: vscode.TreeItem) => element,
-    })
+    vscode.window.createTreeView("3dviewer.welcome", {
+      treeDataProvider: recents,
+      dragAndDropController: recents,
+    }),
+    vscode.commands.registerCommand("3dviewer.openReconstruction", () =>
+      openReconstruction(context, recents)
+    ),
+    vscode.commands.registerCommand("3dviewer.openMesh", () => openMesh(context, recents)),
+    vscode.commands.registerCommand("3dviewer.openViewer", () => ViewerPanel.open(context)),
+    vscode.commands.registerCommand("3dviewer.openRecent", (t: OpenTarget) => {
+      ViewerPanel.open(context, t);
+      recents.add(t); // bump to front
+    }),
+    vscode.commands.registerCommand("3dviewer.removeRecent", (t: OpenTarget) => recents.remove(t)),
+    vscode.commands.registerCommand("3dviewer.clearRecents", () => recents.clear()),
+    vscode.commands.registerCommand("3dviewer.revealRecent", (t: OpenTarget) =>
+      vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(pathOf(t)))
+    )
   );
 }
 
-async function openReconstruction(context: vscode.ExtensionContext) {
+async function openReconstruction(context: vscode.ExtensionContext, recents: RecentsProvider) {
   const picked = await vscode.window.showOpenDialog({
     canSelectFolders: true,
     canSelectFiles: false,
@@ -37,8 +46,15 @@ async function openReconstruction(context: vscode.ExtensionContext) {
   if (!picked || picked.length === 0) {
     return;
   }
-  const root = picked[0].fsPath;
+  await openReconstructionFromRoot(context, recents, picked[0].fsPath);
+}
 
+/** Discover the model(s) under `root` (prompting on ambiguity) and open one. */
+async function openReconstructionFromRoot(
+  context: vscode.ExtensionContext,
+  recents: RecentsProvider,
+  root: string
+) {
   const dirs = findModelDirs(root);
   if (dirs.length === 0) {
     void vscode.window.showErrorMessage(
@@ -64,22 +80,58 @@ async function openReconstruction(context: vscode.ExtensionContext) {
   }
 
   const imagesDir = findImagesDir(root, modelDir);
-  ViewerPanel.open(context, { kind: "colmap", modelDir, imagesDir });
+  const target: OpenTarget = { kind: "colmap", modelDir, imagesDir };
+  ViewerPanel.open(context, target);
+  recents.add(target);
 }
 
-async function openMesh(context: vscode.ExtensionContext) {
+async function openMesh(context: vscode.ExtensionContext, recents: RecentsProvider) {
   const picked = await vscode.window.showOpenDialog({
     canSelectFolders: false,
     canSelectFiles: true,
     canSelectMany: false,
     openLabel: "Open Mesh",
     title: "Select a mesh (glTF / GLB / OBJ / PLY)",
-    filters: { "3D meshes": ["glb", "gltf", "obj", "ply"] },
+    filters: { "3D meshes": MESH_EXTS },
   });
   if (!picked || picked.length === 0) {
     return;
   }
-  ViewerPanel.open(context, { kind: "mesh", file: picked[0].fsPath });
+  openMeshFromFile(context, recents, picked[0].fsPath);
+}
+
+function openMeshFromFile(context: vscode.ExtensionContext, recents: RecentsProvider, file: string) {
+  const target: OpenTarget = { kind: "mesh", file };
+  ViewerPanel.open(context, target);
+  recents.add(target);
+}
+
+/** Open dropped resources: a folder → reconstruction, a mesh file → mesh. */
+async function openDropped(
+  context: vscode.ExtensionContext,
+  recents: RecentsProvider,
+  uris: vscode.Uri[]
+) {
+  for (const uri of uris) {
+    if (uri.scheme !== "file") {
+      continue;
+    }
+    let stat: vscode.FileStat;
+    try {
+      stat = await vscode.workspace.fs.stat(uri);
+    } catch {
+      continue;
+    }
+    if (stat.type & vscode.FileType.Directory) {
+      await openReconstructionFromRoot(context, recents, uri.fsPath);
+    } else if (MESH_EXTS.includes(path.extname(uri.fsPath).slice(1).toLowerCase())) {
+      openMeshFromFile(context, recents, uri.fsPath);
+    } else {
+      void vscode.window.showErrorMessage(
+        `3DViewer: drop a folder (a COLMAP reconstruction) or a mesh file (${MESH_EXTS.map((e) => `.${e}`).join(" / ")}).`
+      );
+    }
+  }
 }
 
 export function deactivate() {}

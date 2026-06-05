@@ -4,10 +4,17 @@ import * as path from "node:path";
 import type { HostToWebview, WebviewToHost, ModelData } from "@3dviewer/core";
 import { buildModelData } from "./modelData";
 
-/** What the user asked to open. */
+// What the user asked to open. Also persisted as the Recents schema
+// (recents.ts → workspaceState), so keep it a plain JSON-serializable path
+// descriptor — no `vscode.Uri`, handles, or other volatile fields.
 export type OpenTarget =
   | { kind: "colmap"; modelDir: string; imagesDir?: string }
   | { kind: "mesh"; file: string };
+
+/** The on-disk path an OpenTarget refers to (a model dir or a mesh file). */
+export function pathOf(t: OpenTarget): string {
+  return t.kind === "colmap" ? t.modelDir : t.file;
+}
 
 /** A scene item the panel tracks so it can be replayed after a recreate. */
 interface Item {
@@ -291,7 +298,7 @@ function rootsFor(content: Item[]): string[] {
 }
 
 /** Readable label for a model dir, disambiguating numeric dirs like sparse/0. */
-function labelFor(modelDir: string): string {
+export function labelFor(modelDir: string): string {
   const base = path.basename(modelDir);
   return /^\d+$/.test(base) ? `${path.basename(path.dirname(modelDir))}/${base}` : base;
 }
