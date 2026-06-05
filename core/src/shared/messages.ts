@@ -74,6 +74,11 @@ export type HostToWebview =
       format: "bin" | "txt";
       urls: { cameras: string; images: string; points3d: string };
       imageBaseUrl?: string;
+      // Optional per-image URL map (COLMAP image name or its basename → URL).
+      // For hosts that can't serve images under a single base path — e.g. the
+      // web demo, which only has opaque blob: URLs. Takes precedence over
+      // `imageBaseUrl` when a name resolves in it.
+      imageUrls?: Record<string, string>;
     }
   | { type: "addMesh"; id: string; label: string; mesh: MeshRef }
   | { type: "error"; message: string };

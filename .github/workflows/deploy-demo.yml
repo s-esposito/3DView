@@ -1,0 +1,66 @@
+name: Deploy Demo to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        # `npm ci` is reproducible: it installs exactly the committed
+        # package-lock.json and fails if it's out of sync (unlike `npm install`,
+        # which can mutate the lockfile).
+        run: npm ci
+
+      - name: Build demo
+        # Build only the shared core (produces out/webview.js) and the demo that
+        # copies it — the VS Code extension isn't needed for Pages.
+        run: npm run build -w @3dviewer/core && npm run build -w 3dviewer-demo
+
+      - name: Prepare Pages artifact
+        # Mirror demo/ exactly: index.html at the root references dist/demo.js and
+        # dist/webview.js, so the JS must live under _site/dist/ (NOT flattened to
+        # the root — that returns the 404 HTML page, which a module script rejects
+        # with a "disallowed MIME type (text/html)" error).
+        run: |
+          mkdir -p _site/dist
+          cp demo/index.html _site/
+          cp demo/dist/demo.js _site/dist/
+          cp demo/dist/demo.js.map _site/dist/
+          cp demo/dist/webview.js _site/dist/
+          cp demo/dist/webview.js.map _site/dist/
+          touch _site/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_site"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

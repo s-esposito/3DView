@@ -111,7 +111,7 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
       // The host hands us URLs (not parsed data); fetch + parse in-browser, then
       // converge on the same addReconstruction path the inline `data` case uses.
       showStatus(`Loading ${msg.label}…`);
-      loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl)
+      loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl, msg.imageUrls)
         .then((data) => viewer.addReconstruction(msg.id, msg.label, data))
         .catch((err) =>
           showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)

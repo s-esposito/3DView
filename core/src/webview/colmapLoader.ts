@@ -25,14 +25,17 @@ export interface ColmapUrls {
 
 /**
  * Fetch + parse a COLMAP model from URLs, producing the same `ModelData` the VS
- * Code host builds in `host/modelData.ts`. When `imageBaseUrl` is given, each
- * camera's `imageUri` is built as `<imageBaseUrl>/<name>` (per-segment encoded);
- * the host is responsible for serving those URLs and guarding path escapes.
+ * Code host builds in `host/modelData.ts`. Each camera's `imageUri` is resolved
+ * (in priority order) from `imageUrls` — a per-name/basename URL map, for hosts
+ * with opaque URLs like the demo's blob: URLs — then from `imageBaseUrl`, built
+ * as `<imageBaseUrl>/<name>` (per-segment encoded). The host serving URLs is
+ * responsible for guarding path escapes.
  */
 export async function loadColmapFromUrls(
   urls: ColmapUrls,
   format: "bin" | "txt",
-  imageBaseUrl?: string
+  imageBaseUrl?: string,
+  imageUrls?: Record<string, string>
 ): Promise<ModelData> {
   const model =
     format === "bin"
@@ -80,7 +83,7 @@ export async function loadColmapFromUrls(
       cy: cam.cy,
       width: cam.width,
       height: cam.height,
-      imageUri: imageBaseUrl ? imageUrl(imageBaseUrl, pose.name) : undefined,
+      imageUri: resolveImageUri(pose.name, imageUrls, imageBaseUrl),
     });
   }
 
@@ -107,6 +110,25 @@ async function fetchText(url: string): Promise<string> {
     throw new Error(`Failed to fetch ${url} (${res.status})`);
   }
   return res.text();
+}
+
+/**
+ * Resolve a camera image's URL. Prefer an explicit `imageUrls` entry — matched
+ * by full COLMAP name, then by basename (hosts with opaque blob: URLs key the
+ * map by basename) — otherwise fall back to `<imageBaseUrl>/<name>`.
+ */
+function resolveImageUri(
+  name: string,
+  imageUrls?: Record<string, string>,
+  imageBaseUrl?: string
+): string | undefined {
+  if (imageUrls) {
+    const direct = imageUrls[name];
+    if (direct) return direct;
+    const base = name.split("/").pop();
+    if (base && imageUrls[base]) return imageUrls[base];
+  }
+  return imageBaseUrl ? imageUrl(imageBaseUrl, name) : undefined;
 }
 
 /** Join an image name onto a base URL, encoding each path segment (keeps subdirs). */

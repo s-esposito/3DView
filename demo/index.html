@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3DViewer — COLMAP & Mesh Viewer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+      }
+
+      /* The viewer bundle appends its canvas to <body>; fill the viewport. */
+      canvas {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+      }
+
+      /* Status overlay the viewer writes into (it looks up #status by id). */
+      #status {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        padding: 12px 16px;
+        border-radius: 4px;
+        font-size: 12px;
+        z-index: 100;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Click "+" in the Scene panel to load a COLMAP model (pick the project folder — the one containing <code>sparse/</code> and <code>images/</code> — so frustum images load too) or a mesh file.</div>
+
+    <!-- The demo host bridge installs window.__viewerHost and then injects the
+         viewer bundle (dist/webview.js) — see src/main.ts for why the bundle is
+         loaded from here rather than a second <script> tag. -->
+    <script type="module" src="dist/demo.js"></script>
+  </body>
+</html>

@@ -10,10 +10,11 @@
   },
   "workspaces": [
     "core",
-    "vscode"
+    "vscode",
+    "demo"
   ],
   "scripts": {
-    "build": "npm run build -w @3dviewer/core && npm run build -w 3dviewer",
+    "build": "npm run build -w @3dviewer/core && npm run build -w 3dviewer && npm run build -w 3dviewer-demo",
     "watch": "npm run build -w @3dviewer/core && npm run watch -w 3dviewer",
     "lint": "npm run lint -w @3dviewer/core && npm run lint -w 3dviewer",
     "check": "npm run check -w @3dviewer/core",
