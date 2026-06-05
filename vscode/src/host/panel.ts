@@ -153,7 +153,7 @@ export class ViewerPanel {
       if (imagesDir) {
         this.attachImageUris(data, imagesDir);
       }
-      this.post({ type: "addReconstruction", id, label: labelFor(modelDir), data });
+      this.post({ type: "addReconstruction", id, label: labelFor(modelDir), data, source: modelDir });
     } catch (err) {
       this.content = this.content.filter((i) => i.id !== id);
       this.reportError(err);

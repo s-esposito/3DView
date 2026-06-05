@@ -101,7 +101,7 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
       showStatus(msg.message);
       break;
     case "addReconstruction":
-      viewer.addReconstruction(msg.id, msg.label, msg.data); // fires onChange
+      viewer.addReconstruction(msg.id, msg.label, msg.data, msg.source); // fires onChange
       break;
     case "addMesh":
       showStatus(`Loading ${msg.label}…`);
@@ -112,7 +112,7 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
       // converge on the same addReconstruction path the inline `data` case uses.
       showStatus(`Loading ${msg.label}…`);
       loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl, msg.imageUrls)
-        .then((data) => viewer.addReconstruction(msg.id, msg.label, data))
+        .then((data) => viewer.addReconstruction(msg.id, msg.label, data, msg.source))
         .catch((err) =>
           showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
         );

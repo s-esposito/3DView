@@ -63,7 +63,10 @@ export type AddKind = "colmap" | "mesh";
  */
 export type HostToWebview =
   | { type: "loading"; message: string }
-  | { type: "addReconstruction"; id: string; label: string; data: ModelData }
+  // `source` is an optional file-system path/location for the Scene-list hover
+  // tooltip (the host knows it; the webview only has parsed data). Falls back to
+  // `label` when absent.
+  | { type: "addReconstruction"; id: string; label: string; data: ModelData; source?: string }
   // Like addReconstruction, but the webview fetches + parses the model itself from
   // URLs the host serves (so the host need not parse or ship a big ModelData). The
   // VS Code host uses addReconstruction; the PyCharm/JCEF host uses this.
@@ -74,6 +77,7 @@ export type HostToWebview =
       format: "bin" | "txt";
       urls: { cameras: string; images: string; points3d: string };
       imageBaseUrl?: string;
+      source?: string;
       // Optional per-image URL map (COLMAP image name or its basename → URL).
       // For hosts that can't serve images under a single base path — e.g. the
       // web demo, which only has opaque blob: URLs. Takes precedence over

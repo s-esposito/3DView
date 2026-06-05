@@ -1,34 +1,41 @@
-// The control panel (top-right overlay): a collapsible panel with a Scene list
-// (add / remove / show-hide items) and scene-wide display controls. It is a thin
-// view over the Viewer — it reads `getState()` to render and calls Viewer setters
-// on interaction; the Viewer owns all state.
-import type { Viewer, ViewerState } from "../viewer";
+// The control UI (top-right overlay): two stacked, independently-collapsible
+// panels inside a #viewer-ui column — a "3DViewer" panel with scene-wide display
+// controls (Show / Appearance / View), and a "Scene" panel below it (the item
+// list + add menu). Both are thin views over the Viewer: they read `getState()`
+// to render and call Viewer setters on interaction; the Viewer owns all state.
+import type { Viewer, ViewerState, SceneItem } from "../viewer";
 import { section, hint, checkbox, slider, button, iconButton, menuButton } from "./components";
 
+// Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
+const EYE_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const EYE_CLOSED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
 export class ControlPanel {
-  private collapsed = false;
+  private collapsed = false; // the 3DViewer (display) panel
+  private sceneCollapsed = false; // the Scene panel
 
   constructor(private readonly viewer: Viewer) {}
 
-  /** Render (or re-render) the panel from current Viewer state. */
+  /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
-    document.getElementById("overlay")?.remove();
+    document.getElementById("viewer-ui")?.remove();
     const s = this.viewer.getState();
 
-    const panel = document.createElement("div");
-    panel.id = "overlay";
-    panel.className = this.collapsed ? "viewer-panel collapsed" : "viewer-panel";
-    panel.append(this.buildHeader(panel, s), this.buildBody(s));
-    document.body.appendChild(panel);
+    const ui = document.createElement("div");
+    ui.id = "viewer-ui";
+    ui.className = "viewer-ui";
+    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
+    document.body.appendChild(ui);
   }
 
-  private buildHeader(panel: HTMLElement, s: ViewerState): HTMLElement {
-    const recon = s.items.filter((i) => i.kind === "reconstruction").length;
-    const meshes = s.items.filter((i) => i.kind === "mesh").length;
-    const parts: string[] = [];
-    if (recon) parts.push(`${recon} reconstruction${recon > 1 ? "s" : ""}`);
-    if (meshes) parts.push(`${meshes} mesh${meshes > 1 ? "es" : ""}`);
-
+  /** A collapsible panel header: chevron + title (+ optional subtitle + action). */
+  private header(
+    panel: HTMLElement,
+    title: string,
+    subtitle: string | null,
+    toggle: () => void,
+    action?: HTMLElement
+  ): HTMLElement {
     const header = document.createElement("div");
     header.className = "viewer-header";
     header.title = "Collapse / expand";
@@ -39,26 +46,45 @@ export class ControlPanel {
 
     const titles = document.createElement("div");
     titles.className = "viewer-titles";
-    const title = document.createElement("span");
-    title.className = "viewer-title";
-    title.textContent = "3DViewer";
-    const sub = document.createElement("span");
-    sub.className = "viewer-sub";
-    sub.textContent = parts.join(" · ") || "empty scene";
-    titles.append(title, sub);
+    const titleEl = document.createElement("span");
+    titleEl.className = "viewer-title";
+    titleEl.textContent = title;
+    titles.append(titleEl);
+    if (subtitle !== null) {
+      const sub = document.createElement("span");
+      sub.className = "viewer-sub";
+      sub.textContent = subtitle;
+      titles.append(sub);
+    }
 
     header.append(chevron, titles);
+    if (action) {
+      // The action (e.g. the "+" menu) stops its own click from bubbling here.
+      header.append(action);
+    }
     header.addEventListener("click", () => {
-      this.collapsed = !this.collapsed;
-      panel.classList.toggle("collapsed", this.collapsed);
+      toggle();
+      panel.classList.toggle("collapsed");
     });
     return header;
   }
 
-  private buildBody(s: ViewerState): HTMLElement {
+  /** The 3DViewer panel: scene-wide display controls. */
+  private buildDisplayPanel(s: ViewerState): HTMLElement {
+    const panel = document.createElement("div");
+    panel.className = this.collapsed ? "viewer-panel collapsed" : "viewer-panel";
+    panel.append(
+      this.header(panel, "3DViewer", null, () => {
+        this.collapsed = !this.collapsed;
+      }),
+      this.buildDisplayBody(s)
+    );
+    return panel;
+  }
+
+  private buildDisplayBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
-    body.append(this.buildScene(s));
 
     // Show — scene-wide visibility toggles, only for content that exists.
     const toggles = document.createElement("div");
@@ -118,51 +144,133 @@ export class ControlPanel {
     return body;
   }
 
-  /** Scene list: each item with show/hide + remove, and a "+" add menu. */
-  private buildScene(s: ViewerState): HTMLElement {
-    const sec = document.createElement("div");
-    sec.className = "viewer-section";
+  /** The Scene panel: a "+" add menu in the header + the item list as the body. */
+  private buildScenePanel(s: ViewerState): HTMLElement {
+    const panel = document.createElement("div");
+    panel.className = this.sceneCollapsed ? "viewer-panel collapsed" : "viewer-panel";
 
-    const head = document.createElement("div");
-    head.className = "viewer-section-head";
-    const title = document.createElement("div");
-    title.className = "viewer-section-title";
-    title.textContent = "Scene";
-    head.append(
-      title,
-      menuButton("+", "Add to scene", [
-        { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
-        { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
-      ])
+    const add = menuButton("+", "Add to scene", [
+      { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
+      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+    ]);
+
+    panel.append(
+      this.header(
+        panel,
+        "Scene",
+        sceneSummary(s),
+        () => {
+          this.sceneCollapsed = !this.sceneCollapsed;
+        },
+        add
+      ),
+      this.buildSceneBody(s)
     );
-    sec.append(head);
+    return panel;
+  }
+
+  private buildSceneBody(s: ViewerState): HTMLElement {
+    const body = document.createElement("div");
+    body.className = "viewer-body";
 
     if (s.items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "viewer-scene-empty";
       empty.textContent = "Empty — add a reconstruction or mesh";
-      sec.append(empty);
-      return sec;
+      body.append(empty);
+      return body;
     }
 
     for (const item of s.items) {
       const row = document.createElement("div");
       row.className = "viewer-scene-item";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = item.visible;
-      cb.title = "Show / hide";
-      cb.addEventListener("change", () => this.viewer.setItemVisible(item.id, cb.checked));
       const label = document.createElement("span");
       label.className = "label";
       label.textContent = item.label;
-      label.title = item.label;
+      label.title = item.source ? sourcePath(item.source) : item.label;
       const kind = document.createElement("span");
       kind.className = "kind";
       kind.textContent = item.kind === "reconstruction" ? "recon" : "mesh";
-      row.append(cb, label, kind, iconButton("✕", "Remove", () => this.viewer.removeItem(item.id)));
-      sec.append(row);
+      row.append(
+        this.visibilityToggle(item),
+        label,
+        kind,
+        iconButton("✎", "Rename", () => this.startRename(label, item)),
+        iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
+      );
+      body.append(row);
     }
-    return sec;
+    return body;
   }
+
+  /** Open-/closed-eye button that toggles a scene item's visibility in place. */
+  private visibilityToggle(item: SceneItem): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "viewer-iconbtn";
+    let visible = item.visible;
+    const paint = () => {
+      btn.innerHTML = visible ? EYE_OPEN : EYE_CLOSED;
+      btn.title = visible ? "Hide" : "Show";
+    };
+    paint();
+    btn.addEventListener("click", () => {
+      visible = !visible;
+      this.viewer.setItemVisible(item.id, visible);
+      paint();
+    });
+    return btn;
+  }
+
+  /** Replace a scene item's label with an inline text field; commit on Enter/blur, cancel on Esc. */
+  private startRename(label: HTMLElement, item: SceneItem): void {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "viewer-rename";
+    input.value = item.label;
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      const next = input.value.trim();
+      if (save && next && next !== item.label) {
+        this.viewer.renameItem(item.id, next); // fires onChange → re-render
+      } else {
+        input.replaceWith(label); // cancel: restore the original label in place
+      }
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+  }
+}
+
+/** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */
+function sourcePath(uri: string): string {
+  return uri.replace(/^https?:\/\/[^/]+/i, "");
+}
+
+/** Human-readable scene summary, e.g. "1 reconstruction · 2 meshes". */
+function sceneSummary(s: ViewerState): string {
+  const recon = s.items.filter((i) => i.kind === "reconstruction").length;
+  const meshes = s.items.filter((i) => i.kind === "mesh").length;
+  const parts: string[] = [];
+  if (recon) {
+    parts.push(`${recon} reconstruction${recon > 1 ? "s" : ""}`);
+  }
+  if (meshes) {
+    parts.push(`${meshes} mesh${meshes > 1 ? "es" : ""}`);
+  }
+  return parts.join(" · ") || "empty scene";
 }

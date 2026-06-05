@@ -114,7 +114,7 @@ Node `require`. Don't leak host code into core to "make it work" — adapt at th
 (reconstructions + meshes) under a single `root` group; helpers (grid/axes) and
 fit-to-view union over all layers. The UI (`webview/ui/`) talks to the scene ONLY
 through the Viewer API (`addReconstruction`, `addMesh`, `removeItem`,
-`setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
+`renameItem`, `setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
 `setOrientation`, `resetView`, `exitPov`, `getState`, + `onSelect`/`onChange`/
 `onError`/`onRequestAdd`/`onRemoveItem` callbacks) — never three.js directly. Adding
 a new source (e.g. 3DGS) = implement `SceneLayer`, add a `Viewer.addX`, and the

@@ -21,7 +21,10 @@ export interface DisplayOptions {
 export interface SceneLayer {
   readonly id: string;
   readonly kind: "reconstruction" | "mesh";
-  readonly label: string;
+  /** Display name in the Scene list; editable via Viewer.renameItem. */
+  label: string;
+  /** Source location (e.g. mesh file URI) for the Scene-list hover tooltip; undefined when unknown. */
+  readonly source?: string;
   /** Root object added under the Viewer's `root` group. */
   readonly object: THREE.Object3D;
   /** Per-item visibility (the Scene list show/hide). */
@@ -49,10 +52,11 @@ export class ReconstructionLayer implements SceneLayer {
 
   constructor(
     readonly id: string,
-    readonly label: string,
+    public label: string,
     readonly data: ModelData,
     opts: DisplayOptions,
-    onTextureChange: () => void = () => {}
+    onTextureChange: () => void = () => {},
+    readonly source?: string
   ) {
     this.localBounds = computeLocalBounds(data);
     this.cameras = new CameraLayer(new ThumbnailLoader(), id, onTextureChange);

@@ -22,7 +22,9 @@ export class MeshLayer implements SceneLayer {
 
   constructor(
     readonly id: string,
-    readonly label: string
+    public label: string,
+    /** Mesh file URI, surfaced as the Scene-list hover tooltip. */
+    readonly source: string
   ) {}
 
   bounds(): Bounds | undefined {

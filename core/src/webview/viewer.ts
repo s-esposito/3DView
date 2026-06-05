@@ -32,6 +32,8 @@ export interface SceneItem {
   label: string;
   kind: "reconstruction" | "mesh";
   visible: boolean;
+  /** Source location (e.g. mesh file URI) for the hover tooltip; undefined when unknown. */
+  source?: string;
 }
 
 /** Read-only snapshot of view state, for the UI to render controls from. */
@@ -168,22 +170,23 @@ export class Viewer {
         label: l.label,
         kind: l.kind,
         visible: l.visible,
+        source: l.source,
       })),
     };
   }
 
-  addReconstruction(id: string, label: string, data: ModelData): void {
+  addReconstruction(id: string, label: string, data: ModelData, source?: string): void {
     if (!this.frustumInitialized) {
       const b = computeLocalBounds(data);
       this.frustumScaleMax = diagonalOf(b) * 0.16;
       this.opts.frustumScale = this.frustumScaleMax / 80;
       this.frustumInitialized = true;
     }
-    this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender));
+    this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source));
   }
 
   addMesh(id: string, label: string, uri: string, name: string): void {
-    const layer = new MeshLayer(id, label);
+    const layer = new MeshLayer(id, label, uri);
     this.layers.push(layer);
     this.byId.set(id, layer);
     this.root.add(layer.object);
@@ -204,6 +207,16 @@ export class Viewer {
   setItemVisible(id: string, visible: boolean): void {
     this.byId.get(id)?.setVisible(visible);
     this.requestRender();
+  }
+
+  /** Rename a scene item's display label; re-renders the Scene list via onChange. */
+  renameItem(id: string, label: string): void {
+    const layer = this.byId.get(id);
+    if (!layer) {
+      return;
+    }
+    layer.label = label;
+    this.onChange?.();
   }
 
   removeItem(id: string): void {

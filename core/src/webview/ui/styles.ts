@@ -2,13 +2,15 @@
 // ('unsafe-inline'), so a single <style> element keeps all presentation here and
 // out of the imperative DOM code. Colors use VS Code theme variables.
 const CSS = `
-.viewer-panel{position:fixed;top:12px;right:12px;width:214px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:var(--vscode-editorWidget-background,rgba(30,30,30,0.92));border:1px solid var(--vscode-widget-border,rgba(255,255,255,0.12));border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.35);user-select:none;overflow:hidden}
+.viewer-ui{position:fixed;top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;z-index:10}
+.viewer-panel{width:214px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:var(--vscode-editorWidget-background,rgba(30,30,30,0.92));border:1px solid var(--vscode-widget-border,rgba(255,255,255,0.12));border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.35);user-select:none}
 .viewer-panel.collapsed{width:auto}
-.viewer-header{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer}
+.viewer-header{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-radius:8px 8px 0 0}
+.viewer-panel.collapsed .viewer-header{border-radius:8px}
 .viewer-header:hover{background:var(--vscode-list-hoverBackground,rgba(255,255,255,0.05))}
 .viewer-chevron{transition:transform .15s ease;opacity:.8;font-size:10px}
 .viewer-panel.collapsed .viewer-chevron{transform:rotate(-90deg)}
-.viewer-titles{display:flex;flex-direction:column;line-height:1.25}
+.viewer-titles{display:flex;flex-direction:column;line-height:1.25;flex:1;min-width:0}
 .viewer-title{font-weight:600}
 .viewer-sub{color:var(--vscode-descriptionForeground,#999);font-size:11px}
 .viewer-panel.collapsed .viewer-sub{display:none}
@@ -16,10 +18,10 @@ const CSS = `
 .viewer-panel.collapsed .viewer-body{display:none}
 .viewer-section{margin-top:12px}
 .viewer-section-title{text-transform:uppercase;font-size:10px;letter-spacing:.6px;color:var(--vscode-descriptionForeground,#999);margin-bottom:6px}
-.viewer-section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.viewer-section-head .viewer-section-title{margin-bottom:0}
 .viewer-iconbtn{cursor:pointer;border:none;background:transparent;color:var(--vscode-foreground,#ddd);font:inherit;line-height:1;padding:2px 5px;border-radius:4px}
 .viewer-iconbtn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.12))}
+.viewer-iconbtn svg{display:block}
+.viewer-rename{flex:1;min-width:0;font:inherit;color:var(--vscode-input-foreground,inherit);background:var(--vscode-input-background,rgba(255,255,255,0.08));border:1px solid var(--vscode-focusBorder,#0e639c);border-radius:3px;padding:1px 4px}
 .viewer-menuwrap{position:relative}
 .viewer-menu{position:absolute;right:0;top:100%;margin-top:4px;min-width:150px;background:var(--vscode-menu-background,var(--vscode-editorWidget-background,#252526));border:1px solid var(--vscode-menu-border,var(--vscode-widget-border,rgba(255,255,255,0.15)));border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:20;overflow:hidden}
 .viewer-menu-item{display:block;width:100%;text-align:left;padding:6px 10px;cursor:pointer;border:none;background:transparent;color:var(--vscode-menu-foreground,var(--vscode-foreground,#ddd));font:inherit}
