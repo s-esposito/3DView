@@ -244,3 +244,9 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - Remote `origin` = `git@github.com:s-esposito/3DView.git`, branch `main`.
 - Commit/push only when asked. End commit messages with the Co-Authored-By
   trailer used on existing commits.
+- **`CLAUDE.md` is dev-only** — it's removed on `main` (and listed in
+  `.gitignore`). It's force-tracked on `dev` despite the ignore entry, so
+  promoting `dev`→`main` reintroduces it: the promotion is a real merge, not a
+  fast-forward, and you must `git rm CLAUDE.md` on `main` after merging (before
+  pushing). The `.gitignore` entry only guards against untracked re-adds, not the
+  merge.
