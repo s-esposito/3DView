@@ -91,4 +91,7 @@ export type HostToWebview =
 export type WebviewToHost =
   | { type: "ready" }
   | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
-  | { type: "removed"; id: string }; // an item was removed from the scene
+  | { type: "removed"; id: string } // an item was removed from the scene
+  // A PNG render of the current viewpoint to save. `png` is a data URL
+  // ("data:image/png;base64,…"); the host writes/downloads it.
+  | { type: "saveImage"; png: string; suggestedName: string };

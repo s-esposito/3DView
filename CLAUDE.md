@@ -38,7 +38,8 @@ npm run watch    # build core once, then watch-rebuild the extension
 npm run lint     # tsc --noEmit in each package — MUST be clean (esbuild does not type-check)
 npm run check    # boundary guard (host-agnostic core); also runs inside core's build
 npm test         # esbuild --test per package, then node --test
-vscode/reinstall.sh   # build monorepo + vsce package + code --install-extension --force
+./vscode_build.sh     # build monorepo + vsce package → vscode/*.vsix (then code --install-extension)
+./jetbrains_build.sh  # build webview bundle + gradle buildPlugin → jetbrains/build/distributions/*.zip
 ```
 
 The demo is deployed to GitHub Pages via `.github/workflows/deploy-demo.yml` on pushes to `main`.
@@ -86,7 +87,7 @@ vscode/                3dviewer — VS Code extension (Node + vscode) → out/ex
                          tracking (ids) + replay; injects the VS Code __viewerHost adapter
     modelData.ts         parsed model → render-ready ModelData DTO
   test/colmapLoad.test.ts   fs discovery/load round-trip
-  esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · reinstall.sh · media/
+  esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · media/
 demo/                  3dviewer-demo — GitHub Pages web host → dist/
   src/host.ts            installs window.__viewerHost (file-picker bridge; blob-URL loadColmap/addMesh)
   src/main.ts            entry: install the bridge before the bundle loads
@@ -115,8 +116,9 @@ Node `require`. Don't leak host code into core to "make it work" — adapt at th
 fit-to-view union over all layers. The UI (`webview/ui/`) talks to the scene ONLY
 through the Viewer API (`addReconstruction`, `addMesh`, `removeItem`,
 `renameItem`, `setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
-`setOrientation`, `resetView`, `exitPov`, `getState`, + `onSelect`/`onChange`/
-`onError`/`onRequestAdd`/`onRemoveItem` callbacks) — never three.js directly. Adding
+`setOrientation`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
+`onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
+callbacks) — never three.js directly. Adding
 a new source (e.g. 3DGS) = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically.
 
@@ -226,7 +228,7 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
   real bundler; needed for three's ESM example loaders). Hosts resolve
   `@3dviewer/core` via the workspace symlink (its `types: src/index.ts`).
 - Packaging (`vsce`, run in `vscode/`): `.vscodeignore` excludes `src/`, `test/`,
-  maps, `*.vsix`, `reinstall.sh`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
+  maps, `*.vsix`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
   README ship. `@3dviewer/core` is a devDependency (esbuild bundles it in), so it is
   not packaged.
 - The demo is deployed to GitHub Pages via `.github/workflows/deploy-demo.yml` on

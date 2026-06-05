@@ -28,7 +28,7 @@ function showFilePicker(kind: "colmap" | "mesh"): Promise<FileList | null> {
 export function installHostBridge() {
   (globalThis as { __viewerHost?: { postMessage(msg: WebviewToHost): void } }).__viewerHost = {
     postMessage(msg: WebviewToHost) {
-      // requestAdd (the Scene "+" menu) is the only message needing host action;
+      // requestAdd (the Scene "+" menu) and saveImage need host action;
       // `ready`/`removed` need none — the demo tracks no scene state.
       if (msg.type === "requestAdd") {
         handleAdd(msg.kind).catch((err) => {
@@ -36,6 +36,12 @@ export function installHostBridge() {
           const message = err instanceof Error ? err.message : String(err);
           window.postMessage({ type: "error", message } satisfies HostToWebview, "*");
         });
+      } else if (msg.type === "saveImage") {
+        // Browsers can download a data URL directly via a synthetic <a download>.
+        const a = document.createElement("a");
+        a.href = msg.png;
+        a.download = msg.suggestedName;
+        a.click();
       }
     },
   };
@@ -130,6 +136,7 @@ function sendColmap(files: FileList): void {
       type: "loadColmap",
       id: `colmap-${Date.now()}`,
       label: model.dir.split("/").pop() || "COLMAP Model",
+      source: model.dir,
       format: model.format,
       urls: {
         cameras: URL.createObjectURL(model.cameras),

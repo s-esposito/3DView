@@ -66,6 +66,8 @@ export class Viewer {
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
   onRemoveItem?: (id: string) => void;
+  /** Fired with a PNG data URL of the current viewpoint, for the host to save. */
+  onSaveImage?: (png: string, suggestedName: string) => void;
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -394,6 +396,33 @@ export class Viewer {
     this.controls.target.copy(center);
     this.controls.update();
     this.requestRender();
+  }
+
+  /**
+   * Render the current viewpoint at `scale`× the on-screen resolution and hand the
+   * resulting PNG (data URL) to `onSaveImage` for the host to save. The 3D canvas
+   * only (no UI overlay) is captured. Guards against exceeding the GPU's max buffer.
+   */
+  saveViewpoint(scale: number): void {
+    const maxDim = this.renderer.capabilities.maxTextureSize;
+    const w = Math.round(window.innerWidth * scale);
+    const h = Math.round(window.innerHeight * scale);
+    if (w > maxDim || h > maxDim) {
+      this.onError?.(`Render too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
+      return;
+    }
+    // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,
+    // then read it back synchronously — valid without preserveDrawingBuffer because
+    // nothing repaints between render() and toDataURL() in this same task.
+    const prevRatio = this.renderer.getPixelRatio();
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(w, h, false);
+    this.renderer.render(this.scene, this.camera);
+    const png = this.renderer.domElement.toDataURL("image/png");
+    this.renderer.setPixelRatio(prevRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.requestRender();
+    this.onSaveImage?.(png, `viewpoint-${scale}x.png`);
   }
 
   private onResize(): void {

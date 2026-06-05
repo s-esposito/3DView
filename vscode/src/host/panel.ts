@@ -122,7 +122,25 @@ export class ViewerPanel {
       case "removed":
         this.content = this.content.filter((i) => i.id !== msg.id);
         break;
+      case "saveImage":
+        void this.saveImage(msg.png, msg.suggestedName);
+        break;
     }
+  }
+
+  /** Save a webview-rendered PNG (data URL) to a user-chosen file. */
+  private async saveImage(png: string, suggestedName: string) {
+    const bytes = Buffer.from(png.replace(/^data:image\/png;base64,/, ""), "base64");
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: folder ? vscode.Uri.joinPath(folder, suggestedName) : vscode.Uri.file(suggestedName),
+      filters: { Images: ["png"] },
+    });
+    if (!uri) {
+      return;
+    }
+    await vscode.workspace.fs.writeFile(uri, bytes);
+    void vscode.window.showInformationMessage(`3DViewer: saved ${path.basename(uri.fsPath)}`);
   }
 
   /** Run an item now if the webview is up, else queue it until "ready". */

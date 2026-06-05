@@ -24,9 +24,12 @@ Needs **Node + npm** (builds the bundle), **JDK 21**, and a **Gradle 8.10+**
 launcher — the `gradlew` wrapper if present, otherwise a system Gradle (or open
 this folder in the IDE and let it generate the wrapper).
 
+From the repo root, **`./jetbrains_build.sh`** does both steps (build the shared
+webview bundle, then `buildPlugin`) and prints the output zip. Or run them by hand:
+
 ```bash
 # 1) repo root — build the shared webview bundle (run `npm install` once first)
-npm run build
+npm run build -w @3dviewer/core
 # 2) here — package the plugin zip
 cd jetbrains
 gradle wrapper && ./gradlew buildPlugin   # -> build/distributions/colmapview-pycharm-<version>.zip

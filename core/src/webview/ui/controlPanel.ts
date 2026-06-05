@@ -77,7 +77,7 @@ export class ControlPanel {
       this.header(panel, "3DViewer", null, () => {
         this.collapsed = !this.collapsed;
       }),
-      this.buildDisplayBody(s)
+      collapseWrap(this.buildDisplayBody(s))
     );
     return panel;
   }
@@ -138,6 +138,21 @@ export class ControlPanel {
       ])
     );
 
+    // Render viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
+    if (s.items.length > 0) {
+      const scales = document.createElement("div");
+      scales.className = "viewer-scale-row";
+      for (const sc of [1, 2, 4]) {
+        const b = document.createElement("button");
+        b.className = "viewer-scale-btn";
+        b.textContent = `${sc}×`;
+        b.title = `Save a PNG of the current view at ${sc}× resolution`;
+        b.addEventListener("click", () => this.viewer.saveViewpoint(sc));
+        scales.append(b);
+      }
+      body.append(section("Render viewpoint", [scales]));
+    }
+
     if (s.hasCameras) {
       body.append(hint("Hover a frustum to highlight · click to view from it (Esc to exit)"));
     }
@@ -164,7 +179,7 @@ export class ControlPanel {
         },
         add
       ),
-      this.buildSceneBody(s)
+      collapseWrap(this.buildSceneBody(s))
     );
     return panel;
   }
@@ -254,6 +269,14 @@ export class ControlPanel {
     input.focus();
     input.select();
   }
+}
+
+/** Wrap a panel body so the `.collapsed` grid-rows transition animates its height. */
+function collapseWrap(body: HTMLElement): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "viewer-collapse";
+  wrap.append(body);
+  return wrap;
 }
 
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */

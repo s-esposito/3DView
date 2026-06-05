@@ -27,8 +27,11 @@ git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ```
 
 - **Develop:** open the folder in VS Code and press **F5**.
-- **Install:** run `./reinstall.sh` (build + package + install the `.vsix`), then
-  *Developer: Reload Window*.
+- **Build the VS Code extension:** run `./vscode_build.sh` (builds the monorepo +
+  packages a `.vsix`), install it with `code --install-extension vscode/*.vsix --force`,
+  then *Developer: Reload Window*.
+- **Build the PyCharm / JetBrains plugin:** run `./jetbrains_build.sh` (see
+  [jetbrains/README.md](jetbrains/README.md)).
 
 ## Usage
 

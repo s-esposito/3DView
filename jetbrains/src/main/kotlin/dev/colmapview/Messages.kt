@@ -17,12 +17,20 @@ sealed interface WebviewToHost {
     data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "mesh"
     data class Removed(val id: String) : WebviewToHost
 
+    /** A PNG render of the current viewpoint to save; `png` is a data URL. */
+    data class SaveImage(val png: String, val suggestedName: String) : WebviewToHost
+
     companion object {
         fun parse(json: String): WebviewToHost? =
             when (field(json, "type")) {
                 "ready" -> Ready
                 "requestAdd" -> field(json, "kind")?.let(::RequestAdd)
                 "removed" -> field(json, "id")?.let(::Removed)
+                "saveImage" -> {
+                    val png = field(json, "png")
+                    val name = field(json, "suggestedName")
+                    if (png != null && name != null) SaveImage(png, name) else null
+                }
                 else -> null
             }
 
@@ -33,8 +41,11 @@ sealed interface WebviewToHost {
             return re.find(json)?.groupValues?.get(1)?.let(::unescape)
         }
 
+        // No-escape fast path: skips four full-string passes for large escape-free
+        // values (e.g. the base64 `png` of a saveImage message).
         private fun unescape(s: String): String =
-            s.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n").replace("\\/", "/")
+            if ('\\' !in s) s
+            else s.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n").replace("\\/", "/")
     }
 }
 
@@ -62,6 +73,7 @@ object HostMessages {
         imagesUrl: String,
         points3dUrl: String,
         imageBaseUrl: String?,
+        source: String?,
     ): String {
         val fields = mutableListOf(
             "type" to str("loadColmap"),
@@ -75,6 +87,7 @@ object HostMessages {
             ),
         )
         if (imageBaseUrl != null) fields += "imageBaseUrl" to str(imageBaseUrl)
+        if (source != null) fields += "source" to str(source)
         return obj(*fields.toTypedArray())
     }
 

@@ -6,11 +6,15 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.jcef.JBCefApp
 import java.nio.file.Path
+import java.util.Base64
 import javax.swing.JComponent
 
 /**
@@ -30,6 +34,7 @@ class ColmapViewerService(private val project: Project) : Disposable {
                 if (kind == "mesh") openMeshInteractive() else openReconstructionInteractive()
             }
             p.onError = ::notifyError
+            p.onSaveImage = ::saveImage
         }
     }
 
@@ -94,10 +99,34 @@ class ColmapViewerService(private val project: Project) : Disposable {
         return false
     }
 
+    /** Save a webview-rendered PNG (data URL) to a user-chosen file. */
+    private fun saveImage(png: String, suggestedName: String) {
+        val bytes = runCatching { Base64.getDecoder().decode(png.substringAfter("base64,")) }.getOrNull()
+        if (bytes == null) {
+            notifyError("Could not decode the rendered image.")
+            return
+        }
+        val descriptor = FileSaverDescriptor("Save Render", "Save the rendered viewpoint as a PNG", "png")
+        val wrapper = FileChooserFactory.getInstance()
+            .createSaveFileDialog(descriptor, project)
+            .save(null as VirtualFile?, suggestedName) ?: return
+        runCatching { wrapper.file.writeBytes(bytes) }
+            .onSuccess { notifyInfo("Saved ${wrapper.file.name}") }
+            .onFailure { notifyError("Could not save image: ${it.message}") }
+    }
+
     private fun notifyError(message: String) {
+        notify(message, NotificationType.ERROR)
+    }
+
+    private fun notifyInfo(message: String) {
+        notify(message, NotificationType.INFORMATION)
+    }
+
+    private fun notify(message: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("3DViewer")
-            .createNotification("3DViewer: $message", NotificationType.ERROR)
+            .createNotification("3DViewer: $message", type)
             .notify(project)
     }
 

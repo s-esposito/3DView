@@ -20,6 +20,9 @@ class JcefViewerPanel(parent: Disposable) {
     /** Called with a user-facing error message (the canvas status is set too). */
     var onError: (message: String) -> Unit = {}
 
+    /** Called with a PNG render of the current viewpoint (data URL) to save. */
+    var onSaveImage: (png: String, suggestedName: String) -> Unit = { _, _ -> }
+
     private val roots = ResourceRoots()
     private val browser: JBCefBrowser = JBCefBrowser.createBuilder()
         .setEnableOpenDevToolsMenuItem(true)
@@ -80,6 +83,7 @@ class JcefViewerPanel(parent: Disposable) {
             imagesUrl = roots.toResourceUrl(modelDir.resolve("images.$format")),
             points3dUrl = roots.toResourceUrl(modelDir.resolve("points3D.$format")),
             imageBaseUrl = imagesDir?.let(roots::toResourceBaseUrl),
+            source = modelDir.toString(),
         )
         queueOrRun { bridge.post(msg) }
     }
@@ -107,6 +111,7 @@ class JcefViewerPanel(parent: Disposable) {
                 }
                 is WebviewToHost.RequestAdd -> onRequestAdd(msg.kind)
                 is WebviewToHost.Removed -> content.removeAll { it.id == msg.id }
+                is WebviewToHost.SaveImage -> onSaveImage(msg.png, msg.suggestedName)
             }
         }
     }
