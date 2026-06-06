@@ -73,7 +73,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     colmapLoader.ts      loadColmapFromUrls(): fetch model files → pure parsers → ModelData
     viewer.ts            Viewer: scene graph/camera/layers/global display — THE seam
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
-    meshLayer.ts         MeshLayer (SceneLayer): loads GLTF/OBJ/PLY into a group
+    assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY) or a
+                         3DGS splat (.ply/.splat/.spz/.ksplat, via Spark → colored
+                         points; .ply auto-disambiguated by `f_dc_0`) into a group
     cameraLayer.ts       per-camera frustums + image planes; hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
@@ -84,7 +86,7 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
-    extension.ts         activate(): commands (openReconstruction/openMesh/openViewer), pickers, quick-pick
+    extension.ts         activate(): commands (openReconstruction/openAsset/openViewer), pickers, quick-pick
     colmapLoad.ts        fs discovery + load: detectFormat/findModelDirs/findImagesDir/loadModel (Node fs)
     panel.ts             ViewerPanel singleton: webview lifecycle, CSP, image URIs, scene-item
                          tracking (ids) + replay; injects the VS Code __viewerHost adapter
@@ -92,7 +94,7 @@ vscode/                3dview — VS Code extension (Node + vscode) → out/exte
   test/colmapLoad.test.ts   fs discovery/load round-trip
   esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · media/
 demo/                  3dview-demo — GitHub Pages web host → dist/
-  src/host.ts            installs window.__viewerHost (file-picker bridge; blob-URL loadColmap/addMesh)
+  src/host.ts            installs window.__viewerHost (file-picker bridge; blob-URL loadColmap/addAsset)
   src/main.ts            entry: install the bridge before the bundle loads
   esbuild.js (demo.js + copies core's webview.js) · index.html · deployed by .github/workflows/deploy-demo.yml
 jetbrains/             PyCharm/JCEF plugin (Kotlin/Gradle) — consumes core/out/webview.js. See its README.
@@ -115,20 +117,22 @@ imports `vscode`/Node/`host`, or if `out/webview.js` contains `acquireVsCodeApi`
 Node `require`. Don't leak host code into core to "make it work" — adapt at the bridge.
 
 **The `Viewer` is the central seam.** A scene is a **list of `SceneLayer`s**
-(reconstructions + meshes) under a single `root` group; helpers (grid/axes) and
-fit-to-view union over all layers. The UI (`webview/ui/`) talks to the scene ONLY
-through the Viewer API (`addReconstruction`, `addMesh`, `removeItem`,
+(reconstructions + assets, where an asset is a mesh or a 3DGS splat) under a single
+`root` group; helpers (grid/axes) and fit-to-view union over all layers. The UI
+(`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
+`addAsset`, `removeItem`,
 `renameItem`, `setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
 `setOrientation`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
 `onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
-a new source (e.g. 3DGS) = implement `SceneLayer`, add a `Viewer.addX`, and the
-Scene list + global toggles adapt automatically.
+a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
+Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
+the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
 
-**Scene-item flow (multiple reconstructions + meshes):** the host assigns each item
+**Scene-item flow (multiple reconstructions + assets):** the host assigns each item
 a stable `id` and tracks the list in `panel.ts`. The Scene "+" menu posts
 `requestAdd` → host runs the matching command's picker → posts `addReconstruction`/
-`addMesh` with the id. Removing an item (Scene list ✕) removes it webview-side and
+`addAsset` with the id. Removing an item (Scene list ✕) removes it webview-side and
 posts `removed` so the host forgets it (won't replay it). Per-item controls are
 visibility + remove; appearance (point/frustum size, images, grid, axes, orientation)
 is global across the scene.
@@ -158,7 +162,9 @@ is global across the scene.
   `addReconstruction` (host ships a parsed `ModelData`; used by VS Code) and
   `loadColmap` (host ships URLs, the webview fetches + parses via
   `colmapLoader.ts`; used by URL-based hosts like PyCharm). Both converge on
-  `viewer.addReconstruction`.
+  `viewer.addReconstruction`. Meshes and 3DGS splats both arrive as **`addAsset`**
+  (`{ asset: { uri, name } }`); the webview's `assetLayer.ts` picks the loader by
+  extension and `viewer.addAsset` adds the layer.
 - **Host-agnostic bundle / the host bridge.** The webview never calls a
   host-specific API; it reads `window.__viewerHost` via
   `shared/hostBridge.getHostBridge()`. Each host installs that adapter before the
@@ -170,10 +176,14 @@ is global across the scene.
   here with a test. Filesystem discovery/IO is host code
   (`vscode/src/host/colmapLoad.ts`), not part of this library.
 - **CSP** (`vscode/src/host/panel.ts` getHtml; VS Code host only): `default-src
-  'none'`; nonce'd script only;
+  'none'`; nonce'd script (+ `'wasm-unsafe-eval'`) only;
   `img-src` + `connect-src` scoped to `webview.cspSource` (plus `blob:`/`data:`
-  for images). Frustum images load via `<img>` (img-src); mesh loaders fetch via
-  `connect-src`. If you add asset types/workers, update the CSP.
+  for images); `worker-src blob:`. Frustum images load via `<img>` (img-src); asset
+  loaders fetch via `connect-src`. The splat decoder ([Spark](https://sparkjs.dev))
+  runs WebAssembly inside a `blob:` Web Worker — hence `worker-src blob:` and
+  `'wasm-unsafe-eval'` (the worker inherits the page policy). We fetch the splat
+  bytes on the main thread and hand them to Spark, so the worker itself never
+  fetches. If you add asset types/workers, update the CSP.
 - **`localResourceRoots` is fixed at panel creation**, and recreating the panel
   reloads the whole webview ("restart from scratch"). To avoid that on every add,
   `rootsFor` allows the **filesystem/drive root** of each opened path, so adding
@@ -214,14 +224,23 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - **New host→webview message:** add to the union in `core/src/shared/messages.ts`,
   handle it in `core/src/webview/main.ts`, and post it from the host(s) that need
   it (`vscode/src/host/panel.ts`; `demo/src/host.ts`; PyCharm + its `Messages.kt`).
-- **New mesh format:** add a loader case in `meshLayer.ts` and the extension to the
-  picker `filters` in `vscode/src/host/extension.ts` (and the demo/PyCharm pickers).
+- **New asset format:** add a loader case in `assetLayer.ts` and the extension to
+  the picker filters in each host — `ASSET_EXTS` in `vscode/src/host/extension.ts`,
+  `input.accept` in `demo/src/host.ts`, and `ASSET_EXTS` in
+  `jetbrains/.../ColmapViewerService.kt`. Splat formats decode through Spark; meshes
+  through three's loaders.
 
 ## Build internals
 
 - **Workspaces:** root `package.json` orchestrates `@3dview/core` → `3dview`
   → `3dview-demo`; `npm install` once at the root links them. `jetbrains/` is a
   separate Gradle build, not an npm workspace.
+- **Dependencies:** `@3dview/core` depends on `three` (**>=0.180**, the
+  `@sparkjsdev/spark` peer requirement) and `@sparkjsdev/spark` (the splat loader).
+  esbuild inlines Spark — including its embedded WASM splat decoder + `blob:` worker —
+  into `out/webview.js`, so the bundle is several MB (≈6.4M). The worker is
+  self-contained (no `import.meta`/`new URL`, no Node `require`), so the boundary
+  guard stays green; it just needs the CSP allowances above on the VS Code host.
 - `core/esbuild.js`: webview entry `src/webview/main.ts` → `out/webview.js`
   (browser/iife); `--test` bundles `test/*.test.ts` → `out/test/`. `vscode/esbuild.js`:
   extension entry `src/host/extension.ts` → `out/extension.js` (node/cjs, `vscode`

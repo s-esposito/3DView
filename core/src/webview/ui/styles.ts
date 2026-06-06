@@ -66,6 +66,9 @@ const CSS = `
 .viewer-kv .k{color:var(--vscode-descriptionForeground,#999)}
 .viewer-kv .v{text-align:right;font-variant-numeric:tabular-nums}
 @keyframes viewer-pop{from{opacity:0;transform:scale(.96) translateY(-4px)}to{opacity:1;transform:none}}
+.viewer-status{display:inline-flex;align-items:center;gap:10px}
+.viewer-spinner{flex:none;width:16px;height:16px;border-radius:50%;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;animation:viewer-spin .8s linear infinite}
+@keyframes viewer-spin{to{transform:rotate(360deg)}}
 `;
 
 export function ensureStyles(): void {

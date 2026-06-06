@@ -45,21 +45,25 @@ export interface ModelData {
   bounds: Bounds;
 }
 
-/** A mesh to load in the webview, identified by a webview-resolvable URI. */
-export interface MeshRef {
-  /** Webview URI of the mesh file (asset siblings resolve relative to it). */
+/**
+ * An asset to load in the webview, identified by a webview-resolvable URI. An
+ * asset is a mesh (glTF/GLB/OBJ/PLY) or a 3D Gaussian Splatting cloud
+ * (.ply / .splat / .spz / .ksplat); the loader is picked by file extension.
+ */
+export interface AssetRef {
+  /** Webview URI of the asset file (mesh siblings resolve relative to it). */
   uri: string;
   /** File name, used for display and to pick a loader by extension. */
   name: string;
 }
 
 /** What kind of content the "+" add action should pick. */
-export type AddKind = "colmap" | "mesh";
+export type AddKind = "colmap" | "asset";
 
 /**
  * Extension host -> webview. A scene holds any number of reconstructions and
- * meshes, each identified by a host-assigned `id` (stable across panel
- * recreations) so the webview can list, toggle, and remove them.
+ * assets (meshes / splats), each identified by a host-assigned `id` (stable
+ * across panel recreations) so the webview can list, toggle, and remove them.
  */
 export type HostToWebview =
   | { type: "loading"; message: string }
@@ -84,7 +88,7 @@ export type HostToWebview =
       // `imageBaseUrl` when a name resolves in it.
       imageUrls?: Record<string, string>;
     }
-  | { type: "addMesh"; id: string; label: string; mesh: MeshRef }
+  | { type: "addAsset"; id: string; label: string; asset: AssetRef }
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */

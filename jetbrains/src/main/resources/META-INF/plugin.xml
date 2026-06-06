@@ -6,9 +6,10 @@
 
     <description><![CDATA[
         View <b>COLMAP reconstructions</b> (a colored point cloud with camera poses,
-        each image textured onto its frustum) and <b>3D meshes</b>
-        (glTF / GLB / OBJ / PLY) in one interactive Three.js scene, embedded in the
-        IDE via JCEF. The same viewer is available as a VS Code extension.
+        each image textured onto its frustum), <b>3D meshes</b> (glTF / GLB / OBJ / PLY),
+        and <b>3D Gaussian Splatting</b> files (PLY / SPLAT / SPZ / KSPLAT) in one
+        interactive Three.js scene, embedded in the IDE via JCEF. The same viewer is
+        available as a VS Code extension.
     ]]></description>
 
     <idea-version since-build="243"/>
@@ -31,10 +32,10 @@
                 description="Open a COLMAP reconstruction folder in the 3D viewer">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
-        <action id="dev.colmapview.OpenMesh"
-                class="dev.colmapview.actions.OpenMeshAction"
-                text="3DView: Open Mesh…"
-                description="Open a mesh (glTF / GLB / OBJ / PLY) in the 3D viewer">
+        <action id="dev.colmapview.OpenAsset"
+                class="dev.colmapview.actions.OpenAssetAction"
+                text="3DView: Open Asset…"
+                description="Open an asset — a mesh (glTF / GLB / OBJ / PLY) or a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT) — in the 3D viewer">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="dev.colmapview.OpenViewer"

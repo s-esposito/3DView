@@ -14,7 +14,7 @@ package dev.colmapview
 /** Inbound: webview -> host. */
 sealed interface WebviewToHost {
     object Ready : WebviewToHost
-    data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "mesh"
+    data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "asset"
     data class Removed(val id: String) : WebviewToHost
 
     /** A PNG render of the current viewpoint to save; `png` is a data URL. */
@@ -57,12 +57,12 @@ object HostMessages {
     fun error(message: String): String =
         obj("type" to str("error"), "message" to str(message))
 
-    fun addMesh(id: String, label: String, uri: String, name: String): String =
+    fun addAsset(id: String, label: String, uri: String, name: String): String =
         obj(
-            "type" to str("addMesh"),
+            "type" to str("addAsset"),
             "id" to str(id),
             "label" to str(label),
-            "mesh" to obj("uri" to str(uri), "name" to str(name)),
+            "asset" to obj("uri" to str(uri), "name" to str(name)),
         )
 
     fun loadColmap(

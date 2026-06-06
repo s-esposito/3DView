@@ -1,10 +1,11 @@
 # 3DView
 
-A VS Code extension for viewing **COLMAP reconstructions** and **3D meshes** in
-the editor — a colored point cloud, camera frustums with the source images, and
-glTF/OBJ/PLY meshes, all in one interactive Three.js scene.
+A VS Code extension for viewing **COLMAP reconstructions**, **3D meshes**, and
+**3D Gaussian splats** in the editor — a colored point cloud, camera frustums with
+the source images, glTF/OBJ/PLY meshes, and 3DGS splats
+(`.ply`/`.splat`/`.spz`/`.ksplat`), all in one interactive Three.js scene.
 
-**🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models and meshes in the browser (no install required).
+**🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models, meshes, and 3DGS splats in the browser (no install required).
 
 ![3DView](imgs/teaser.png)
 
@@ -12,8 +13,11 @@ glTF/OBJ/PLY meshes, all in one interactive Three.js scene.
 
 - **COLMAP point clouds + camera poses** (`.bin` / `.txt`), with each image
   textured onto its frustum. Click a frustum to fly to that camera's viewpoint.
-- **Meshes** — `.glb` / `.gltf` / `.obj` / `.ply`, with a wireframe toggle.
-- **Multi-source scenes** — open many reconstructions and meshes together; add,
+- **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, with a wireframe toggle)
+  and **3D Gaussian Splatting** files (`.ply` / `.splat` / `.spz` / `.ksplat`,
+  loaded via [Spark](https://sparkjs.dev) and shown as a colored point cloud). A
+  `.ply` is auto-detected as a mesh or a splat.
+- **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
@@ -36,8 +40,9 @@ git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ## Usage
 
 Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
-Reconstruction* / *Open Mesh* / *Open Viewer*, then the Scene panel's **+** to add
-more. A COLMAP model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`).
+Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** to add
+more. A COLMAP model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`);
+an asset is a single mesh or splat file.
 
 | Action | Input |
 |--------|-------|

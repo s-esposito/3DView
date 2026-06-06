@@ -31,7 +31,7 @@ class ColmapViewerService(private val project: Project) : Disposable {
     private val panel: JcefViewerPanel by lazy {
         JcefViewerPanel(this).also { p ->
             p.onRequestAdd = { kind ->
-                if (kind == "mesh") openMeshInteractive() else openReconstructionInteractive()
+                if (kind == "asset") openAssetInteractive() else openReconstructionInteractive()
             }
             p.onError = ::notifyError
             p.onSaveImage = ::saveImage
@@ -60,14 +60,14 @@ class ColmapViewerService(private val project: Project) : Disposable {
         }
     }
 
-    fun openMeshInteractive() {
+    fun openAssetInteractive() {
         if (!ensureSupported()) return
         val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor()
-            .withTitle("Select a mesh (glTF / GLB / OBJ / PLY)")
-            .withFileFilter { vf -> vf.extension?.lowercase() in MESH_EXTS }
+            .withTitle("Select an asset — mesh (glTF / GLB / OBJ / PLY) or splat (PLY / SPLAT / SPZ / KSPLAT)")
+            .withFileFilter { vf -> vf.extension?.lowercase() in ASSET_EXTS }
         val chosen = FileChooser.chooseFile(descriptor, project, null) ?: return
         activate()
-        panel.openMesh(chosen.toNioPath())
+        panel.openAsset(chosen.toNioPath())
     }
 
     private fun chooseModel(root: Path, dirs: List<Path>) {
@@ -134,6 +134,8 @@ class ColmapViewerService(private val project: Project) : Disposable {
 
     companion object {
         const val TOOL_WINDOW_ID = "3D Viewer"
-        private val MESH_EXTS = setOf("glb", "gltf", "obj", "ply")
+        // Meshes (glTF/GLB/OBJ/PLY) + 3DGS splats (PLY/SPLAT/SPZ/KSPLAT); a .ply is
+        // disambiguated in the webview.
+        private val ASSET_EXTS = setOf("glb", "gltf", "obj", "ply", "splat", "spz", "ksplat")
     }
 }

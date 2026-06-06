@@ -36,6 +36,8 @@ viewer.onChange = () => {
   updateStatus();
 };
 viewer.onError = (message) => showStatus(`Error: ${message}`);
+// Async loaders report their phase (download %, "Decoding…") here.
+viewer.onProgress = (message) => showStatus(message, true);
 
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
@@ -46,7 +48,7 @@ viewer.onSaveImage = (png, suggestedName) => host.postMessage({ type: "saveImage
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
-showStatus("Open a reconstruction or mesh — or use + in the Scene panel.");
+showStatus("Open a reconstruction or asset — or use + in the Scene panel.");
 
 // Keyboard shortcuts map to the same Viewer API the panel uses.
 const TOGGLE_KEYS: Record<string, GlobalToggle> = {
@@ -83,9 +85,23 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-function showStatus(message: string) {
+/** Show the centered overlay. When `busy`, prefix an animated spinner (the work
+ *  runs off the main thread — e.g. a fetch or the Spark decode worker — so it
+ *  keeps spinning, signalling progress even without a percentage). */
+function showStatus(message: string, busy = false) {
   status.style.display = "flex";
-  status.textContent = message;
+  status.replaceChildren();
+  const wrap = document.createElement("span");
+  wrap.className = "viewer-status";
+  if (busy) {
+    const spinner = document.createElement("span");
+    spinner.className = "viewer-spinner";
+    wrap.append(spinner);
+  }
+  const text = document.createElement("span");
+  text.textContent = message;
+  wrap.append(text);
+  status.append(wrap);
 }
 
 /** Hide the overlay once the scene has content; otherwise show a prompt. */
@@ -93,7 +109,7 @@ function updateStatus() {
   if (viewer.getState().items.length > 0) {
     status.style.display = "none";
   } else {
-    showStatus("Open a reconstruction or mesh — or use + in the Scene panel.");
+    showStatus("Open a reconstruction or asset — or use + in the Scene panel.");
   }
 }
 
@@ -101,19 +117,19 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
   const msg = event.data;
   switch (msg.type) {
     case "loading":
-      showStatus(msg.message);
+      showStatus(msg.message, true);
       break;
     case "addReconstruction":
       viewer.addReconstruction(msg.id, msg.label, msg.data, msg.source); // fires onChange
       break;
-    case "addMesh":
-      showStatus(`Loading ${msg.label}…`);
-      viewer.addMesh(msg.id, msg.label, msg.mesh.uri, msg.mesh.name); // async; onChange/onError
+    case "addAsset":
+      showStatus(`Loading ${msg.label}…`, true);
+      viewer.addAsset(msg.id, msg.label, msg.asset.uri, msg.asset.name); // async; onChange/onError
       break;
     case "loadColmap":
       // The host hands us URLs (not parsed data); fetch + parse in-browser, then
       // converge on the same addReconstruction path the inline `data` case uses.
-      showStatus(`Loading ${msg.label}…`);
+      showStatus(`Loading ${msg.label}…`, true);
       loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl, msg.imageUrls)
         .then((data) => viewer.addReconstruction(msg.id, msg.label, data, msg.source))
         .catch((err) =>

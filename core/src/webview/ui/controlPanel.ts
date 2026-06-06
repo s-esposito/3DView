@@ -98,10 +98,10 @@ export class ControlPanel {
         checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
-    if (s.hasPoints || s.hasMesh) {
+    if (s.hasPoints || s.hasAsset) {
       toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
     }
-    if (s.hasMesh) {
+    if (s.hasAsset) {
       toggles.append(
         checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
       );
@@ -166,7 +166,7 @@ export class ControlPanel {
 
     const add = menuButton("+", "Add to scene", [
       { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "Asset…", onClick: () => this.viewer.requestAdd("asset") },
     ]);
 
     panel.append(
@@ -191,7 +191,7 @@ export class ControlPanel {
     if (s.items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "viewer-scene-empty";
-      empty.textContent = "Empty — add a reconstruction or mesh";
+      empty.textContent = "Empty — add a reconstruction or asset";
       body.append(empty);
       return body;
     }
@@ -205,7 +205,7 @@ export class ControlPanel {
       label.title = item.source ? sourcePath(item.source) : item.label;
       const kind = document.createElement("span");
       kind.className = "kind";
-      kind.textContent = item.kind === "reconstruction" ? "recon" : "mesh";
+      kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
       row.append(
         this.visibilityToggle(item),
         label,
@@ -284,16 +284,16 @@ function sourcePath(uri: string): string {
   return uri.replace(/^https?:\/\/[^/]+/i, "");
 }
 
-/** Human-readable scene summary, e.g. "1 reconstruction · 2 meshes". */
+/** Human-readable scene summary, e.g. "1 reconstruction · 2 assets". */
 function sceneSummary(s: ViewerState): string {
   const recon = s.items.filter((i) => i.kind === "reconstruction").length;
-  const meshes = s.items.filter((i) => i.kind === "mesh").length;
+  const assets = s.items.filter((i) => i.kind === "asset").length;
   const parts: string[] = [];
   if (recon) {
     parts.push(`${recon} reconstruction${recon > 1 ? "s" : ""}`);
   }
-  if (meshes) {
-    parts.push(`${meshes} mesh${meshes > 1 ? "es" : ""}`);
+  if (assets) {
+    parts.push(`${assets} asset${assets > 1 ? "s" : ""}`);
   }
   return parts.join(" · ") || "empty scene";
 }

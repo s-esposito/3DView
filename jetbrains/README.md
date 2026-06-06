@@ -10,8 +10,8 @@ IntelliJ-based IDEs. For what the viewer does and its controls, see the
 ## How it works
 
 - The webview bundle talks to its host only through `window.__viewerHost` (see
-  `core/src/shared/hostBridge.ts`) and fetches images, meshes, and the COLMAP
-  `.bin`/`.txt` files from plain URLs.
+  `core/src/shared/hostBridge.ts`) and fetches images, assets (meshes / splats),
+  and the COLMAP `.bin`/`.txt` files from plain URLs.
 - The plugin provides that bridge with a `JBCefJSQuery` and serves all content
   from a single in-process origin (`http://colmapview/…`) via a CEF resource
   handler, guarded to allowed roots.
@@ -37,7 +37,7 @@ gradle wrapper && ./gradlew buildPlugin   # -> build/distributions/colmapview-py
 
 Then in the IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick that
 zip, and restart. A **3D Viewer** tool window docks on the right and **Tools ▸**
-gains *3DView: Open Reconstruction… / Open Mesh… / Open Empty Viewer*. (Loads on
+gains *3DView: Open Reconstruction… / Open Asset… / Open Empty Viewer*. (Loads on
 IDE build 2024.3 and newer.)
 
 For development, `./gradlew runIde` launches a sandbox IDE with the plugin loaded —

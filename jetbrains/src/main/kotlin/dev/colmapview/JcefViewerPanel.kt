@@ -14,7 +14,7 @@ import javax.swing.JComponent
  * messages. COLMAP is parsed in the webview (we only serve URLs).
  */
 class JcefViewerPanel(parent: Disposable) {
-    /** Called when the webview's Scene "+" requests adding content ("colmap"|"mesh"). */
+    /** Called when the webview's Scene "+" requests adding content ("colmap"|"asset"). */
     var onRequestAdd: (kind: String) -> Unit = {}
 
     /** Called with a user-facing error message (the canvas status is set too). */
@@ -31,7 +31,7 @@ class JcefViewerPanel(parent: Disposable) {
 
     private sealed interface Target {
         data class Colmap(val modelDir: Path, val imagesDir: Path?) : Target
-        data class Mesh(val file: Path) : Target
+        data class Asset(val file: Path) : Target
     }
 
     private data class Item(val id: String, val target: Target)
@@ -55,13 +55,13 @@ class JcefViewerPanel(parent: Disposable) {
 
     val component: JComponent get() = browser.component
 
-    /** Add a mesh file to the scene. */
-    fun openMesh(file: Path) {
+    /** Add an asset file (mesh or 3DGS splat) to the scene. */
+    fun openAsset(file: Path) {
         roots.allow(file.parent ?: file)
-        val id = "mesh-${++idCounter}"
-        content += Item(id, Target.Mesh(file))
+        val id = "asset-${++idCounter}"
+        content += Item(id, Target.Asset(file))
         val name = file.fileName.toString()
-        queueOrRun { bridge.post(HostMessages.addMesh(id, name, roots.toResourceUrl(file), name)) }
+        queueOrRun { bridge.post(HostMessages.addAsset(id, name, roots.toResourceUrl(file), name)) }
     }
 
     /** Add a COLMAP reconstruction (the webview fetches + parses the model files). */

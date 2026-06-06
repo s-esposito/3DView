@@ -5,15 +5,15 @@ import { labelFor, pathOf, type OpenTarget } from "./panel";
 const KEY = "3dview.recents";
 const CAP = 10;
 
-/** Display label: a model dir reuses the panel's label rule; a mesh its basename. */
+/** Display label: a model dir reuses the panel's label rule; an asset its basename. */
 function labelOf(t: OpenTarget): string {
   return t.kind === "colmap" ? labelFor(t.modelDir) : path.basename(t.file);
 }
 
 /**
  * The Activity Bar "3DView" view: a recents launcher. Backed by per-workspace
- * `workspaceState`, it lists recently opened reconstructions/meshes (click to
- * re-open) and accepts dropped folders/mesh files via the drag-and-drop
+ * `workspaceState`, it lists recently opened reconstructions/assets (click to
+ * re-open) and accepts dropped folders/asset files via the drag-and-drop
  * controller. The host records entries through `add()` whenever something opens.
  */
 export class RecentsProvider
@@ -27,7 +27,7 @@ export class RecentsProvider
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-    /** Called with dropped resource URIs; the host resolves folder vs. mesh. */
+    /** Called with dropped resource URIs; the host resolves folder vs. asset. */
     private readonly onDrop: (uris: vscode.Uri[]) => void
   ) {}
 
