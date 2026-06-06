@@ -8,7 +8,6 @@ const CSS = `
 :root{--viewer-blur:blur(12px) saturate(1.3)}
 .viewer-ui{position:fixed;top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:10px;z-index:10}
 .viewer-panel{width:222px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06);user-select:none}
-.viewer-panel.collapsed{width:auto}
 .viewer-header{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-radius:12px 12px 0 0;transition:background .18s ease}
 .viewer-panel.collapsed .viewer-header{border-radius:12px}
 .viewer-header:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 55%,transparent)}
