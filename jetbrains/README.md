@@ -1,6 +1,6 @@
-# 3DViewer — PyCharm / JetBrains plugin
+# 3DView — PyCharm / JetBrains plugin
 
-A third host for the 3DViewer core, alongside the [VS Code extension](../vscode/)
+A third host for the 3DView core, alongside the [VS Code extension](../vscode/)
 and the [web demo](../demo/). It embeds the **same** host-agnostic
 `core/out/webview.js` bundle inside a JCEF (Chromium) tool window — no viewer code
 is duplicated. Built against PyCharm Community, so it runs in PyCharm and other
@@ -29,7 +29,7 @@ webview bundle, then `buildPlugin`) and prints the output zip. Or run them by ha
 
 ```bash
 # 1) repo root — build the shared webview bundle (run `npm install` once first)
-npm run build -w @3dviewer/core
+npm run build -w @3dview/core
 # 2) here — package the plugin zip
 cd jetbrains
 gradle wrapper && ./gradlew buildPlugin   # -> build/distributions/colmapview-pycharm-<version>.zip
@@ -37,7 +37,7 @@ gradle wrapper && ./gradlew buildPlugin   # -> build/distributions/colmapview-py
 
 Then in the IDE: **Settings → Plugins → ⚙ → Install Plugin from Disk…**, pick that
 zip, and restart. A **3D Viewer** tool window docks on the right and **Tools ▸**
-gains *3DViewer: Open Reconstruction… / Open Mesh… / Open Empty Viewer*. (Loads on
+gains *3DView: Open Reconstruction… / Open Mesh… / Open Empty Viewer*. (Loads on
 IDE build 2024.3 and newer.)
 
 For development, `./gradlew runIde` launches a sandbox IDE with the plugin loaded —

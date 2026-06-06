@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>dev.colmapview</id>
-    <name>3DViewer</name>
+    <name>3DView</name>
     <version>0.0.1</version>
     <vendor email="stefano2142x@gmail.com" url="https://github.com/s-esposito/3DView">Stefano Esposito</vendor>
 
@@ -21,25 +21,25 @@
         <toolWindow id="3D Viewer" anchor="right"
                     factoryClass="dev.colmapview.ColmapViewerToolWindowFactory"
                     icon="/icons/toolWindow.svg"/>
-        <notificationGroup id="3DViewer" displayType="BALLOON"/>
+        <notificationGroup id="3DView" displayType="BALLOON"/>
     </extensions>
 
     <actions>
         <action id="dev.colmapview.OpenReconstruction"
                 class="dev.colmapview.actions.OpenReconstructionAction"
-                text="3DViewer: Open Reconstruction…"
+                text="3DView: Open Reconstruction…"
                 description="Open a COLMAP reconstruction folder in the 3D viewer">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="dev.colmapview.OpenMesh"
                 class="dev.colmapview.actions.OpenMeshAction"
-                text="3DViewer: Open Mesh…"
+                text="3DView: Open Mesh…"
                 description="Open a mesh (glTF / GLB / OBJ / PLY) in the 3D viewer">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="dev.colmapview.OpenViewer"
                 class="dev.colmapview.actions.OpenViewerAction"
-                text="3DViewer: Open Empty Viewer"
+                text="3DView: Open Empty Viewer"
                 description="Open the 3D viewer with an empty scene">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>

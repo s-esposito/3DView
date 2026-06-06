@@ -5,7 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import dev.colmapview.ColmapViewerService
 
-/** Shared base for the 3DViewer actions: enabled only with a project in context. */
+/** Shared base for the 3DView actions: enabled only with a project in context. */
 abstract class ViewerAction : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 

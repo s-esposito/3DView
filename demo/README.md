@@ -1,6 +1,6 @@
-# 3DViewer Demo
+# 3DView Demo
 
-A fully client-side web build of **3DViewer** — the same host-agnostic three.js
+A fully client-side web build of **3DView** — the same host-agnostic three.js
 viewer used by the VS Code and PyCharm hosts, running in the browser over a thin
 file-picker bridge. Nothing is uploaded; all parsing and rendering happen locally.
 
@@ -61,7 +61,7 @@ From the repo root (npm workspaces link the packages):
 
 ```bash
 npm install
-npm run build      # builds @3dviewer/core, then copies its bundle into demo/dist/
+npm run build      # builds @3dview/core, then copies its bundle into demo/dist/
 ```
 
 Then serve the `demo/` directory with any static server (`index.html` references

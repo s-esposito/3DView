@@ -1,9 +1,9 @@
 {
-  "name": "3dviewer",
-  "displayName": "3DViewer",
+  "name": "3dview",
+  "displayName": "3DView",
   "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
   "version": "0.0.1",
-  "publisher": "3dviewer",
+  "publisher": "3dview",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,76 +21,76 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "3dviewer",
-          "title": "3DViewer",
+          "id": "3dview",
+          "title": "3DView",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "3dviewer": [
+      "3dview": [
         {
-          "id": "3dviewer.welcome",
-          "name": "3DViewer"
+          "id": "3dview.welcome",
+          "name": "3DView"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "3dviewer.welcome",
-        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dviewer.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dviewer.openMesh)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dviewer.openViewer)\n\nTip: drag a folder or a mesh file here to open it. Recently opened items appear in this panel."
+        "view": "3dview.welcome",
+        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dview.openReconstruction)\n\nOr load a mesh (glTF / GLB / OBJ / PLY) into the scene.\n[Open Mesh](command:3dview.openMesh)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dview.openViewer)\n\nTip: drag a folder or a mesh file here to open it. Recently opened items appear in this panel."
       }
     ],
     "commands": [
       {
-        "command": "3dviewer.openReconstruction",
-        "title": "3DViewer: Open Reconstruction",
+        "command": "3dview.openReconstruction",
+        "title": "3DView: Open Reconstruction",
         "icon": "$(folder-opened)"
       },
       {
-        "command": "3dviewer.openMesh",
-        "title": "3DViewer: Open Mesh",
+        "command": "3dview.openMesh",
+        "title": "3DView: Open Mesh",
         "icon": "$(file)"
       },
       {
-        "command": "3dviewer.openViewer",
-        "title": "3DViewer: Open Empty Viewer",
+        "command": "3dview.openViewer",
+        "title": "3DView: Open Empty Viewer",
         "icon": "$(empty-window)"
       },
       {
-        "command": "3dviewer.openRecent",
-        "title": "3DViewer: Open Recent"
+        "command": "3dview.openRecent",
+        "title": "3DView: Open Recent"
       },
       {
-        "command": "3dviewer.removeRecent",
+        "command": "3dview.removeRecent",
         "title": "Remove from Recents",
         "icon": "$(close)"
       },
       {
-        "command": "3dviewer.revealRecent",
+        "command": "3dview.revealRecent",
         "title": "Reveal in File Explorer"
       },
       {
-        "command": "3dviewer.clearRecents",
-        "title": "3DViewer: Clear Recents",
+        "command": "3dview.clearRecents",
+        "title": "3DView: Clear Recents",
         "icon": "$(clear-all)"
       }
     ],
     "menus": {
       "view/title": [
-        { "command": "3dviewer.openReconstruction", "when": "view == 3dviewer.welcome", "group": "navigation@1" },
-        { "command": "3dviewer.openMesh", "when": "view == 3dviewer.welcome", "group": "navigation@2" },
-        { "command": "3dviewer.openViewer", "when": "view == 3dviewer.welcome", "group": "navigation@3" },
-        { "command": "3dviewer.clearRecents", "when": "view == 3dviewer.welcome", "group": "1_recents@1" }
+        { "command": "3dview.openReconstruction", "when": "view == 3dview.welcome", "group": "navigation@1" },
+        { "command": "3dview.openMesh", "when": "view == 3dview.welcome", "group": "navigation@2" },
+        { "command": "3dview.openViewer", "when": "view == 3dview.welcome", "group": "navigation@3" },
+        { "command": "3dview.clearRecents", "when": "view == 3dview.welcome", "group": "1_recents@1" }
       ],
       "view/item/context": [
-        { "command": "3dviewer.revealRecent", "when": "view == 3dviewer.welcome && viewItem == recent", "group": "navigation@1" },
-        { "command": "3dviewer.removeRecent", "when": "view == 3dviewer.welcome && viewItem == recent", "group": "navigation@2" }
+        { "command": "3dview.revealRecent", "when": "view == 3dview.welcome && viewItem == recent", "group": "navigation@1" },
+        { "command": "3dview.removeRecent", "when": "view == 3dview.welcome && viewItem == recent", "group": "navigation@2" }
       ],
       "commandPalette": [
-        { "command": "3dviewer.openRecent", "when": "false" },
-        { "command": "3dviewer.removeRecent", "when": "false" },
-        { "command": "3dviewer.revealRecent", "when": "false" }
+        { "command": "3dview.openRecent", "when": "false" },
+        { "command": "3dview.removeRecent", "when": "false" },
+        { "command": "3dview.revealRecent", "when": "false" }
       ]
     }
   },
@@ -102,7 +102,7 @@
     "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {
-    "@3dviewer/core": "*",
+    "@3dview/core": "*",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",

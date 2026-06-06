@@ -40,7 +40,7 @@ jobs:
       - name: Build demo
         # Build only the shared core (produces out/webview.js) and the demo that
         # copies it — the VS Code extension isn't needed for Pages.
-        run: npm run build -w @3dviewer/core && npm run build -w 3dviewer-demo
+        run: npm run build -w @3dview/core && npm run build -w 3dview-demo
 
       - name: Prepare Pages artifact
         # Mirror demo/ exactly: index.html at the root references dist/demo.js and

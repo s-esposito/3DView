@@ -123,7 +123,7 @@ class JcefViewerPanel(parent: Disposable) {
         <html lang="en">
         <head>
           <meta charset="UTF-8" />
-          <title>3DViewer</title>
+          <title>3DView</title>
           <style>
             html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
             canvas { display: block; position: fixed; top: 0; left: 0; }

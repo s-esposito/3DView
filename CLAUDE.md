@@ -14,13 +14,16 @@ docs live in [README.md](README.md).
 3. **Surgical changes.** Touch only what the task requires. Don't improve adjacent code/comments/formatting. Remove only orphans YOUR changes created. Every changed line traces to the request.
 4. **Goal-driven execution.** Define verifiable success criteria upfront. For multi-step tasks, state a brief plan with checks. Loop until verified.
 
-## Names (intentional, don't "fix")
+## Names
 
-- Local folder: `colmapview` · GitHub repo: `s-esposito/3DView` · display name /
-  commands: **3DViewer**. npm is a **workspaces monorepo**: root
-  `3dviewer-monorepo`, packages `@3dviewer/core` (shared), `3dviewer` (VS Code
-  extension), and `3dviewer-demo` (GitHub Pages demo). The PyCharm plugin
-  (`jetbrains/`) is a separate Gradle build. These differing names are deliberate.
+- The brand is uniformly **3DView**: display name / command titles **3DView**,
+  GitHub repo `s-esposito/3DView`, npm names lowercased to `3dview`. npm is a
+  **workspaces monorepo**: root `3dview-monorepo`, packages `@3dview/core`
+  (shared), `3dview` (VS Code extension), and `3dview-demo` (GitHub Pages demo);
+  VS Code command/view IDs are `3dview.*`. The PyCharm plugin (`jetbrains/`) is a
+  separate Gradle build. Two names differ for historical reasons and are
+  intentional (don't "fix"): the local folder `colmapview` and the Kotlin package
+  `dev.colmapview`.
 
 ## Environment / commands
 
@@ -29,7 +32,7 @@ docs live in [README.md](README.md).
   `.vscode/settings.json` prepend it via `${env:HOME}` so VS Code tasks and
   integrated terminals work. In a raw shell, prepend it yourself.
 
-Run from the repo root; npm workspaces orchestrate `@3dviewer/core`, `3dviewer`, and `3dviewer-demo`.
+Run from the repo root; npm workspaces orchestrate `@3dview/core`, `3dview`, and `3dview-demo`.
 First time: `npm install` at the root (links the workspaces).
 
 ```bash
@@ -46,14 +49,14 @@ The demo is deployed to GitHub Pages via `.github/workflows/deploy-demo.yml` on 
 
 ## Architecture — runtime domains
 
-An npm-workspaces monorepo: a host-agnostic **core** (`@3dviewer/core`) consumed by
-thin hosts — the **vscode** extension (`3dviewer`), the **demo** web page
-(`3dviewer-demo`), and the **jetbrains** PyCharm plugin (a separate Gradle build).
+An npm-workspaces monorepo: a host-agnostic **core** (`@3dview/core`) consumed by
+thin hosts — the **vscode** extension (`3dview`), the **demo** web page
+(`3dview-demo`), and the **jetbrains** PyCharm plugin (a separate Gradle build).
 The webview bundle is byte-identical across hosts; each talks to it only via
 `postMessage`. Dependencies point inward only. See **The no-mixing boundary** below.
 
 ```
-core/                  @3dviewer/core — host-agnostic; builds out/webview.js. No vscode/Node/JVM.
+core/                  @3dview/core — host-agnostic; builds out/webview.js. No vscode/Node/JVM.
   src/index.ts           public API consumed by hosts (re-exports shared + colmap)
   src/shared/
     messages.ts          host↔webview message contract + DTOs (HostToWebview/WebviewToHost)
@@ -79,7 +82,7 @@ core/                  @3dviewer/core — host-agnostic; builds out/webview.js. 
     ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup)
   test/colmap.test.ts    pure parser/pose unit tests
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
-vscode/                3dviewer — VS Code extension (Node + vscode) → out/extension.js
+vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
     extension.ts         activate(): commands (openReconstruction/openMesh/openViewer), pickers, quick-pick
     colmapLoad.ts        fs discovery + load: detectFormat/findModelDirs/findImagesDir/loadModel (Node fs)
@@ -88,7 +91,7 @@ vscode/                3dviewer — VS Code extension (Node + vscode) → out/ex
     modelData.ts         parsed model → render-ready ModelData DTO
   test/colmapLoad.test.ts   fs discovery/load round-trip
   esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · media/
-demo/                  3dviewer-demo — GitHub Pages web host → dist/
+demo/                  3dview-demo — GitHub Pages web host → dist/
   src/host.ts            installs window.__viewerHost (file-picker bridge; blob-URL loadColmap/addMesh)
   src/main.ts            entry: install the bridge before the bundle loads
   esbuild.js (demo.js + copies core's webview.js) · index.html · deployed by .github/workflows/deploy-demo.yml
@@ -216,22 +219,22 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 
 ## Build internals
 
-- **Workspaces:** root `package.json` orchestrates `@3dviewer/core` → `3dviewer`
-  → `3dviewer-demo`; `npm install` once at the root links them. `jetbrains/` is a
+- **Workspaces:** root `package.json` orchestrates `@3dview/core` → `3dview`
+  → `3dview-demo`; `npm install` once at the root links them. `jetbrains/` is a
   separate Gradle build, not an npm workspace.
 - `core/esbuild.js`: webview entry `src/webview/main.ts` → `out/webview.js`
   (browser/iife); `--test` bundles `test/*.test.ts` → `out/test/`. `vscode/esbuild.js`:
   extension entry `src/host/extension.ts` → `out/extension.js` (node/cjs, `vscode`
   external) **and copies** `../core/out/webview.js`. `demo/esbuild.js`: `src/main.ts`
-  → `dist/demo.js` (browser/esm, `@3dviewer/core` external) and copies the bundle.
+  → `dist/demo.js` (browser/esm, `@3dview/core` external) and copies the bundle.
 - tsconfig per package: `module ESNext`, `moduleResolution Bundler` (esbuild is the
   real bundler; needed for three's ESM example loaders). Hosts resolve
-  `@3dviewer/core` via the workspace symlink (its `types: src/index.ts`).
+  `@3dview/core` via the workspace symlink (its `types: src/index.ts`).
 - Packaging (`vsce`, run in `vscode/`): `.vscodeignore` excludes `src/`, `test/`,
   maps, `*.vsix`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
-  README ship. `@3dviewer/core` is a devDependency (esbuild bundles it in), so it is
+  README ship. `@3dview/core` is a devDependency (esbuild bundles it in), so it is
   not packaged. `vscode_build.sh` passes `vsce --no-dependencies`: because this is a
-  workspace, `@3dviewer/core` is hoisted to the **root** `node_modules` and symlinked
+  workspace, `@3dview/core` is hoisted to the **root** `node_modules` and symlinked
   to `../../core` (outside the package), so without the flag vsce follows that symlink
   out of `vscode/` and tries to package the whole repo root (failing with `invalid
   relative path: extension/../…`). The flag is safe — esbuild already inlines core, so

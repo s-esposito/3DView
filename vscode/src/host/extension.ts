@@ -9,27 +9,27 @@ import { RecentsProvider } from "./recents";
 const MESH_EXTS = ["glb", "gltf", "obj", "ply"];
 
 export function activate(context: vscode.ExtensionContext) {
-  // The Activity Bar "3DViewer" view is a recents launcher (drag-drop + click to
+  // The Activity Bar "3DView" view is a recents launcher (drag-drop + click to
   // re-open). The 3D scene itself opens in a separate editor webview panel.
   const recents = new RecentsProvider(context, (uris) => openDropped(context, recents, uris));
 
   context.subscriptions.push(
-    vscode.window.createTreeView("3dviewer.welcome", {
+    vscode.window.createTreeView("3dview.welcome", {
       treeDataProvider: recents,
       dragAndDropController: recents,
     }),
-    vscode.commands.registerCommand("3dviewer.openReconstruction", () =>
+    vscode.commands.registerCommand("3dview.openReconstruction", () =>
       openReconstruction(context, recents)
     ),
-    vscode.commands.registerCommand("3dviewer.openMesh", () => openMesh(context, recents)),
-    vscode.commands.registerCommand("3dviewer.openViewer", () => ViewerPanel.open(context)),
-    vscode.commands.registerCommand("3dviewer.openRecent", (t: OpenTarget) => {
+    vscode.commands.registerCommand("3dview.openMesh", () => openMesh(context, recents)),
+    vscode.commands.registerCommand("3dview.openViewer", () => ViewerPanel.open(context)),
+    vscode.commands.registerCommand("3dview.openRecent", (t: OpenTarget) => {
       ViewerPanel.open(context, t);
       recents.add(t); // bump to front
     }),
-    vscode.commands.registerCommand("3dviewer.removeRecent", (t: OpenTarget) => recents.remove(t)),
-    vscode.commands.registerCommand("3dviewer.clearRecents", () => recents.clear()),
-    vscode.commands.registerCommand("3dviewer.revealRecent", (t: OpenTarget) =>
+    vscode.commands.registerCommand("3dview.removeRecent", (t: OpenTarget) => recents.remove(t)),
+    vscode.commands.registerCommand("3dview.clearRecents", () => recents.clear()),
+    vscode.commands.registerCommand("3dview.revealRecent", (t: OpenTarget) =>
       vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(pathOf(t)))
     )
   );
@@ -58,7 +58,7 @@ async function openReconstructionFromRoot(
   const dirs = findModelDirs(root);
   if (dirs.length === 0) {
     void vscode.window.showErrorMessage(
-      "3DViewer: no COLMAP model found here (need cameras/images/points3D as .bin or .txt, e.g. under sparse/0)."
+      "3DView: no COLMAP model found here (need cameras/images/points3D as .bin or .txt, e.g. under sparse/0)."
     );
     return;
   }
@@ -128,7 +128,7 @@ async function openDropped(
       openMeshFromFile(context, recents, uri.fsPath);
     } else {
       void vscode.window.showErrorMessage(
-        `3DViewer: drop a folder (a COLMAP reconstruction) or a mesh file (${MESH_EXTS.map((e) => `.${e}`).join(" / ")}).`
+        `3DView: drop a folder (a COLMAP reconstruction) or a mesh file (${MESH_EXTS.map((e) => `.${e}`).join(" / ")}).`
       );
     }
   }

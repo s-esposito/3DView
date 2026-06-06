@@ -21,7 +21,7 @@ for cmd in node npm; do
 done
 
 echo "==> Building the shared webview bundle (core/out/webview.js)"
-npm run build -w @3dviewer/core
+npm run build -w @3dview/core
 
 cd jetbrains
 

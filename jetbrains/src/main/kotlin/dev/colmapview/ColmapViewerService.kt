@@ -125,8 +125,8 @@ class ColmapViewerService(private val project: Project) : Disposable {
 
     private fun notify(message: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
-            .getNotificationGroup("3DViewer")
-            .createNotification("3DViewer: $message", type)
+            .getNotificationGroup("3DView")
+            .createNotification("3DView: $message", type)
             .notify(project)
     }
 

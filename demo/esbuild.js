@@ -1,6 +1,6 @@
 // Build script for the demo. Produces:
 //   dist/demo.js     – the host bridge + file picker (browser, ESM)
-//   dist/webview.js  – copied from @3dviewer/core (the viewer bundle)
+//   dist/webview.js  – copied from @3dview/core (the viewer bundle)
 const esbuild = require("esbuild");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -16,13 +16,13 @@ const demoConfig = {
   format: "esm",
   target: "es2020",
   sourcemap: true,
-  external: ["@3dviewer/core"], // Don't bundle the core, load from dist/webview.js
+  external: ["@3dview/core"], // Don't bundle the core, load from dist/webview.js
 };
 
 function copyWebview() {
   if (!fs.existsSync(CORE_WEBVIEW)) {
     console.warn(
-      `[demo] WARNING: ${CORE_WEBVIEW} not found — build @3dviewer/core first ` +
+      `[demo] WARNING: ${CORE_WEBVIEW} not found — build @3dview/core first ` +
         "(run `npm run build` at the repo root)."
     );
     return;
@@ -32,7 +32,7 @@ function copyWebview() {
   if (fs.existsSync(`${CORE_WEBVIEW}.map`)) {
     fs.copyFileSync(`${CORE_WEBVIEW}.map`, path.join("dist", "webview.js.map"));
   }
-  console.log("[demo] webview.js copied from @3dviewer/core");
+  console.log("[demo] webview.js copied from @3dview/core");
 }
 
 async function run() {

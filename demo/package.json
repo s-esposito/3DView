@@ -1,7 +1,7 @@
 {
-  "name": "3dviewer-demo",
+  "name": "3dview-demo",
   "version": "0.0.1",
-  "description": "GitHub Pages demo for 3DViewer — drag-drop COLMAP reconstructions and mesh files to render them in the browser.",
+  "description": "GitHub Pages demo for 3DView — drag-drop COLMAP reconstructions and mesh files to render them in the browser.",
   "license": "MIT",
   "private": true,
   "scripts": {

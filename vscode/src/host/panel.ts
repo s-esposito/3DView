@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HostToWebview, WebviewToHost, ModelData } from "@3dviewer/core";
+import type { HostToWebview, WebviewToHost, ModelData } from "@3dview/core";
 import { buildModelData } from "./modelData";
 
 // What the user asked to open. Also persisted as the Recents schema
@@ -33,7 +33,7 @@ const nextId = (kind: string) => `${kind}-${++idCounter}`;
  */
 export class ViewerPanel {
   public static current: ViewerPanel | undefined;
-  private static readonly viewType = "3dviewer.viewer";
+  private static readonly viewType = "3dview.viewer";
 
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
@@ -78,7 +78,7 @@ export class ViewerPanel {
     ];
     const webviewPanel = vscode.window.createWebviewPanel(
       ViewerPanel.viewType,
-      "3DViewer",
+      "3DView",
       column ?? vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots }
     );
@@ -123,7 +123,7 @@ export class ViewerPanel {
       case "requestAdd":
         // Reuse the same pickers as the commands; they call back into open().
         void vscode.commands.executeCommand(
-          msg.kind === "colmap" ? "3dviewer.openReconstruction" : "3dviewer.openMesh"
+          msg.kind === "colmap" ? "3dview.openReconstruction" : "3dview.openMesh"
         );
         break;
       case "removed":
@@ -147,7 +147,7 @@ export class ViewerPanel {
       return;
     }
     await vscode.workspace.fs.writeFile(uri, bytes);
-    void vscode.window.showInformationMessage(`3DViewer: saved ${path.basename(uri.fsPath)}`);
+    void vscode.window.showInformationMessage(`3DView: saved ${path.basename(uri.fsPath)}`);
   }
 
   /** Run an item now if the webview is up, else queue it until "ready". */
@@ -171,7 +171,7 @@ export class ViewerPanel {
       const data = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "3DViewer: loading reconstruction…",
+          title: "3DView: loading reconstruction…",
         },
         async () => Promise.resolve().then(() => buildModelData(modelDir))
       );
@@ -212,7 +212,7 @@ export class ViewerPanel {
   private reportError(err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     this.post({ type: "error", message });
-    void vscode.window.showErrorMessage(`3DViewer: ${message}`);
+    void vscode.window.showErrorMessage(`3DView: ${message}`);
   }
 
   private post(msg: HostToWebview) {
@@ -251,7 +251,7 @@ export class ViewerPanel {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3DViewer</title>
+  <title>3DView</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
     canvas { display: block; position: fixed; top: 0; left: 0; }

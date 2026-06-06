@@ -1,4 +1,4 @@
-// 3DViewer — PyCharm/JetBrains plugin. Hosts the SAME Three.js webview bundle
+// 3DView — PyCharm/JetBrains plugin. Hosts the SAME Three.js webview bundle
 // (../core/out/webview.js) inside a JCEF browser. All plugin metadata lives in
 // META-INF/plugin.xml; this build only wires the IntelliJ Platform, Kotlin, and
 // a task that copies the prebuilt webview bundle into plugin resources.

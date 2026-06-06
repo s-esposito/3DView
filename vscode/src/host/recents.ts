@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 import { labelFor, pathOf, type OpenTarget } from "./panel";
 
-const KEY = "3dviewer.recents";
+const KEY = "3dview.recents";
 const CAP = 10;
 
 /** Display label: a model dir reuses the panel's label rule; a mesh its basename. */
@@ -11,7 +11,7 @@ function labelOf(t: OpenTarget): string {
 }
 
 /**
- * The Activity Bar "3DViewer" view: a recents launcher. Backed by per-workspace
+ * The Activity Bar "3DView" view: a recents launcher. Backed by per-workspace
  * `workspaceState`, it lists recently opened reconstructions/meshes (click to
  * re-open) and accepts dropped folders/mesh files via the drag-and-drop
  * controller. The host records entries through `add()` whenever something opens.
@@ -65,7 +65,7 @@ export class RecentsProvider
     item.tooltip = pathOf(t);
     item.iconPath = new vscode.ThemeIcon(t.kind === "colmap" ? "layers" : "package");
     item.contextValue = "recent";
-    item.command = { command: "3dviewer.openRecent", title: "Open", arguments: [t] };
+    item.command = { command: "3dview.openRecent", title: "Open", arguments: [t] };
     return item;
   }
 

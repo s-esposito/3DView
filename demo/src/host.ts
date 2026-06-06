@@ -1,4 +1,4 @@
-import type { HostToWebview, WebviewToHost } from "@3dviewer/core";
+import type { HostToWebview, WebviewToHost } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
