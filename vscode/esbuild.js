@@ -1,6 +1,6 @@
-// Build script for the 3DViewer VS Code extension.
+// Build script for the 3DView VS Code extension.
 //   out/extension.js – the extension host (Node, CommonJS; `vscode` is external)
-//   out/webview.js    – copied from @3dviewer/core's build (the shared, host-agnostic
+//   out/webview.js    – copied from @3dview/core's build (the shared, host-agnostic
 //                       Three.js bundle). Core must be built first; the root
 //                       `npm run build` does that, then this.
 const esbuild = require("esbuild");
@@ -45,7 +45,7 @@ function testConfig() {
 function copyWebview() {
   if (!fs.existsSync(CORE_WEBVIEW)) {
     console.warn(
-      `[vscode] WARNING: ${CORE_WEBVIEW} not found — build @3dviewer/core first ` +
+      `[vscode] WARNING: ${CORE_WEBVIEW} not found — build @3dview/core first ` +
         "(run `npm run build` at the repo root)."
     );
     return;
@@ -55,7 +55,7 @@ function copyWebview() {
   if (fs.existsSync(`${CORE_WEBVIEW}.map`)) {
     fs.copyFileSync(`${CORE_WEBVIEW}.map`, path.join("out", "webview.js.map"));
   }
-  console.log("[vscode] webview.js copied from @3dviewer/core");
+  console.log("[vscode] webview.js copied from @3dview/core");
 }
 
 async function run() {

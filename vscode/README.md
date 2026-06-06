@@ -1,10 +1,10 @@
-# 3DViewer (VS Code extension)
+# 3DView (VS Code extension)
 
 View **COLMAP reconstructions** (colored point cloud + camera frustums with the
 source images) and **3D meshes** (glTF / GLB / OBJ / PLY) in an interactive
 Three.js scene, right in the editor.
 
-Open the **3DViewer** icon in the Activity Bar (or the Command Palette) to *Open
+Open the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
 Reconstruction* / *Open Mesh* / *Open Viewer*, then the Scene panel's **+** to add
 more. A COLMAP model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0`).
 

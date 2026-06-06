@@ -1,6 +1,7 @@
 // The scene-source abstraction. A scene is a list of SceneLayers; each is either
-// a COLMAP reconstruction (points + cameras + box) or a mesh. The Viewer owns
-// the list and treats every layer uniformly for visibility, bounds, and disposal.
+// a COLMAP reconstruction (points + cameras + box) or an asset (a mesh or a 3DGS
+// splat cloud). The Viewer owns the list and treats every layer uniformly for
+// visibility, bounds, and disposal.
 import * as THREE from "three";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
@@ -20,10 +21,10 @@ export interface DisplayOptions {
 /** One source of content in the scene. */
 export interface SceneLayer {
   readonly id: string;
-  readonly kind: "reconstruction" | "mesh";
+  readonly kind: "reconstruction" | "asset";
   /** Display name in the Scene list; editable via Viewer.renameItem. */
   label: string;
-  /** Source location (e.g. mesh file URI) for the Scene-list hover tooltip; undefined when unknown. */
+  /** Source location (e.g. asset file URI) for the Scene-list hover tooltip; undefined when unknown. */
   readonly source?: string;
   /** Root object added under the Viewer's `root` group. */
   readonly object: THREE.Object3D;

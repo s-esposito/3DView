@@ -1,11 +1,11 @@
-import type { HostToWebview, WebviewToHost } from "@3dviewer/core";
+import type { HostToWebview, WebviewToHost } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
 // All parsing/rendering lives in the core bundle — this host stays thin.
 
-/** Open the OS picker for a COLMAP folder or a mesh file; resolves null if cancelled. */
-function showFilePicker(kind: "colmap" | "mesh"): Promise<FileList | null> {
+/** Open the OS picker for a COLMAP folder or an asset file; resolves null if cancelled. */
+function showFilePicker(kind: "colmap" | "asset"): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -16,7 +16,8 @@ function showFilePicker(kind: "colmap" | "mesh"): Promise<FileList | null> {
       // `webkitRelativePath`), and it overrides `accept`, so we set none.
       input.webkitdirectory = true;
     } else {
-      input.accept = ".gltf,.glb,.obj,.ply";
+      // Meshes (glTF/GLB/OBJ/PLY) + 3DGS splats (PLY/SPLAT/SPZ/KSPLAT).
+      input.accept = ".gltf,.glb,.obj,.ply,.splat,.spz,.ksplat";
     }
     input.addEventListener("change", () => resolve(input.files));
     input.addEventListener("cancel", () => resolve(null));
@@ -49,11 +50,11 @@ export function installHostBridge() {
 }
 
 /** Run the picker for a Scene "+" request and forward the result to the webview. */
-async function handleAdd(kind: "colmap" | "mesh"): Promise<void> {
+async function handleAdd(kind: "colmap" | "asset"): Promise<void> {
   const files = await showFilePicker(kind);
   if (!files || files.length === 0) return; // cancelled / empty
   if (kind === "colmap") sendColmap(files);
-  else sendMesh(files);
+  else sendAsset(files);
 }
 
 /** A complete COLMAP model located within one directory of the picked folder. */
@@ -151,17 +152,17 @@ function sendColmap(files: FileList): void {
   console.log(`[demo host] loaded COLMAP model (${imageCount} frustum image(s))`);
 }
 
-/** Post the first picked mesh file to the webview as a blob URL. */
-function sendMesh(files: FileList): void {
-  const mesh = files[0];
+/** Post the first picked asset file (mesh or splat) to the webview as a blob URL. */
+function sendAsset(files: FileList): void {
+  const asset = files[0];
   window.postMessage(
     {
-      type: "addMesh",
-      id: `mesh-${Date.now()}`,
-      label: mesh.name,
-      mesh: { uri: URL.createObjectURL(mesh), name: mesh.name },
+      type: "addAsset",
+      id: `asset-${Date.now()}`,
+      label: asset.name,
+      asset: { uri: URL.createObjectURL(asset), name: asset.name },
     } satisfies HostToWebview,
     "*"
   );
-  console.log(`[demo host] loaded mesh ${mesh.name}`);
+  console.log(`[demo host] loaded asset ${asset.name}`);
 }

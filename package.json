@@ -1,7 +1,7 @@
 {
-  "name": "3dviewer-monorepo",
+  "name": "3dview-monorepo",
   "version": "0.0.1",
-  "description": "3DViewer — a host-agnostic Three.js viewer for COLMAP reconstructions and 3D meshes, with VS Code and PyCharm hosts over a shared core.",
+  "description": "3DView — a host-agnostic Three.js viewer for COLMAP reconstructions and 3D meshes, with VS Code and PyCharm hosts over a shared core.",
   "license": "MIT",
   "private": true,
   "repository": {
@@ -14,10 +14,10 @@
     "demo"
   ],
   "scripts": {
-    "build": "npm run build -w @3dviewer/core && npm run build -w 3dviewer && npm run build -w 3dviewer-demo",
-    "watch": "npm run build -w @3dviewer/core && npm run watch -w 3dviewer",
-    "lint": "npm run lint -w @3dviewer/core && npm run lint -w 3dviewer",
-    "check": "npm run check -w @3dviewer/core",
-    "test": "npm run test -w @3dviewer/core && npm run test -w 3dviewer"
+    "build": "npm run build -w @3dview/core && npm run build -w 3dview && npm run build -w 3dview-demo",
+    "watch": "npm run build -w @3dview/core && npm run watch -w 3dview",
+    "lint": "npm run lint -w @3dview/core && npm run lint -w 3dview",
+    "check": "npm run check -w @3dview/core",
+    "test": "npm run test -w @3dview/core && npm run test -w 3dview"
   }
 }

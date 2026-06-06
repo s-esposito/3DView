@@ -1,5 +1,5 @@
 // The scene controller: owns the renderer, scene graph, camera, and interaction.
-// A scene is a list of SceneLayers (reconstructions + meshes) under `root`, whose
+// A scene is a list of SceneLayers (reconstructions + assets) under `root`, whose
 // rotation implements the raw<->upright-Y-up toggle. The UI drives this via a
 // small imperative API; the Viewer owns all state.
 import * as THREE from "three";
@@ -8,7 +8,7 @@ import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages"
 import { themeColor } from "./theme";
 import { buildGrid, diagonalOf, unionBounds, computeLocalBounds, disposeObject } from "./builders";
 import { SceneLayer, ReconstructionLayer, DisplayOptions } from "./sceneLayer";
-import { MeshLayer } from "./meshLayer";
+import { AssetLayer } from "./assetLayer";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
@@ -30,9 +30,9 @@ export type Orientation = "raw" | "upright";
 export interface SceneItem {
   id: string;
   label: string;
-  kind: "reconstruction" | "mesh";
+  kind: "reconstruction" | "asset";
   visible: boolean;
-  /** Source location (e.g. mesh file URI) for the hover tooltip; undefined when unknown. */
+  /** Source location (e.g. asset file URI) for the hover tooltip; undefined when unknown. */
   source?: string;
 }
 
@@ -51,7 +51,7 @@ export interface ViewerState {
   frustumScaleMax: number;
   hasPoints: boolean;
   hasCameras: boolean;
-  hasMesh: boolean;
+  hasAsset: boolean;
   items: SceneItem[];
 }
 
@@ -60,8 +60,10 @@ export class Viewer {
   onSelect?: (camera: CameraView | null) => void;
   /** Fired after the scene's content or layout changes. */
   onChange?: () => void;
-  /** Fired when async content (e.g. a mesh) fails to load. */
+  /** Fired when async content (e.g. an asset) fails to load. */
   onError?: (message: string) => void;
+  /** Fired with a human-readable loading phase (download %, "Decoding…") for async assets. */
+  onProgress?: (message: string) => void;
   /** Fired when the "+" add action is invoked (the host opens a picker). */
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
@@ -166,7 +168,7 @@ export class Viewer {
       frustumScaleMax: this.frustumScaleMax,
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
-      hasMesh: this.layers.some((l) => l.kind === "mesh"),
+      hasAsset: this.layers.some((l) => l.kind === "asset"),
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -187,13 +189,13 @@ export class Viewer {
     this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source));
   }
 
-  addMesh(id: string, label: string, uri: string, name: string): void {
-    const layer = new MeshLayer(id, label, uri);
+  addAsset(id: string, label: string, uri: string, name: string): void {
+    const layer = new AssetLayer(id, label, uri);
     this.layers.push(layer);
     this.byId.set(id, layer);
     this.root.add(layer.object);
     layer
-      .load(uri, name)
+      .load(uri, name, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
@@ -252,7 +254,7 @@ export class Viewer {
         this.refreshTextures();
         break;
       case "box":
-        // Boxes wrap both reconstructions and meshes.
+        // Boxes wrap both reconstructions and assets.
         this.opts.box = on;
         this.layers.forEach((l) => l.setBoxVisible(on));
         break;

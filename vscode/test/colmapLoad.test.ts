@@ -1,7 +1,7 @@
 // Unit test for the VS Code host's COLMAP filesystem discovery/load
 // (colmapLoad.ts). Runs under plain `node --test`; it writes a tiny binary model
 // to a temp dir and round-trips detectFormat / findModelDirs / loadModel. The
-// pure parser tests live in @3dviewer/core (core/test/colmap.test.ts).
+// pure parser tests live in @3dview/core (core/test/colmap.test.ts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

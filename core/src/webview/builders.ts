@@ -10,14 +10,37 @@ const BOX_COLOR = 0x33dd88;
 
 /** The colored point cloud as a single `THREE.Points`. */
 export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
+  return buildColoredPoints(data.positions, data.colors, data.bounds, pointSize);
+}
+
+/**
+ * A 3DGS splat cloud's centers as a colored `THREE.Points` (v1: base color only,
+ * no covariance/opacity/SH splatting). Same render path as `buildPoints`.
+ */
+export function buildSplatPoints(
+  positions: Float32Array,
+  colors: Uint8Array,
+  bounds: Bounds,
+  pointSize: number
+): THREE.Points {
+  return buildColoredPoints(positions, colors, bounds, pointSize);
+}
+
+/** Shared colored-points builder: positions + Uint8 rgb + AABB-derived sphere. */
+function buildColoredPoints(
+  positions: Float32Array,
+  colors: Uint8Array,
+  bounds: Bounds,
+  pointSize: number
+): THREE.Points {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(data.positions, 3));
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   // Uint8 rgb, normalized to 0..1 in the shader.
-  geometry.setAttribute("color", new THREE.BufferAttribute(data.colors, 3, true));
-  // Set the bounding sphere from the host-supplied AABB so Three doesn't scan the
-  // whole position buffer on first render (a per-cloud first-frame hitch). Radius
-  // is half the space diagonal — undersizing would wrongly frustum-cull points.
-  const { min, max } = data.bounds;
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3, true));
+  // Set the bounding sphere from the AABB so Three doesn't scan the whole position
+  // buffer on first render (a per-cloud first-frame hitch). Radius is half the
+  // space diagonal — undersizing would wrongly frustum-cull points.
+  const { min, max } = bounds;
   const center = new THREE.Vector3(
     (min[0] + max[0]) / 2,
     (min[1] + max[1]) / 2,

@@ -1,5 +1,5 @@
 // The control UI (top-right overlay): two stacked, independently-collapsible
-// panels inside a #viewer-ui column — a "3DViewer" panel with scene-wide display
+// panels inside a #viewer-ui column — a "3DView" panel with scene-wide display
 // controls (Show / Appearance / View), and a "Scene" panel below it (the item
 // list + add menu). Both are thin views over the Viewer: they read `getState()`
 // to render and call Viewer setters on interaction; the Viewer owns all state.
@@ -11,7 +11,7 @@ const EYE_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" st
 const EYE_CLOSED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 
 export class ControlPanel {
-  private collapsed = false; // the 3DViewer (display) panel
+  private collapsed = false; // the 3DView (display) panel
   private sceneCollapsed = false; // the Scene panel
 
   constructor(private readonly viewer: Viewer) {}
@@ -69,12 +69,12 @@ export class ControlPanel {
     return header;
   }
 
-  /** The 3DViewer panel: scene-wide display controls. */
+  /** The 3DView panel: scene-wide display controls. */
   private buildDisplayPanel(s: ViewerState): HTMLElement {
     const panel = document.createElement("div");
     panel.className = this.collapsed ? "viewer-panel collapsed" : "viewer-panel";
     panel.append(
-      this.header(panel, "3DViewer", null, () => {
+      this.header(panel, "3DView", null, () => {
         this.collapsed = !this.collapsed;
       }),
       collapseWrap(this.buildDisplayBody(s))
@@ -98,10 +98,10 @@ export class ControlPanel {
         checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
-    if (s.hasPoints || s.hasMesh) {
+    if (s.hasPoints || s.hasAsset) {
       toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
     }
-    if (s.hasMesh) {
+    if (s.hasAsset) {
       toggles.append(
         checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
       );
@@ -166,7 +166,7 @@ export class ControlPanel {
 
     const add = menuButton("+", "Add to scene", [
       { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "Asset…", onClick: () => this.viewer.requestAdd("asset") },
     ]);
 
     panel.append(
@@ -191,7 +191,7 @@ export class ControlPanel {
     if (s.items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "viewer-scene-empty";
-      empty.textContent = "Empty — add a reconstruction or mesh";
+      empty.textContent = "Empty — add a reconstruction or asset";
       body.append(empty);
       return body;
     }
@@ -205,7 +205,7 @@ export class ControlPanel {
       label.title = item.source ? sourcePath(item.source) : item.label;
       const kind = document.createElement("span");
       kind.className = "kind";
-      kind.textContent = item.kind === "reconstruction" ? "recon" : "mesh";
+      kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
       row.append(
         this.visibilityToggle(item),
         label,
@@ -284,16 +284,16 @@ function sourcePath(uri: string): string {
   return uri.replace(/^https?:\/\/[^/]+/i, "");
 }
 
-/** Human-readable scene summary, e.g. "1 reconstruction · 2 meshes". */
+/** Human-readable scene summary, e.g. "1 reconstruction · 2 assets". */
 function sceneSummary(s: ViewerState): string {
   const recon = s.items.filter((i) => i.kind === "reconstruction").length;
-  const meshes = s.items.filter((i) => i.kind === "mesh").length;
+  const assets = s.items.filter((i) => i.kind === "asset").length;
   const parts: string[] = [];
   if (recon) {
     parts.push(`${recon} reconstruction${recon > 1 ? "s" : ""}`);
   }
-  if (meshes) {
-    parts.push(`${meshes} mesh${meshes > 1 ? "es" : ""}`);
+  if (assets) {
+    parts.push(`${assets} asset${assets > 1 ? "s" : ""}`);
   }
   return parts.join(" · ") || "empty scene";
 }

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HostToWebview, WebviewToHost, ModelData } from "@3dviewer/core";
+import type { HostToWebview, WebviewToHost, ModelData } from "@3dview/core";
 import { buildModelData } from "./modelData";
 
 // What the user asked to open. Also persisted as the Recents schema
@@ -9,9 +9,9 @@ import { buildModelData } from "./modelData";
 // descriptor — no `vscode.Uri`, handles, or other volatile fields.
 export type OpenTarget =
   | { kind: "colmap"; modelDir: string; imagesDir?: string }
-  | { kind: "mesh"; file: string };
+  | { kind: "asset"; file: string };
 
-/** The on-disk path an OpenTarget refers to (a model dir or a mesh file). */
+/** The on-disk path an OpenTarget refers to (a model dir or an asset file). */
 export function pathOf(t: OpenTarget): string {
   return t.kind === "colmap" ? t.modelDir : t.file;
 }
@@ -27,13 +27,13 @@ const nextId = (kind: string) => `${kind}-${++idCounter}`;
 
 /**
  * Owns the singleton webview panel. A scene holds any number of reconstructions
- * and meshes. `localResourceRoots` is fixed at panel creation, so when a new
+ * and assets. `localResourceRoots` is fixed at panel creation, so when a new
  * item needs a folder the panel doesn't allow yet, we recreate the panel with
  * the union of roots and replay all tracked items.
  */
 export class ViewerPanel {
   public static current: ViewerPanel | undefined;
-  private static readonly viewType = "3dviewer.viewer";
+  private static readonly viewType = "3dview.viewer";
 
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
@@ -78,7 +78,7 @@ export class ViewerPanel {
     ];
     const webviewPanel = vscode.window.createWebviewPanel(
       ViewerPanel.viewType,
-      "3DViewer",
+      "3DView",
       column ?? vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots }
     );
@@ -123,7 +123,7 @@ export class ViewerPanel {
       case "requestAdd":
         // Reuse the same pickers as the commands; they call back into open().
         void vscode.commands.executeCommand(
-          msg.kind === "colmap" ? "3dviewer.openReconstruction" : "3dviewer.openMesh"
+          msg.kind === "colmap" ? "3dview.openReconstruction" : "3dview.openAsset"
         );
         break;
       case "removed":
@@ -147,7 +147,7 @@ export class ViewerPanel {
       return;
     }
     await vscode.workspace.fs.writeFile(uri, bytes);
-    void vscode.window.showInformationMessage(`3DViewer: saved ${path.basename(uri.fsPath)}`);
+    void vscode.window.showInformationMessage(`3DView: saved ${path.basename(uri.fsPath)}`);
   }
 
   /** Run an item now if the webview is up, else queue it until "ready". */
@@ -156,7 +156,7 @@ export class ViewerPanel {
       if (item.target.kind === "colmap") {
         void this.loadColmap(item.id, item.target.modelDir, item.target.imagesDir);
       } else {
-        this.postMesh(item.id, item.target.file);
+        this.postAsset(item.id, item.target.file);
       }
     };
     if (this.webviewReady) {
@@ -171,7 +171,7 @@ export class ViewerPanel {
       const data = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "3DViewer: loading reconstruction…",
+          title: "3DView: loading reconstruction…",
         },
         async () => Promise.resolve().then(() => buildModelData(modelDir))
       );
@@ -185,10 +185,10 @@ export class ViewerPanel {
     }
   }
 
-  private postMesh(id: string, file: string) {
+  private postAsset(id: string, file: string) {
     const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
     const name = path.basename(file);
-    this.post({ type: "addMesh", id, label: name, mesh: { uri, name } });
+    this.post({ type: "addAsset", id, label: name, asset: { uri, name } });
   }
 
   /**
@@ -212,7 +212,7 @@ export class ViewerPanel {
   private reportError(err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     this.post({ type: "error", message });
-    void vscode.window.showErrorMessage(`3DViewer: ${message}`);
+    void vscode.window.showErrorMessage(`3DView: ${message}`);
   }
 
   private post(msg: HostToWebview) {
@@ -239,10 +239,15 @@ export class ViewerPanel {
       `default-src 'none'`,
       `img-src ${webview.cspSource} blob: data:`,
       `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}'`,
-      // Mesh loaders (glTF/OBJ/PLY) fetch the file and its sibling assets as
-      // webview resources; allow connect to our own resource origin only.
-      `connect-src ${webview.cspSource}`,
+      // 'wasm-unsafe-eval' lets the Spark splat decoder compile its WebAssembly;
+      // it runs inside a blob: Web Worker (worker-src), which inherits this policy.
+      `script-src 'nonce-${nonce}' 'wasm-unsafe-eval'`,
+      `worker-src blob:`,
+      // Asset loaders (glTF/OBJ/PLY) fetch the file and its sibling assets as
+      // webview resources (our resource origin). `data:` is required because the
+      // Spark splat worker loads its WebAssembly by fetching an inlined
+      // `data:application/wasm;base64,…` URL.
+      `connect-src ${webview.cspSource} data:`,
     ].join("; ");
 
     return /* html */ `<!DOCTYPE html>
@@ -251,7 +256,7 @@ export class ViewerPanel {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3DViewer</title>
+  <title>3DView</title>
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
     canvas { display: block; position: fixed; top: 0; left: 0; }
@@ -282,7 +287,7 @@ export class ViewerPanel {
  * We use the drive/filesystem root of each opened path (e.g. "/" on posix) rather
  * than the exact folder, so adding content from a new folder does NOT force a
  * panel recreate — which would reload the whole viewer from scratch. This is
- * safe: the host only ever builds webview URIs for opened content (mesh files,
+ * safe: the host only ever builds webview URIs for opened content (asset files,
  * and images under a model's images dir guarded against path escapes), so a
  * broad root never widens what is actually loadable.
  */

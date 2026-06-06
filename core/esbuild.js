@@ -1,4 +1,4 @@
-// Build script for @3dviewer/core. Produces the host-agnostic webview bundle:
+// Build script for @3dview/core. Produces the host-agnostic webview bundle:
 //   out/webview.js   – the Three.js viewer UI (browser, IIFE), shipped as-is by
 //                      every host (VS Code copies it; the PyCharm plugin copies it).
 // Test mode (--test) bundles the pure COLMAP unit tests to out/test/.

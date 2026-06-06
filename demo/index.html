@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>3DViewer — COLMAP & Mesh Viewer</title>
+    <title>3DView</title>
     <style>
       html,
       body {
@@ -40,7 +40,7 @@
     </style>
   </head>
   <body>
-    <div id="status">Click "+" in the Scene panel to load a COLMAP model (pick the project folder — the one containing <code>sparse/</code> and <code>images/</code> — so frustum images load too) or a mesh file.</div>
+    <div id="status">Click "+" in the Scene panel to load a COLMAP model (pick the project folder — the one containing <code>sparse/</code> and <code>images/</code> — so frustum images load too) or an asset file (a mesh or a 3DGS splat).</div>
 
     <!-- The demo host bridge installs window.__viewerHost and then injects the
          viewer bundle (dist/webview.js) — see src/main.ts for why the bundle is
