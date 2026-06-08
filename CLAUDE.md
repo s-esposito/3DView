@@ -75,7 +75,10 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
     assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY) or a
                          3DGS splat (.ply/.splat/.spz/.ksplat, via Spark → colored
-                         points; .ply auto-disambiguated by `f_dc_0`) into a group
+                         points; .ply auto-disambiguated by `f_dc_0`) into a group.
+                         Each mesh keeps its loaded (lit PBR, incl. GLB textures)
+                         material + a derived unlit-albedo twin; "Shaded" swaps
+                         between them (shaded is the default), "Wireframe" sets both
     cameraLayer.ts       per-camera frustums + image planes; hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
@@ -156,6 +159,13 @@ is global across the scene.
   `viewer.ts` (re-applied on resize); `buildPoints` sets `geometry.boundingSphere`
   from `data.bounds` (radius = ½ space diagonal) to skip Three's O(n) first-frame
   scan. The point cloud is never raycast (picking is frustums only).
+- **PBR meshes need the environment.** Lit meshes are shaded by `scene.environment`
+  (a PMREM-filtered `RoomEnvironment`) plus a hemisphere + key light, set once in
+  `viewer.ts`. The IBL is not decoration: a `metalness>0` glTF surface (e.g. a GLB
+  with a `metallicRoughnessTexture` — its texture feeds both `metalnessMap` and
+  `roughnessMap`) reflects the environment and renders black without it. Only
+  `MeshStandard`/`Physical` sample `environment`; unlit points/lines/image planes
+  and the albedo `MeshBasic` twins ignore it. Don't drop it to "simplify lighting."
 - **`shared/messages.ts` is the single source of truth** for the host↔webview
   contract. Extend the `HostToWebview`/`WebviewToHost` unions there and handle in
   `main.ts`. Keep it dependency-free. Reconstructions arrive two ways:
@@ -177,9 +187,14 @@ is global across the scene.
   (`vscode/src/host/colmapLoad.ts`), not part of this library.
 - **CSP** (`vscode/src/host/panel.ts` getHtml; VS Code host only): `default-src
   'none'`; nonce'd script (+ `'wasm-unsafe-eval'`) only;
-  `img-src` + `connect-src` scoped to `webview.cspSource` (plus `blob:`/`data:`
-  for images); `worker-src blob:`. Frustum images load via `<img>` (img-src); asset
-  loaders fetch via `connect-src`. The splat decoder ([Spark](https://sparkjs.dev))
+  `img-src` and `connect-src` scoped to `webview.cspSource`, each also allowing
+  `blob:`/`data:`; `worker-src blob:`. Frustum images load via `<img>` (img-src).
+  Asset loaders fetch via `connect-src` — and crucially `connect-src` MUST include
+  `blob:`: GLTFLoader decodes a GLB's **embedded (bufferView) textures** (e.g. the
+  WebP images in this repo's GLBs) by wrapping their bytes in a `blob:` URL that its
+  `ImageBitmapLoader` then `fetch`es, so without it those textures silently fail to
+  load (img-src's `blob:` is for `<img>`, a different directive). `data:` on
+  `connect-src` covers the Spark worker's inlined wasm. The splat decoder ([Spark](https://sparkjs.dev))
   runs WebAssembly inside a `blob:` Web Worker — hence `worker-src blob:` and
   `'wasm-unsafe-eval'` (the worker inherits the page policy). We fetch the splat
   bytes on the main thread and hand them to Spark, so the worker itself never

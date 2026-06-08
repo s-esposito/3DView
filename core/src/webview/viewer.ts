@@ -4,6 +4,7 @@
 // small imperative API; the Viewer owns all state.
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages";
 import { themeColor } from "./theme";
 import { buildGrid, diagonalOf, unionBounds, computeLocalBounds, disposeObject } from "./builders";
@@ -23,7 +24,8 @@ export type GlobalToggle =
   | "box"
   | "grid"
   | "axes"
-  | "wireframe";
+  | "wireframe"
+  | "shaded";
 export type Orientation = "raw" | "upright";
 
 /** One entry in the Scene list. */
@@ -45,6 +47,7 @@ export interface ViewerState {
   grid: boolean;
   axes: boolean;
   wireframe: boolean;
+  shaded: boolean;
   orientation: Orientation;
   pointSize: number;
   frustumScale: number;
@@ -96,6 +99,9 @@ export class Viewer {
   private showGrid = true;
   private showAxes = false;
   private wireframe = false;
+  // Meshes are lit/shaded by default (GLB PBR, etc.); turning "Shaded" off shows
+  // unlit albedo (base color + texture only).
+  private shaded = true;
   private orientation: Orientation = "raw";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
@@ -114,9 +120,17 @@ export class Viewer {
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
-    // Lighting for lit mesh materials (glTF PBR, PLY/OBJ). Unlit point clouds,
-    // frustum lines, and image planes are unaffected.
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 2.5));
+    // Lighting for lit mesh materials (glTF PBR, PLY/OBJ). The image-based light
+    // is load-bearing, not decoration: without it metalness/roughness maps render
+    // black (metals reflect the environment, not analytic lights). Intensities are
+    // hand-balanced; see CLAUDE.md "PBR meshes need the environment".
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const room = new RoomEnvironment();
+    this.scene.environment = pmrem.fromScene(room, 0.04).texture;
+    this.scene.environmentIntensity = 0.6;
+    room.dispose(); // free the room's geometry/materials; PMREM keeps only the cubemap
+    pmrem.dispose();
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 1.5));
     const key = new THREE.DirectionalLight(0xffffff, 2.0);
     key.position.set(1, 2, 1);
     this.scene.add(key);
@@ -162,6 +176,7 @@ export class Viewer {
       grid: this.showGrid,
       axes: this.showAxes,
       wireframe: this.wireframe,
+      shaded: this.shaded,
       orientation: this.orientation,
       pointSize: this.opts.pointSize,
       frustumScale: this.opts.frustumScale,
@@ -200,6 +215,7 @@ export class Viewer {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
         layer.setWireframe(this.wireframe);
+        layer.setShaded(this.shaded);
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -261,6 +277,10 @@ export class Viewer {
       case "wireframe":
         this.wireframe = on;
         this.layers.forEach((l) => l.setWireframe(on));
+        break;
+      case "shaded":
+        this.shaded = on;
+        this.layers.forEach((l) => l.setShaded(on));
         break;
       default:
         this.opts[toggle] = on; // points | frustums

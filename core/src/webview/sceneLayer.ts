@@ -35,6 +35,8 @@ export interface SceneLayer {
   setBoxVisible(visible: boolean): void;
   /** Render meshes as wireframe (the global "Wireframe" option); no-op otherwise. */
   setWireframe(on: boolean): void;
+  /** Light mesh materials (the global "Shaded" option); off = unlit albedo. No-op otherwise. */
+  setShaded(on: boolean): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -98,8 +100,9 @@ export class ReconstructionLayer implements SceneLayer {
     }
   }
 
-  // Reconstructions are points + lines — no meaningful wireframe.
+  // Reconstructions are points + lines — no meshes to wireframe or shade.
   setWireframe(): void {}
+  setShaded(): void {}
 
   /** Apply scene-wide options that don't require rebuilding geometry. */
   applyOptions(opts: DisplayOptions): void {
