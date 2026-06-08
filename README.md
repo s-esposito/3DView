@@ -13,10 +13,11 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 
 - **COLMAP point clouds + camera poses** (`.bin` / `.txt`), with each image
   textured onto its frustum. Click a frustum to fly to that camera's viewpoint.
-- **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, with a wireframe toggle)
-  and **3D Gaussian Splatting** files (`.ply` / `.splat` / `.spz` / `.ksplat`,
-  loaded via [Spark](https://sparkjs.dev) and shown as a colored point cloud). A
-  `.ply` is auto-detected as a mesh or a splat.
+- **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, **shaded** with their
+  glTF/GLB materials and textures by default, with optional unlit-albedo and
+  wireframe modes) and **3D Gaussian Splatting** files
+  (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)
+  and shown as a colored point cloud). A `.ply` is auto-detected as a mesh or a splat.
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
@@ -50,7 +51,7 @@ an asset is a single mesh or splat file.
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
 | Reset view | **R** |
 | Toggle points / frustums / images | **P** / **F** / **I** |
-| Toggle wireframe / box | **W** / **B** |
+| Toggle shaded / wireframe / box | **S** / **W** / **B** |
 | Toggle grid / axes / upright | **G** / **A** / **U** |
 
 ## Development

@@ -59,6 +59,7 @@ const TOGGLE_KEYS: Record<string, GlobalToggle> = {
   g: "grid",
   a: "axes",
   w: "wireframe",
+  s: "shaded",
 };
 window.addEventListener("keydown", (e) => {
   if (e.target instanceof HTMLInputElement) {

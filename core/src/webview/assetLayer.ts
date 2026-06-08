@@ -4,6 +4,10 @@
 // (.ply / .splat / .spz / .ksplat). Mesh asset siblings (.bin, .mtl, textures)
 // resolve relative to the file's webview URI; splats are loaded via Spark and
 // rendered (v1) as a colored point cloud — base color only, no covariance/SH.
+//
+// Mesh shading: each mesh keeps its loaded material (lit PBR, incl. GLB
+// textures) plus a derived unlit "albedo" material (base-color texture + color,
+// no lighting). The "Shaded" toggle swaps between them; shaded is the default.
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
@@ -11,7 +15,7 @@ import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { unpackSplats, unpackSplat } from "@sparkjsdev/spark";
 import type { Bounds } from "../shared/messages";
 import { computeBounds } from "../colmap/bounds";
-import { buildBox, buildSplatPoints, disposeObject } from "./builders";
+import { buildBox, buildSplatPoints, disposeObject, eachMaterial } from "./builders";
 import type { SceneLayer } from "./sceneLayer";
 
 // 3DGS point clouds have no per-point size of their own (v1), so render their
@@ -27,6 +31,8 @@ export class AssetLayer implements SceneLayer {
   private current?: THREE.Object3D;
   private currentBounds?: Bounds;
   private box?: THREE.Box3Helper;
+  /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splats. */
+  private shadingPairs: ShadingPair[] = [];
 
   constructor(
     readonly id: string,
@@ -51,19 +57,23 @@ export class AssetLayer implements SceneLayer {
   }
 
   setWireframe(on: boolean): void {
-    // No-op for splat point clouds (no THREE.Mesh children).
-    this.current?.traverse((child) => {
-      const mesh = child as THREE.Mesh;
-      if (!mesh.isMesh) {
-        return;
-      }
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mat of mats) {
-        if ("wireframe" in mat) {
-          (mat as THREE.MeshStandardMaterial).wireframe = on;
-        }
-      }
-    });
+    // Apply to both the lit material and its unlit twin so the active one is right.
+    // No-op for splat point clouds (they have no shading pairs).
+    const apply = (m: THREE.Material) => {
+      (m as THREE.MeshBasicMaterial).wireframe = on;
+    };
+    for (const pair of this.shadingPairs) {
+      eachMaterial(pair.lit, apply);
+      eachMaterial(pair.unlit, apply);
+    }
+  }
+
+  setShaded(on: boolean): void {
+    // Swap each mesh between its loaded (lit) material and its unlit albedo twin.
+    // No-op for splat point clouds (they have no shading pairs).
+    for (const pair of this.shadingPairs) {
+      pair.mesh.material = on ? pair.lit : pair.unlit;
+    }
   }
 
   /** Load the asset file and add it (plus a bounding box) under this layer's group.
@@ -72,18 +82,72 @@ export class AssetLayer implements SceneLayer {
     const { object, bounds } = await loadAsset(uri, name, onProgress);
     this.current = object;
     this.currentBounds = bounds;
+    this.shadingPairs = collectShadingPairs(object);
     this.object.add(object);
     this.box = buildBox(bounds);
     this.object.add(this.box);
   }
 
   dispose(): void {
+    // Each unlit twin reuses its lit material's textures, so dispose the unlit
+    // material objects here (not their shared maps) and re-activate the lit
+    // material so disposeObject frees the textures + geometry exactly once.
+    for (const pair of this.shadingPairs) {
+      eachMaterial(pair.unlit, (m) => m.dispose());
+      pair.mesh.material = pair.lit;
+    }
+    this.shadingPairs = [];
     disposeObject(this.current);
     disposeObject(this.object); // also disposes the box (a child of object)
     this.current = undefined;
     this.currentBounds = undefined;
     this.box = undefined;
   }
+}
+
+/** A loaded mesh paired with its as-loaded (lit) material and a derived unlit twin. */
+interface ShadingPair {
+  mesh: THREE.Mesh;
+  // Both keep the mesh's original scalar-or-array shape, so reassigning one to
+  // `mesh.material` re-renders correctly (an array needs geometry groups; a lone
+  // material does not).
+  lit: THREE.Material | THREE.Material[];
+  unlit: THREE.Material | THREE.Material[];
+}
+
+/** Walk an object's meshes, pairing each loaded material with an unlit albedo twin. */
+function collectShadingPairs(object: THREE.Object3D): ShadingPair[] {
+  const pairs: ShadingPair[] = [];
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) {
+      return;
+    }
+    const lit = mesh.material;
+    const unlit = Array.isArray(lit) ? lit.map(toUnlit) : toUnlit(lit);
+    pairs.push({ mesh, lit, unlit });
+  });
+  return pairs;
+}
+
+/**
+ * An unlit (albedo) twin of a lit material: the base-color texture + color factor
+ * with no lighting. Reuses the source's `map` texture (shared, not cloned), so it
+ * shows GLB/PBR albedo exactly; carries over transparency/cutout and sidedness.
+ */
+function toUnlit(mat: THREE.Material): THREE.MeshBasicMaterial {
+  // Any lit mesh material (Standard/Physical/Phong/Lambert) carries .map and .color.
+  const m = mat as THREE.MeshStandardMaterial;
+  return new THREE.MeshBasicMaterial({
+    map: m.map,
+    color: m.color.clone(),
+    vertexColors: m.vertexColors,
+    transparent: m.transparent,
+    opacity: m.opacity,
+    alphaTest: m.alphaTest,
+    side: m.side,
+    wireframe: m.wireframe,
+  });
 }
 
 interface LoadedAsset {

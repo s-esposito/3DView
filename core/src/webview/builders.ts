@@ -192,6 +192,18 @@ export function unionBounds(parts: Bounds[]): Bounds {
   return { min, max };
 }
 
+/** Run `fn` over a mesh's material value — a single material, an array, or absent. */
+export function eachMaterial(
+  material: THREE.Material | THREE.Material[] | undefined,
+  fn: (mat: THREE.Material) => void
+): void {
+  if (Array.isArray(material)) {
+    material.forEach(fn);
+  } else if (material) {
+    fn(material);
+  }
+}
+
 /** Detach `obj` from its parent and free its (and descendants') GPU resources. */
 export function disposeObject(obj: THREE.Object3D | undefined): void {
   if (!obj) {
@@ -203,14 +215,9 @@ export function disposeObject(obj: THREE.Object3D | undefined): void {
       material?: THREE.Material | THREE.Material[];
     };
     node.geometry?.dispose?.();
-    const mats = Array.isArray(node.material)
-      ? node.material
-      : node.material
-        ? [node.material]
-        : [];
-    for (const mat of mats) {
+    eachMaterial(node.material, (mat) => {
       (mat as THREE.MeshBasicMaterial).map?.dispose?.();
       mat.dispose();
-    }
+    });
   });
 }

@@ -244,10 +244,14 @@ export class ViewerPanel {
       `script-src 'nonce-${nonce}' 'wasm-unsafe-eval'`,
       `worker-src blob:`,
       // Asset loaders (glTF/OBJ/PLY) fetch the file and its sibling assets as
-      // webview resources (our resource origin). `data:` is required because the
-      // Spark splat worker loads its WebAssembly by fetching an inlined
+      // webview resources (our resource origin). `blob:` is required because
+      // GLTFLoader decodes a GLB's embedded (bufferView) textures — e.g. the
+      // WebP images in this repo's GLBs — by wrapping their bytes in a `blob:`
+      // URL that its `ImageBitmapLoader` then `fetch`es (img-src's `blob:` does
+      // not cover this — it's a fetch, not an `<img>`). `data:` is required
+      // because the Spark splat worker loads its WebAssembly from an inlined
       // `data:application/wasm;base64,…` URL.
-      `connect-src ${webview.cspSource} data:`,
+      `connect-src ${webview.cspSource} blob: data:`,
     ].join("; ");
 
     return /* html */ `<!DOCTYPE html>

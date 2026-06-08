@@ -103,6 +103,7 @@ export class ControlPanel {
     }
     if (s.hasAsset) {
       toggles.append(
+        checkbox("Shaded (S)", s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
         checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
       );
     }
