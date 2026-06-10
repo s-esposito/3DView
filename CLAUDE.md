@@ -157,9 +157,12 @@ pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
 
 ## Invariants & conventions (do not break)
 
-- **Raw COLMAP axes.** Points/poses stay in COLMAP's +x-right/+y-down/+z-forward
-  world frame. No implicit up-flip. The "upright (U)" toggle only rotates `root`
-  180° about X for viewing; fit-to-view re-bounds in world space.
+- **Raw COLMAP axes (upright by default).** Points/poses stay in COLMAP's
+  +x-right/+y-down/+z-forward world frame — never mutated. The "upright (U)"
+  toggle (defaults **on**) only rotates `root` 180° about X for viewing;
+  fit-to-view re-bounds in world space. The Viewer applies the default
+  orientation at construction (`applyOrientation`), so the flip is present before
+  any content loads.
 - **On-demand rendering (don't freeze the view).** `viewer.ts animate()` only
   calls `renderer.render` when `controls.update()` reports motion (incl. damping)
   OR `needsRender` is set. Anything that changes what's on screen *without moving
@@ -254,11 +257,12 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - **New host→webview message:** add to the union in `core/src/shared/messages.ts`,
   handle it in `core/src/webview/main.ts`, and post it from the host(s) that need
   it (`vscode/src/host/panel.ts`; `demo/src/host.ts`; PyCharm + its `Messages.kt`).
-- **New asset format:** add a loader case in `assetLayer.ts` and the extension to
-  the picker filters in each host — `ASSET_EXTS` in `vscode/src/host/extension.ts`,
-  `input.accept` in `demo/src/host.ts`, and `ASSET_EXTS` in
-  `jetbrains/.../ColmapViewerService.kt`. Splat formats decode through Spark; meshes
-  through three's loaders.
+- **New asset format:** add a loader case in `assetLayer.ts`, the webview drop
+  filter `ASSET_EXTS` in `core/src/webview/dropZone.ts` (the drag-and-drop path,
+  shared by all hosts), and the picker filter in each host — `ASSET_EXTS` in
+  `vscode/src/host/extension.ts`, `input.accept` in `demo/src/host.ts`, and
+  `ASSET_EXTS` in `jetbrains/.../ColmapViewerService.kt`. Splat formats decode
+  through Spark; meshes through three's loaders.
 
 ## Build internals
 

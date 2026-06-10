@@ -138,7 +138,17 @@ function handleHostMessage(msg: HostToWebview) {
         .then((data) => viewer.addReconstruction(msg.id, msg.label, data, msg.source))
         .catch((err) =>
           showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
-        );
+        )
+        // The trio is fetched exactly once above; free the URLs so a dropped /
+        // demo blob: model (a large points3D especially) isn't pinned in memory
+        // for the session. A no-op on non-blob host URLs (VS Code / PyCharm). The
+        // per-image `imageUrls` are deliberately NOT revoked — frustum textures
+        // load lazily and re-fetch after eviction, so they must outlive this.
+        .finally(() => {
+          URL.revokeObjectURL(msg.urls.cameras);
+          URL.revokeObjectURL(msg.urls.images);
+          URL.revokeObjectURL(msg.urls.points3d);
+        });
       break;
     case "error":
       showStatus(`Error: ${msg.message}`);

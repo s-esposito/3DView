@@ -97,12 +97,12 @@ export class Viewer {
     frustumScale: 0,
   };
   private showGrid = true;
-  private showAxes = false;
+  private showAxes = true;
   private wireframe = false;
   // Meshes are lit/shaded by default (GLB PBR, etc.); turning "Shaded" off shows
   // unlit albedo (base color + texture only).
   private shaded = true;
-  private orientation: Orientation = "raw";
+  private orientation: Orientation = "upright";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
   // On-demand rendering: render only when the camera is moving (damping) or
@@ -160,8 +160,10 @@ export class Viewer {
     window.addEventListener("resize", () => this.onResize());
 
     // Default empty scene so the viewport is navigable before any content.
+    // applyOrientation (not just fitCamera) so the default upright flip is
+    // applied to `root` from the start, not only after the first U toggle.
     this.rebuildHelpers();
-    this.fitCamera();
+    this.applyOrientation();
     this.animate();
   }
 
@@ -221,7 +223,11 @@ export class Viewer {
       .catch((err: Error) => {
         this.removeItem(id);
         this.onError?.(err.message);
-      });
+      })
+      // The asset bytes are fetched exactly once during load; free a blob: URL
+      // (a dropped / demo file) afterward so it isn't pinned for the session. A
+      // no-op on non-blob host URLs (VS Code / PyCharm).
+      .finally(() => URL.revokeObjectURL(uri));
   }
 
   setItemVisible(id: string, visible: boolean): void {
