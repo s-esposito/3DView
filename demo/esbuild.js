@@ -16,7 +16,9 @@ const demoConfig = {
   format: "esm",
   target: "es2020",
   sourcemap: true,
-  external: ["@3dview/core"], // Don't bundle the core, load from dist/webview.js
+  // NOTE: @3dview/core must be bundled (not marked external). The browser can't
+  // resolve bare specifiers, and dist/webview.js is the IIFE viewer bundle — it
+  // has no ESM exports, so it can't stand in for the core's library API.
 };
 
 function copyWebview() {

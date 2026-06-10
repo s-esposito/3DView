@@ -51,9 +51,12 @@ jobs:
           mkdir -p _site/dist
           cp demo/index.html _site/
           cp demo/dist/demo.js _site/dist/
-          cp demo/dist/demo.js.map _site/dist/
           cp demo/dist/webview.js _site/dist/
-          cp demo/dist/webview.js.map _site/dist/
+          # Sourcemaps are optional — production core builds are minified and
+          # may not emit webview.js.map.
+          for f in demo/dist/demo.js.map demo/dist/webview.js.map; do
+            if [ -f "$f" ]; then cp "$f" _site/dist/; fi
+          done
           touch _site/.nojekyll
 
       - name: Upload artifact
