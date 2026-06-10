@@ -4,13 +4,17 @@
 // Frosted-glass + motion theme. Surfaces use color-mix to stay theme-aware while
 // translucent (so backdrop-filter shows through); all blur/transition/accent work
 // is host-agnostic CSS — every host (VS Code, demo, PyCharm) renders it identically.
+// "Liquid glass" rim: panels/controls layer many inset box-shadows (bright top-left
+// highlights, dark bottom-right shadows) into --glass-shadow / --glass-shadow-sm;
+// --glass-reflex-light/dark scale every rim's intensity at once (one knob to tune).
 const CSS = `
-:root{--viewer-blur:blur(12px) saturate(1.3)}
+:root{--viewer-blur:blur(12px) saturate(1.3);--glass-rim-light:#fff;--glass-rim-dark:#000;--glass-reflex-light:.65;--glass-reflex-dark:1;--glass-shadow:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*10%),transparent),inset 1.8px 3px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*90%),transparent),inset -2px -2px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*80%),transparent),inset -3px -8px 1px -6px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*60%),transparent),inset -0.3px -1px 4px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*12%),transparent),inset -1.5px 2.5px 0 -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 0 3px 4px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 2px -6.5px 1px -4px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*10%),transparent),0 1px 5px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*18%),transparent),0 8px 22px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*26%),transparent);--glass-shadow-sm:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*14%),transparent),inset 1px 1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*85%),transparent),inset -1px -1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*55%),transparent),inset 0 2px 3px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*22%),transparent),0 1px 2px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*14%),transparent)}
 .viewer-ui{position:fixed;top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:10px;z-index:10}
-.viewer-panel{width:222px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.06);user-select:none}
+.viewer-panel{width:222px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow);user-select:none}
 .viewer-header{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-radius:12px 12px 0 0;transition:background .18s ease}
 .viewer-panel.collapsed .viewer-header{border-radius:12px}
 .viewer-header:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 55%,transparent)}
+.viewer-header:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:-2px}
 .viewer-chevron{transition:transform .2s ease;opacity:.7;font-size:10px}
 .viewer-panel.collapsed .viewer-chevron{transform:rotate(-90deg)}
 .viewer-titles{display:flex;flex-direction:column;line-height:1.3;flex:1;min-width:0}
@@ -39,10 +43,10 @@ const CSS = `
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
 .viewer-toggles{display:grid;grid-template-columns:1fr 1fr;gap:9px 10px}
 .viewer-row{display:flex;align-items:center;gap:8px;cursor:pointer}
-.viewer-row input[type=checkbox]{appearance:none;-webkit-appearance:none;margin:0;position:relative;flex:none;width:26px;height:15px;border-radius:8px;background:var(--vscode-input-background,rgba(255,255,255,0.14));border:1px solid var(--vscode-widget-border,rgba(255,255,255,0.2));cursor:pointer;transition:background .18s ease,border-color .18s ease}
-.viewer-row input[type=checkbox]::before{content:"";position:absolute;top:1px;left:1px;width:11px;height:11px;border-radius:50%;background:var(--vscode-foreground,#ddd);transition:transform .18s ease}
-.viewer-row input[type=checkbox]:checked{background:var(--vscode-focusBorder,#0e639c);border-color:var(--vscode-focusBorder,#0e639c)}
-.viewer-row input[type=checkbox]:checked::before{transform:translateX(11px);background:#fff}
+.viewer-row input[type=checkbox]{appearance:none;-webkit-appearance:none;margin:0;position:relative;flex:none;width:26px;height:15px;border-radius:8px;background:var(--vscode-input-background,rgba(255,255,255,0.14));box-shadow:var(--glass-shadow-sm);cursor:pointer;transition:background .18s ease}
+.viewer-row input[type=checkbox]::before{content:"";position:absolute;top:1px;left:1px;width:11px;height:11px;border-radius:50%;background:var(--vscode-foreground,#ddd);box-shadow:0 1px 2px color-mix(in srgb,var(--glass-rim-dark) 40%,transparent),inset 0 1px 0 color-mix(in srgb,var(--glass-rim-light) 55%,transparent);translate:0;transition:translate .2s cubic-bezier(.5,0,0,1)}
+.viewer-row input[type=checkbox]:checked{background:var(--vscode-focusBorder,#0e639c)}
+.viewer-row input[type=checkbox]:checked::before{translate:11px 0;background:#fff;animation:viewer-squish .42s ease}
 .viewer-slider{display:block;margin-top:12px}
 .viewer-slider-head{display:flex;justify-content:space-between;margin-bottom:5px}
 .viewer-slider-val{color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
@@ -51,7 +55,7 @@ const CSS = `
 .viewer-btn:hover{background:var(--vscode-button-hoverBackground,#1177bb);transform:translateY(-1px);box-shadow:0 3px 12px rgba(0,0,0,0.3)}
 .viewer-btn:active{transform:translateY(0);box-shadow:none}
 .viewer-scale-row{display:flex;gap:6px}
-.viewer-scale-btn{flex:1;padding:6px 0;cursor:pointer;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 40%,transparent);border-radius:6px;font:inherit;font-variant-numeric:tabular-nums;transition:background .15s ease,transform .1s ease}
+.viewer-scale-btn{flex:1;padding:6px 0;cursor:pointer;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);border-radius:8px;font:inherit;font-variant-numeric:tabular-nums;transition:background .15s ease,transform .1s ease}
 .viewer-scale-btn:hover{background:var(--vscode-button-secondaryHoverBackground,var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.16)))}
 .viewer-scale-btn:active{transform:scale(.96)}
 .viewer-hint{margin-top:12px;color:var(--vscode-descriptionForeground,#999);font-style:italic;line-height:1.45}
@@ -60,15 +64,20 @@ const CSS = `
 .viewer-popup-title{font-weight:600;word-break:break-all}
 .viewer-popup-close{cursor:pointer;border:none;background:transparent;color:inherit;font-size:14px;line-height:1;padding:0 4px;border-radius:4px;transition:background .15s ease}
 .viewer-popup-close:hover{background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.12))}
-.viewer-popup img{display:block;width:100%}
+.viewer-popup img{display:block;width:100%;max-height:50vh;object-fit:contain}
 .viewer-popup-body{padding:8px 12px 12px}
 .viewer-kv{display:flex;justify-content:space-between;gap:12px;margin-top:3px}
 .viewer-kv .k{color:var(--vscode-descriptionForeground,#999)}
 .viewer-kv .v{text-align:right;font-variant-numeric:tabular-nums}
 @keyframes viewer-pop{from{opacity:0;transform:scale(.96) translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes viewer-squish{0%{scale:1 1}45%{scale:1.32 1}100%{scale:1 1}}
 .viewer-status{display:inline-flex;align-items:center;gap:10px}
 .viewer-spinner{flex:none;width:16px;height:16px;border-radius:50%;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;animation:viewer-spin .8s linear infinite}
 @keyframes viewer-spin{to{transform:rotate(360deg)}}
+.viewer-drop{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:24px;pointer-events:none;background:color-mix(in srgb,var(--vscode-editor-background,#1e1e1e) 55%,transparent);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);animation:viewer-fade .15s ease}
+.viewer-drop.active{display:flex}
+.viewer-drop-inner{padding:28px 40px;border-radius:14px;border:2px dashed color-mix(in srgb,var(--vscode-focusBorder,#0e639c) 80%,transparent);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 78%,transparent);color:var(--vscode-foreground,#ddd);font:600 14px var(--vscode-font-family,sans-serif);text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.45)}
+@keyframes viewer-fade{from{opacity:0}to{opacity:1}}
 `;
 
 export function ensureStyles(): void {

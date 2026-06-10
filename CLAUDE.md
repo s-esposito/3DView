@@ -71,6 +71,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   src/webview/           Browser UI (DOM + three) → out/webview.js
     main.ts              entry/glue: host bridge, message channel, keyboard, status
     colmapLoader.ts      loadColmapFromUrls(): fetch model files → pure parsers → ModelData
+    dropZone.ts          drag-and-drop intake (all hosts): dropped files/folders → blob:
+                         URLs → host-shaped loadColmap/addAsset, fed to main.ts's handler
     viewer.ts            Viewer: scene graph/camera/layers/global display — THE seam
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
     assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY) or a
@@ -139,6 +141,19 @@ a stable `id` and tracks the list in `panel.ts`. The Scene "+" menu posts
 posts `removed` so the host forgets it (won't replay it). Per-item controls are
 visibility + remove; appearance (point/frustum size, images, grid, axes, orientation)
 is global across the scene.
+
+**Drag-and-drop is a third, webview-owned intake path** (`dropZone.ts`), separate
+from the host pickers. A sandboxed webview can read dropped *bytes* but never the
+filesystem *path* (and Explorer→webview drops don't fire — microsoft/vscode#182449),
+so a drop can't route through a host's path-based loader. Instead the webview reads
+the bytes into `blob:` URLs and emits the **same** `loadColmap`/`addAsset` messages a
+host would (id self-assigned `dnd-*`), converging on the same `main.ts` handler — so
+it works identically in every host with no host code and no CSP change (`blob:` is
+already allowed on `connect-src`). Consequences, by design: dropped items are NOT in
+the host's tracked list, so they get no VS Code Recents entry and aren't replayed if
+the panel is ever recreated, and images load in-memory rather than streamed
+on-demand. Path-based opening (Recents, streaming) stays available via the host
+pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
 
 ## Invariants & conventions (do not break)
 

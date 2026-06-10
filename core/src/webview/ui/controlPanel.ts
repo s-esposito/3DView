@@ -39,10 +39,17 @@ export class ControlPanel {
     const header = document.createElement("div");
     header.className = "viewer-header";
     header.title = "Collapse / expand";
+    // Expose the header as a real toggle button to keyboard / screen-reader users:
+    // focusable, announced as a button, with its collapsed state in aria-expanded.
+    header.setAttribute("role", "button");
+    header.tabIndex = 0;
+    header.setAttribute("aria-label", `${title} panel`);
+    header.setAttribute("aria-expanded", String(!panel.classList.contains("collapsed")));
 
     const chevron = document.createElement("span");
     chevron.className = "viewer-chevron";
     chevron.textContent = "▾";
+    chevron.setAttribute("aria-hidden", "true"); // decorative; aria-expanded conveys state
 
     const titles = document.createElement("div");
     titles.className = "viewer-titles";
@@ -62,9 +69,20 @@ export class ControlPanel {
       // The action (e.g. the "+" menu) stops its own click from bubbling here.
       header.append(action);
     }
-    header.addEventListener("click", () => {
+    const flip = () => {
       toggle();
-      panel.classList.toggle("collapsed");
+      const collapsed = panel.classList.toggle("collapsed");
+      header.setAttribute("aria-expanded", String(!collapsed));
+    };
+    header.addEventListener("click", flip);
+    header.addEventListener("keydown", (e) => {
+      // Only the header itself toggles; ignore keys bubbling from the action (the
+      // "+" menu button is independently focusable and handles its own keys).
+      if (e.target !== header || (e.key !== "Enter" && e.key !== " ")) {
+        return;
+      }
+      e.preventDefault(); // Space would otherwise scroll the page
+      flip();
     });
     return header;
   }
@@ -192,7 +210,7 @@ export class ControlPanel {
     if (s.items.length === 0) {
       const empty = document.createElement("div");
       empty.className = "viewer-scene-empty";
-      empty.textContent = "Empty — add a reconstruction or asset";
+      empty.textContent = "Empty — drop or add a reconstruction or asset";
       body.append(empty);
       return body;
     }

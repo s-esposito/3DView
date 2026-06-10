@@ -9,6 +9,7 @@ import { ControlPanel } from "./ui/controlPanel";
 import { InfoPopup } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 import { loadColmapFromUrls } from "./colmapLoader";
+import { installDropZone } from "./dropZone";
 
 // The host (VS Code or PyCharm/JCEF) installs `window.__viewerHost` before this
 // bundle runs; we never reference a host-specific API directly.
@@ -48,7 +49,7 @@ viewer.onSaveImage = (png, suggestedName) => host.postMessage({ type: "saveImage
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
-showStatus("Open a reconstruction or asset — or use + in the Scene panel.");
+showStatus("Open a reconstruction or asset — drag & drop, or use + in the Scene panel.");
 
 // Keyboard shortcuts map to the same Viewer API the panel uses.
 const TOGGLE_KEYS: Record<string, GlobalToggle> = {
@@ -110,12 +111,14 @@ function updateStatus() {
   if (viewer.getState().items.length > 0) {
     status.style.display = "none";
   } else {
-    showStatus("Open a reconstruction or asset — or use + in the Scene panel.");
+    showStatus("Open a reconstruction or asset — drag & drop, or use + in the Scene panel.");
   }
 }
 
-window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
-  const msg = event.data;
+// Handle a content message, whether it arrives from the embedding host (the
+// message channel below) or from an in-webview drag-and-drop (dropZone produces
+// the same host-shaped messages from dropped files). Both converge here.
+function handleHostMessage(msg: HostToWebview) {
   switch (msg.type) {
     case "loading":
       showStatus(msg.message, true);
@@ -141,7 +144,15 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
       showStatus(`Error: ${msg.message}`);
       break;
   }
-});
+}
+
+window.addEventListener("message", (event: MessageEvent<HostToWebview>) =>
+  handleHostMessage(event.data)
+);
+
+// Drag-and-drop is host-agnostic: dropped files are read into blob: URLs and fed
+// through the same handler as host messages (see dropZone.ts).
+installDropZone(handleHostMessage);
 
 // Tell the host we are alive and ready to receive content.
 host.postMessage({ type: "ready" });

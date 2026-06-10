@@ -8,8 +8,8 @@ file-picker bridge. Nothing is uploaded; all parsing and rendering happen locall
 
 ## How to use
 
-Everything loads from the **Scene** panel's **+** ("Add to scene") menu in the
-top-left of the viewer:
+Everything loads from the **Scene** panel's **+** ("Add to scene") menu — or by
+**dragging & dropping** a file or a COLMAP folder straight onto the viewer:
 
 ### Reconstruction… (COLMAP)
 
