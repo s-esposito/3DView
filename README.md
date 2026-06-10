@@ -47,7 +47,8 @@ Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
 Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
-single mesh or splat file.
+single mesh or splat file. When a project holds several models under `sparse/`
+(`0`, `1`, …) you're prompted to load one specific model or all of them.
 
 | Action | Input |
 |--------|-------|

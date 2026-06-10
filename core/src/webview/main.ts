@@ -2,11 +2,11 @@
 // status text to the Viewer and its UI. All real work lives in the modules. This
 // bundle is host-agnostic: it talks to the embedding IDE only through the
 // `window.__viewerHost` bridge (see shared/hostBridge), never a host-specific API.
-import type { HostToWebview } from "../shared/messages";
+import type { HostToWebview, ColmapModelRef } from "../shared/messages";
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import { ControlPanel } from "./ui/controlPanel";
-import { InfoPopup } from "./ui/overlays";
+import { InfoPopup, showColmapChooser } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 import { loadColmapFromUrls } from "./colmapLoader";
 import { installDropZone } from "./dropZone";
@@ -133,27 +133,45 @@ function handleHostMessage(msg: HostToWebview) {
     case "loadColmap":
       // The host hands us URLs (not parsed data); fetch + parse in-browser, then
       // converge on the same addReconstruction path the inline `data` case uses.
-      showStatus(`Loading ${msg.label}…`, true);
-      loadColmapFromUrls(msg.urls, msg.format, msg.imageBaseUrl, msg.imageUrls)
-        .then((data) => viewer.addReconstruction(msg.id, msg.label, data, msg.source))
-        .catch((err) =>
-          showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`)
-        )
-        // The trio is fetched exactly once above; free the URLs so a dropped /
-        // demo blob: model (a large points3D especially) isn't pinned in memory
-        // for the session. A no-op on non-blob host URLs (VS Code / PyCharm). The
-        // per-image `imageUrls` are deliberately NOT revoked — frustum textures
-        // load lazily and re-fetch after eviction, so they must outlive this.
-        .finally(() => {
-          URL.revokeObjectURL(msg.urls.cameras);
-          URL.revokeObjectURL(msg.urls.images);
-          URL.revokeObjectURL(msg.urls.points3d);
-        });
+      loadColmapModel(msg);
+      break;
+    case "chooseColmap":
+      // Several models found (e.g. sparse/0, sparse/1); let the user pick which to
+      // load. Unselected models' trio URLs are freed so dropped/demo blobs aren't
+      // left pinned. (imageUrls are shared across models + needed lazily — see below.)
+      showColmapChooser(
+        msg.models, // ColmapModelRef has the label/source ChooserModel reads
+        (selected) =>
+          msg.models.forEach((m, i) =>
+            selected.includes(i) ? loadColmapModel(m) : revokeColmapTrio(m.urls)
+          ),
+        () => msg.models.forEach((m) => revokeColmapTrio(m.urls))
+      );
       break;
     case "error":
       showStatus(`Error: ${msg.message}`);
       break;
   }
+}
+
+/** Fetch + parse a URL-served COLMAP model and add it to the scene. */
+function loadColmapModel(m: ColmapModelRef) {
+  showStatus(`Loading ${m.label}…`, true);
+  loadColmapFromUrls(m.urls, m.format, m.imageBaseUrl, m.imageUrls)
+    .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
+    .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`))
+    // The trio is fetched exactly once above; free the URLs so a dropped / demo
+    // blob: model (a large points3D especially) isn't pinned for the session. A
+    // no-op on non-blob host URLs (VS Code / PyCharm). The per-image `imageUrls`
+    // are deliberately NOT revoked — frustum textures load lazily and re-fetch
+    // after eviction (and the map is shared across a chooser's models).
+    .finally(() => revokeColmapTrio(m.urls));
+}
+
+function revokeColmapTrio(urls: { cameras: string; images: string; points3d: string }) {
+  URL.revokeObjectURL(urls.cameras);
+  URL.revokeObjectURL(urls.images);
+  URL.revokeObjectURL(urls.points3d);
 }
 
 window.addEventListener("message", (event: MessageEvent<HostToWebview>) =>

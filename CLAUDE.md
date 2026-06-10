@@ -86,7 +86,7 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
-    ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup)
+    ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup + model chooser)
   test/colmap.test.ts    pure parser/pose unit tests
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
@@ -127,7 +127,7 @@ Node `require`. Don't leak host code into core to "make it work" — adapt at th
 (`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
 `addAsset`, `removeItem`,
 `renameItem`, `setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
-`setOrientation`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
+`setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
 `onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
@@ -163,6 +163,13 @@ pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
   fit-to-view re-bounds in world space. The Viewer applies the default
   orientation at construction (`applyOrientation`), so the flip is present before
   any content loads.
+- **Color theme (light/dark/dim).** `Viewer.setTheme` sets
+  `document.body.dataset.viewerTheme`; the `body[data-viewer-theme=…]` blocks in
+  `styles.ts` **override the `--vscode-*` vars** the UI reads (so every rule
+  retones with no churn) plus the `--glass-reflex-*` rim knobs. The viewer also
+  re-reads `--vscode-editor-background` to retint the 3D viewport. The constructor
+  applies the default (`dark`) **before** first reading that var. It's webview-only
+  state (no host message); the `controlPanel.ts` switcher reads `getState().theme`.
 - **On-demand rendering (don't freeze the view).** `viewer.ts animate()` only
   calls `renderer.render` when `controls.update()` reports motion (incl. damping)
   OR `needsRender` is set. Anything that changes what's on screen *without moving
@@ -188,9 +195,15 @@ pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
   contract. Extend the `HostToWebview`/`WebviewToHost` unions there and handle in
   `main.ts`. Keep it dependency-free. Reconstructions arrive two ways:
   `addReconstruction` (host ships a parsed `ModelData`; used by VS Code) and
-  `loadColmap` (host ships URLs, the webview fetches + parses via
-  `colmapLoader.ts`; used by URL-based hosts like PyCharm). Both converge on
-  `viewer.addReconstruction`. Meshes and 3DGS splats both arrive as **`addAsset`**
+  `loadColmap` (host ships a `ColmapModelRef` — URLs — the webview fetches +
+  parses via `colmapLoader.ts`; used by URL-based hosts like PyCharm + drag-drop).
+  Both converge on `viewer.addReconstruction`. When several models are found
+  (`sparse/0`, `sparse/1`, …) the user picks one/some/all: the **native** hosts
+  (VS Code quick-pick, PyCharm JBPopup) choose host-side and open the chosen dirs;
+  the **browser** hosts (web demo + drag-drop), lacking a native dialog, send
+  `chooseColmap` (a `ColmapModelRef[]`) and the webview shows a modal chooser
+  (`overlays.ts showColmapChooser`), loading each picked model via `loadColmap`'s
+  path and revoking the unpicked models' blob: URLs. Meshes and 3DGS splats both arrive as **`addAsset`**
   (`{ asset: { uri, name } }`); the webview's `assetLayer.ts` picks the loader by
   extension and `viewer.addAsset` adds the layer.
 - **Host-agnostic bundle / the host bridge.** The webview never calls a

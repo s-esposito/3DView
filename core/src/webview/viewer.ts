@@ -27,6 +27,7 @@ export type GlobalToggle =
   | "wireframe"
   | "shaded";
 export type Orientation = "raw" | "upright";
+export type ThemeName = "light" | "dark" | "dim";
 
 /** One entry in the Scene list. */
 export interface SceneItem {
@@ -49,6 +50,7 @@ export interface ViewerState {
   wireframe: boolean;
   shaded: boolean;
   orientation: Orientation;
+  theme: ThemeName;
   pointSize: number;
   frustumScale: number;
   frustumScaleMax: number;
@@ -103,6 +105,9 @@ export class Viewer {
   // unlit albedo (base color + texture only).
   private shaded = true;
   private orientation: Orientation = "upright";
+  // UI + viewport color scheme; applied to <body data-viewer-theme> so the CSS
+  // palette and the 3D background follow it. Default is dark (the glass look).
+  private themeName: ThemeName = "dark";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
   // On-demand rendering: render only when the camera is moving (damping) or
@@ -110,6 +115,9 @@ export class Viewer {
   private needsRender = true;
 
   constructor(container: HTMLElement = document.body) {
+    // Apply the default theme before reading any themed CSS var below (the
+    // 3D background reads --vscode-editor-background, which the theme overrides).
+    document.body.dataset.viewerTheme = this.themeName;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -180,6 +188,7 @@ export class Viewer {
       wireframe: this.wireframe,
       shaded: this.shaded,
       orientation: this.orientation,
+      theme: this.themeName,
       pointSize: this.opts.pointSize,
       frustumScale: this.opts.frustumScale,
       frustumScaleMax: this.frustumScaleMax,
@@ -319,6 +328,16 @@ export class Viewer {
 
   toggleOrientation(): void {
     this.setOrientation(this.orientation === "upright" ? "raw" : "upright");
+  }
+
+  /** Switch the UI + viewport color scheme (light/dark/dim). */
+  setTheme(theme: ThemeName): void {
+    this.themeName = theme;
+    document.body.dataset.viewerTheme = theme;
+    // The CSS palette retones via the [data-viewer-theme] vars; re-read the now
+    // themed editor background for the 3D viewport (it was read once at init).
+    this.scene.background = themeColor("--vscode-editor-background", 0x1e1e1e);
+    this.requestRender();
   }
 
   requestAdd(kind: AddKind): void {

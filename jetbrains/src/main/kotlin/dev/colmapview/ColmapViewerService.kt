@@ -71,13 +71,18 @@ class ColmapViewerService(private val project: Project) : Disposable {
     }
 
     private fun chooseModel(root: Path, dirs: List<Path>) {
-        val labels = dirs.map { labelOf(root, it) }
+        val allLabel = "All ${dirs.size} models"
+        val labels = listOf(allLabel) + dirs.map { labelOf(root, it) }
         JBPopupFactory.getInstance()
             .createPopupChooserBuilder(labels)
             .setTitle("Multiple COLMAP models found")
             .setItemChosenCallback { label ->
-                val dir = dirs.firstOrNull { labelOf(root, it) == label } ?: return@setItemChosenCallback
-                openColmap(root, dir)
+                if (label == allLabel) {
+                    dirs.forEach { openColmap(root, it) }
+                } else {
+                    val dir = dirs.firstOrNull { labelOf(root, it) == label } ?: return@setItemChosenCallback
+                    openColmap(root, dir)
+                }
             }
             .createPopup()
             .showCenteredInCurrentWindow(project)

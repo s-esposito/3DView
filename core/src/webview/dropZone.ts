@@ -15,7 +15,7 @@
 // reconstruction with its sibling images mapped by basename to blob: URLs; a lone
 // recognised file loads as an asset. The classification mirrors the demo host's
 // picker (demo/src/host.ts), which does the same for `<input webkitdirectory>`.
-import type { HostToWebview } from "../shared/messages";
+import type { HostToWebview, ColmapModelRef } from "../shared/messages";
 
 /** Asset extensions we can load (meshes + 3DGS splats); mirrors each host's picker filter. */
 const ASSET_EXTS = ["glb", "gltf", "obj", "ply", "splat", "spz", "ksplat"];
@@ -159,10 +159,18 @@ function readDir(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
   });
 }
 
-/** Classify the dropped files into a COLMAP reconstruction or a single asset (else throw). */
+/** Classify the dropped files into COLMAP reconstruction(s) or a single asset (else throw). */
 function buildContent(files: DroppedFile[]): HostToWebview {
-  const model = findColmapModel(files);
-  if (model) return buildColmap(model, files);
+  const models = findColmapModels(files);
+  if (models.length > 0) {
+    // Images live alongside the model(s) under one folder; map them once and share
+    // the blob: URLs across every model (the webview keys frustum textures by name).
+    const imageUrls = buildImageUrls(files);
+    const refs = models.map((m) => toColmapRef(m, imageUrls));
+    return refs.length === 1
+      ? { type: "loadColmap", ...refs[0] }
+      : { type: "chooseColmap", models: refs };
+  }
   const asset = files.find((f) => ASSET_EXTS.includes(ext(f.path)));
   if (asset) return buildAsset(asset.file);
   throw new Error(
@@ -180,12 +188,12 @@ interface ColmapModel {
 }
 
 /**
- * Group files by their directory and return the first dir holding a complete model
- * (a .bin or .txt trio), at any depth. Mirrors demo/src/host.ts: a dropped project
- * folder with `sparse/0/{cameras,images,points3D}` resolves here; with several
- * models (`0/`, `1/`, …) we take the first complete one.
+ * Group files by their directory and return every dir holding a complete model
+ * (a .bin or .txt trio), at any depth, sorted by path. Mirrors demo/src/host.ts:
+ * a dropped project folder with `sparse/0/{cameras,images,points3D}` resolves here;
+ * with several models (`0/`, `1/`, …) all are returned for the user to choose from.
  */
-function findColmapModel(files: DroppedFile[]): ColmapModel | null {
+function findColmapModels(files: DroppedFile[]): ColmapModel[] {
   const byDir = new Map<string, Map<string, File>>();
   for (const { path, file } of files) {
     const slash = path.lastIndexOf("/");
@@ -195,35 +203,39 @@ function findColmapModel(files: DroppedFile[]): ColmapModel | null {
     if (!group) byDir.set(dir, (group = new Map()));
     group.set(base, file);
   }
+  const models: ColmapModel[] = [];
   for (const [dir, group] of byDir) {
     for (const format of ["bin", "txt"] as const) {
       const [cameras, images, points3d] = MODEL_TRIOS[format];
       if (group.has(cameras) && group.has(images) && group.has(points3d)) {
-        return {
+        models.push({
           dir,
           format,
           cameras: group.get(cameras)!,
           images: group.get(images)!,
           points3d: group.get(points3d)!,
-        };
+        });
+        break; // one model per dir (.bin preferred over .txt)
       }
     }
   }
-  return null;
+  return models.sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
-/** Build a `loadColmap` message from a located model, mapping sibling images to blob: URLs. */
-function buildColmap(model: ColmapModel, files: DroppedFile[]): HostToWebview {
+/** Map every image-like file to a blob: URL keyed by basename (the loader matches a
+ *  COLMAP image name, then its basename, so blob: URLs still resolve to frustums). */
+function buildImageUrls(files: DroppedFile[]): Record<string, string> {
   const imageUrls: Record<string, string> = {};
   for (const { path, file } of files) {
-    // Key by basename: the loader matches a COLMAP image name, then its basename,
-    // so blob: URLs (not addressable under a base path) still resolve to frustums.
     if (IMAGE_EXTENSIONS.test(path)) imageUrls[path.split("/").pop()!] = URL.createObjectURL(file);
   }
-  const hasImages = Object.keys(imageUrls).length > 0;
+  return imageUrls;
+}
+
+/** Shape a located model into a ColmapModelRef (the loadColmap/chooseColmap payload). */
+function toColmapRef(model: ColmapModel, imageUrls: Record<string, string>): ColmapModelRef {
   const label = model.dir.split("/").pop() || "COLMAP Model";
   return {
-    type: "loadColmap",
     id: nextId("colmap"),
     label,
     source: model.dir || label,
@@ -233,7 +245,7 @@ function buildColmap(model: ColmapModel, files: DroppedFile[]): HostToWebview {
       images: URL.createObjectURL(model.images),
       points3d: URL.createObjectURL(model.points3d),
     },
-    imageUrls: hasImages ? imageUrls : undefined,
+    imageUrls: Object.keys(imageUrls).length > 0 ? imageUrls : undefined,
   };
 }
 

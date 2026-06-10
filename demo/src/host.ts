@@ -1,4 +1,4 @@
-import type { HostToWebview, WebviewToHost } from "@3dview/core";
+import type { HostToWebview, WebviewToHost, ColmapModelRef } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
@@ -72,13 +72,14 @@ const MODEL_TRIOS = {
 } as const;
 
 /**
- * Group the picked files by directory and return the first that holds a complete
- * model (a bin or txt trio). `webkitdirectory` yields every file under the chosen
- * folder, so a `sparse/` with several models (`0/`, `1/`, …) gives multiple
- * candidate dirs; we take the first complete one. Files are keyed by basename
- * within their own dir, so same-named files in sibling dirs don't collide.
+ * Group the picked files by directory and return every dir that holds a complete
+ * model (a bin or txt trio), sorted by path. `webkitdirectory` yields every file
+ * under the chosen folder, so a `sparse/` with several models (`0/`, `1/`, …)
+ * gives multiple candidate dirs — all are returned for the user to choose from.
+ * Files are keyed by basename within their own dir, so same-named files in sibling
+ * dirs don't collide.
  */
-function findColmapModel(files: FileList): ColmapModel | null {
+function findColmapModels(files: FileList): ColmapModel[] {
   const byDir = new Map<string, Map<string, File>>();
   for (const file of Array.from(files)) {
     const rel = file.webkitRelativePath || file.name;
@@ -87,21 +88,23 @@ function findColmapModel(files: FileList): ColmapModel | null {
     if (!group) byDir.set(dir, (group = new Map()));
     group.set(file.name, file);
   }
+  const models: ColmapModel[] = [];
   for (const [dir, group] of byDir) {
     for (const format of ["bin", "txt"] as const) {
       const [cameras, images, points3d] = MODEL_TRIOS[format];
       if (group.has(cameras) && group.has(images) && group.has(points3d)) {
-        return {
+        models.push({
           dir,
           format,
           cameras: group.get(cameras)!,
           images: group.get(images)!,
           points3d: group.get(points3d)!,
-        };
+        });
+        break; // one model per dir (.bin preferred over .txt)
       }
     }
   }
-  return null;
+  return models.sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|bmp|gif|webp|tiff?)$/i;
@@ -121,35 +124,45 @@ function buildImageUrls(files: FileList): Record<string, string> {
   return map;
 }
 
-/** Locate the model in the picked folder and post it (+ any images) to the webview. */
+/** Locate the model(s) in the picked folder and post them (+ any images) to the
+ *  webview — one `loadColmap`, or a `chooseColmap` chooser when several are found. */
 function sendColmap(files: FileList): void {
-  const model = findColmapModel(files);
-  if (!model) {
+  const models = findColmapModels(files);
+  if (models.length === 0) {
     throw new Error(
       "No COLMAP model in the selected folder — expected a directory with " +
         "(cameras, images, points3D) as .bin or .txt."
     );
   }
+  // Images live alongside the model(s); map once and share the blob: URLs across all.
   const imageUrls = buildImageUrls(files);
   const imageCount = Object.keys(imageUrls).length;
-  window.postMessage(
-    {
-      type: "loadColmap",
-      id: `colmap-${Date.now()}`,
-      label: model.dir.split("/").pop() || "COLMAP Model",
-      source: model.dir,
-      format: model.format,
-      urls: {
-        cameras: URL.createObjectURL(model.cameras),
-        images: URL.createObjectURL(model.images),
-        points3d: URL.createObjectURL(model.points3d),
-      },
-      // Per-image blob URLs keyed by basename; omitted when no images were found.
-      imageUrls: imageCount > 0 ? imageUrls : undefined,
-    } satisfies HostToWebview,
-    "*"
-  );
-  console.log(`[demo host] loaded COLMAP model (${imageCount} frustum image(s))`);
+  const refs = models.map((model, i) => toColmapRef(model, i, imageUrls));
+  const msg: HostToWebview =
+    refs.length === 1 ? { type: "loadColmap", ...refs[0] } : { type: "chooseColmap", models: refs };
+  window.postMessage(msg, "*");
+  console.log(`[demo host] found ${models.length} COLMAP model(s) (${imageCount} image(s))`);
+}
+
+/** Shape a located model into a ColmapModelRef (the loadColmap/chooseColmap payload). */
+function toColmapRef(
+  model: ColmapModel,
+  index: number,
+  imageUrls: Record<string, string>
+): ColmapModelRef {
+  return {
+    id: `colmap-${Date.now()}-${index}`,
+    label: model.dir.split("/").pop() || "COLMAP Model",
+    source: model.dir,
+    format: model.format,
+    urls: {
+      cameras: URL.createObjectURL(model.cameras),
+      images: URL.createObjectURL(model.images),
+      points3d: URL.createObjectURL(model.points3d),
+    },
+    // Per-image blob URLs keyed by basename; omitted when no images were found.
+    imageUrls: Object.keys(imageUrls).length > 0 ? imageUrls : undefined,
+  };
 }
 
 /** Post the first picked asset file (mesh or splat) to the webview as a blob URL. */
