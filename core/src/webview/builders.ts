@@ -215,9 +215,21 @@ export function disposeObject(obj: THREE.Object3D | undefined): void {
       material?: THREE.Material | THREE.Material[];
     };
     node.geometry?.dispose?.();
-    eachMaterial(node.material, (mat) => {
-      (mat as THREE.MeshBasicMaterial).map?.dispose?.();
-      mat.dispose();
-    });
+    eachMaterial(node.material, disposeMaterial);
   });
+}
+
+/**
+ * Dispose a material and every texture it references. `material.dispose()` does
+ * NOT free textures (they may be shared), so we dispose each texture-valued
+ * property first — not just `.map`, since GLB/PBR meshes also carry
+ * normalMap/metalnessMap/roughnessMap/emissiveMap/aoMap, etc.
+ */
+function disposeMaterial(mat: THREE.Material): void {
+  for (const value of Object.values(mat as unknown as Record<string, unknown>)) {
+    if (value && (value as THREE.Texture).isTexture) {
+      (value as THREE.Texture).dispose();
+    }
+  }
+  mat.dispose();
 }

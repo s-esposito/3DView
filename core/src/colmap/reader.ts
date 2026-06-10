@@ -1,5 +1,5 @@
 // A tiny little-endian cursor over a byte buffer, for the COLMAP *.bin readers.
-// COLMAP binary files are little-endian (see TODO / colmap.github.io/format.html).
+// COLMAP binary files are little-endian (see colmap.github.io/format.html).
 
 export class BinaryReader {
   private readonly view: DataView;

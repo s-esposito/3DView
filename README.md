@@ -66,3 +66,7 @@ npm run lint && npm run build && npm test
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the architecture. License: MIT.
+
+---
+
+[^1]: The glassmorphism UI style is adapted from [this CodePen by fooontic](https://codepen.io/fooontic/pen/KwpRaGr). Thanks!

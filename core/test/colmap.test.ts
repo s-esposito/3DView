@@ -14,6 +14,8 @@ import {
   quaternionToRotation,
   imageToPose,
   intrinsicsFromParams,
+  groupColmapModels,
+  isImagePath,
 } from "../src/colmap/index";
 
 // --- little-endian byte writer, mirrors the COLMAP binary layout ------------
@@ -154,4 +156,51 @@ test("imageToPose worldFromCamera is orthonormal for a 90-degree z rotation", ()
     assert.ok(Math.abs(dot(col(i), col(i)) - 1) < 1e-9);
   }
   assert.ok(Math.abs(dot(col(0), col(1))) < 1e-9);
+});
+
+// --- groupColmapModels / isImagePath (shared browser-intake classification) -
+test("groupColmapModels finds a single nested model and prefers .bin over .txt", () => {
+  const models = groupColmapModels([
+    "scene/sparse/0/cameras.bin",
+    "scene/sparse/0/images.bin",
+    "scene/sparse/0/points3D.bin",
+    "scene/sparse/0/cameras.txt", // same dir also has a .txt trio
+    "scene/sparse/0/images.txt",
+    "scene/sparse/0/points3D.txt",
+    "scene/images/a.jpg",
+  ]);
+  assert.equal(models.length, 1);
+  assert.equal(models[0].dir, "scene/sparse/0");
+  assert.equal(models[0].format, "bin");
+  assert.equal(models[0].cameras, "scene/sparse/0/cameras.bin");
+});
+
+test("groupColmapModels returns every complete model, sorted by dir", () => {
+  const models = groupColmapModels([
+    "sparse/1/cameras.txt",
+    "sparse/1/images.txt",
+    "sparse/1/points3D.txt",
+    "sparse/0/cameras.bin",
+    "sparse/0/images.bin",
+    "sparse/0/points3D.bin",
+    "sparse/2/cameras.bin", // incomplete trio — ignored
+  ]);
+  assert.deepEqual(
+    models.map((m) => [m.dir, m.format]),
+    [
+      ["sparse/0", "bin"],
+      ["sparse/1", "txt"],
+    ]
+  );
+});
+
+test("groupColmapModels returns nothing when no trio is complete", () => {
+  assert.deepEqual(groupColmapModels(["a/cameras.bin", "a/images.bin", "model.glb"]), []);
+});
+
+test("isImagePath matches common image extensions, case-insensitively", () => {
+  assert.ok(isImagePath("images/frame_001.JPG"));
+  assert.ok(isImagePath("a.png"));
+  assert.ok(!isImagePath("cameras.bin"));
+  assert.ok(!isImagePath("model.ply"));
 });
