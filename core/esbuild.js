@@ -9,6 +9,11 @@ const path = require("node:path");
 const watch = process.argv.includes("--watch");
 const buildTests = process.argv.includes("--test");
 
+// Every webview build is minified to keep the shipped bundle lean. Watch builds
+// (`npm run watch`) still emit a sourcemap so the minified output is debuggable;
+// production builds (`npm run build`, used for the VSIX + Pages demo) drop it.
+const prod = !watch;
+
 /** @type {import('esbuild').BuildOptions} */
 const webviewConfig = {
   entryPoints: ["src/webview/main.ts"],
@@ -17,7 +22,8 @@ const webviewConfig = {
   platform: "browser",
   format: "iife",
   target: "es2020",
-  sourcemap: true,
+  minify: true,
+  sourcemap: !prod,
 };
 
 // Bundle each test/*.test.ts into out/test/ as a Node CJS module (node builtins
