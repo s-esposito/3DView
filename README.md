@@ -22,6 +22,9 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   show/hide, and remove them from the **Scene** panel.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
+- **Adjust & export** — tune point size and frustum scale, rename / hide / remove
+  any scene item, and save a PNG of the current view at **1× / 2× / 4×** from the
+  **3DView** panel.
 - **Built for large clouds** — on-demand rendering and lazy, downscaled frustum
   textures keep big reconstructions responsive.
 
@@ -41,9 +44,11 @@ git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ## Usage
 
 Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
-Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** to add
-more. A COLMAP model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`);
-an asset is a single mesh or splat file.
+Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** — or
+**drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
+model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
+single mesh or splat file. When a project holds several models under `sparse/`
+(`0`, `1`, …) you're prompted to load one specific model or all of them.
 
 | Action | Input |
 |--------|-------|
@@ -61,3 +66,7 @@ npm run lint && npm run build && npm test
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the architecture. License: MIT.
+
+---
+
+[^1]: The glassmorphism UI style is adapted from [this CodePen by fooontic](https://codepen.io/fooontic/pen/KwpRaGr). Thanks!

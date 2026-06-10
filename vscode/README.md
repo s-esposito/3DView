@@ -5,8 +5,9 @@ source images) and **3D meshes** (glTF / GLB / OBJ / PLY) in an interactive
 Three.js scene, right in the editor.
 
 Open the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
-Reconstruction* / *Open Mesh* / *Open Viewer*, then the Scene panel's **+** to add
-more. A COLMAP model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0`).
+Reconstruction* / *Open Mesh* / *Open Viewer*, then the Scene panel's **+** — or
+**drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
+model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0`).
 
 | Action | Input |
 |--------|-------|

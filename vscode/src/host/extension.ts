@@ -65,26 +65,32 @@ async function openReconstructionFromRoot(
     return;
   }
 
-  let modelDir = dirs[0];
+  let selected = dirs;
   if (dirs.length > 1) {
-    const choice = await vscode.window.showQuickPick(
-      dirs.map((dir) => ({
+    // `dir: null` is the "load all" entry; a specific entry carries its dir.
+    const items: Array<{ label: string; description?: string; dir: string | null }> = [
+      { label: `$(layers) All ${dirs.length} models`, dir: null },
+      ...dirs.map((dir) => ({
         label: path.relative(root, dir) || path.basename(dir),
         description: dir,
         dir,
       })),
-      { placeHolder: "Multiple COLMAP models found — select one" }
-    );
+    ];
+    const choice = await vscode.window.showQuickPick(items, {
+      placeHolder: "Multiple COLMAP models found — select one, or load all",
+    });
     if (!choice) {
       return;
     }
-    modelDir = choice.dir;
+    selected = choice.dir ? [choice.dir] : dirs;
   }
 
-  const imagesDir = findImagesDir(root, modelDir);
-  const target: OpenTarget = { kind: "colmap", modelDir, imagesDir };
-  ViewerPanel.open(context, target);
-  recents.add(target);
+  for (const modelDir of selected) {
+    const imagesDir = findImagesDir(root, modelDir);
+    const target: OpenTarget = { kind: "colmap", modelDir, imagesDir };
+    ViewerPanel.open(context, target);
+    recents.add(target);
+  }
 }
 
 async function openAsset(context: vscode.ExtensionContext, recents: RecentsProvider) {

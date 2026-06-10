@@ -9,3 +9,4 @@ export * from "./images";
 export * from "./points3d";
 export * from "./pose";
 export * from "./bounds";
+export * from "./grouping";

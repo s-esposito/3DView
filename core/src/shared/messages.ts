@@ -61,6 +61,25 @@ export interface AssetRef {
 export type AddKind = "colmap" | "asset";
 
 /**
+ * One COLMAP model the webview can fetch + parse from URLs — the `loadColmap`
+ * payload minus its message `type`. Reused by `chooseColmap` so a host can offer
+ * several discovered models (e.g. `sparse/0`, `sparse/1`) for the user to pick.
+ */
+export interface ColmapModelRef {
+  id: string;
+  label: string;
+  format: "bin" | "txt";
+  urls: { cameras: string; images: string; points3d: string };
+  imageBaseUrl?: string;
+  source?: string;
+  // Optional per-image URL map (COLMAP image name or its basename → URL).
+  // For hosts that can't serve images under a single base path — e.g. the
+  // web demo, which only has opaque blob: URLs. Takes precedence over
+  // `imageBaseUrl` when a name resolves in it.
+  imageUrls?: Record<string, string>;
+}
+
+/**
  * Extension host -> webview. A scene holds any number of reconstructions and
  * assets (meshes / splats), each identified by a host-assigned `id` (stable
  * across panel recreations) so the webview can list, toggle, and remove them.
@@ -73,21 +92,12 @@ export type HostToWebview =
   | { type: "addReconstruction"; id: string; label: string; data: ModelData; source?: string }
   // Like addReconstruction, but the webview fetches + parses the model itself from
   // URLs the host serves (so the host need not parse or ship a big ModelData). The
-  // VS Code host uses addReconstruction; the PyCharm/JCEF host uses this.
-  | {
-      type: "loadColmap";
-      id: string;
-      label: string;
-      format: "bin" | "txt";
-      urls: { cameras: string; images: string; points3d: string };
-      imageBaseUrl?: string;
-      source?: string;
-      // Optional per-image URL map (COLMAP image name or its basename → URL).
-      // For hosts that can't serve images under a single base path — e.g. the
-      // web demo, which only has opaque blob: URLs. Takes precedence over
-      // `imageBaseUrl` when a name resolves in it.
-      imageUrls?: Record<string, string>;
-    }
+  // VS Code host uses addReconstruction; the PyCharm/JCEF host + drag-drop use this.
+  | ({ type: "loadColmap" } & ColmapModelRef)
+  // Several discovered models — the webview shows a chooser so the user loads one,
+  // some, or all. Used by the browser hosts (web demo + drag-drop), which lack a
+  // native picker; the native hosts (VS Code, PyCharm) choose host-side instead.
+  | { type: "chooseColmap"; models: ColmapModelRef[] }
   | { type: "addAsset"; id: string; label: string; asset: AssetRef }
   | { type: "error"; message: string };
 

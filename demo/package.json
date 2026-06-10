@@ -5,7 +5,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "node esbuild.js"
+    "build": "node esbuild.js",
+    "lint": "tsc --noEmit -p ./"
   },
   "devDependencies": {
     "esbuild": "^0.20.0",

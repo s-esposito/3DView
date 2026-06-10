@@ -53,7 +53,7 @@ export interface ColmapModel {
 /** On-disk encoding of a model directory. */
 export type ColmapFormat = "bin" | "txt";
 
-// COLMAP camera model id -> number of params. (From the format spec / TODO.)
+// COLMAP camera model id -> number of params. (From colmap.github.io/format.html.)
 export const PARAMS_PER_MODEL: Record<number, number> = {
   0: 3, // SIMPLE_PINHOLE
   1: 4, // PINHOLE
