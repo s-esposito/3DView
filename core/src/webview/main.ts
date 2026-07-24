@@ -80,6 +80,11 @@ window.addEventListener("keydown", (e) => {
     panel.render();
     return;
   }
+  if (key === "e") {
+    viewer.toggleSplatMode(); // 3DGS: points <-> ellipsoids
+    panel.render();
+    return;
+  }
   const toggle = TOGGLE_KEYS[key];
   if (toggle) {
     viewer.toggleGlobal(toggle);

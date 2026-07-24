@@ -99,14 +99,14 @@ export class CameraLayer {
    * and free those that have fallen outside it. Cheap to call on every view
    * change.
    */
-  refreshTextures(viewerPosition: THREE.Vector3, rootMatrixWorld: THREE.Matrix4): void {
+  refreshTextures(viewerPosition: THREE.Vector3, layerMatrixWorld: THREE.Matrix4): void {
     const textured = [...this.records.values()].filter((r) => r.planeMaterial && r.uri);
     if (textured.length === 0) {
       return;
     }
     const ranked = textured
       .map((r) => {
-        this.tmp.copy(r.centerLocal).applyMatrix4(rootMatrixWorld);
+        this.tmp.copy(r.centerLocal).applyMatrix4(layerMatrixWorld);
         return { record: r, dist: this.tmp.distanceTo(viewerPosition) };
       })
       .sort((a, b) => a.dist - b.dist);

@@ -16,10 +16,15 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 - **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, **shaded** with their
   glTF/GLB materials and textures by default, with optional unlit-albedo and
   wireframe modes) and **3D Gaussian Splatting** files
-  (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)
-  and shown as a colored point cloud). A `.ply` is auto-detected as a mesh or a splat.
+  (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
+  A `.ply` is auto-detected as a mesh or a splat, including the PlayCanvas /
+  SuperSplat **compressed** flavour. Gaussians render as solid oriented
+  **ellipsoids** (default) or as a colored **point cloud** — pick one in the
+  **Gaussians** section of the 3DView panel.
 - **Multi-source scenes** — open many reconstructions and assets together; add,
-  show/hide, and remove them from the **Scene** panel.
+  show/hide, and remove them from the **Scene** panel. Each item has its own
+  **position / rotation** fields (the ⤧ button on its row), so sources that don't
+  share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
 - **Adjust & export** — tune point size and frustum scale, rename / hide / remove
@@ -58,6 +63,7 @@ single mesh or splat file. When a project holds several models under `sparse/`
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |
 | Toggle grid / axes / upright | **G** / **A** / **U** |
+| Switch Gaussians: ellipsoids ↔ points | **E** |
 
 ## Development
 

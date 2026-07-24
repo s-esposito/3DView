@@ -7,9 +7,17 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages";
 import { themeColor } from "./theme";
-import { buildGrid, diagonalOf, unionBounds, computeLocalBounds, disposeObject } from "./builders";
+import {
+  buildGrid,
+  diagonalOf,
+  unionBounds,
+  transformBounds,
+  computeLocalBounds,
+  disposeObject,
+} from "./builders";
 import { SceneLayer, ReconstructionLayer, DisplayOptions } from "./sceneLayer";
 import { AssetLayer } from "./assetLayer";
+import type { SplatRenderMode } from "./splats";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
@@ -29,6 +37,15 @@ export type GlobalToggle =
 export type Orientation = "raw" | "upright";
 export type ThemeName = "light" | "dark" | "dim";
 
+export type Vec3 = [number, number, number];
+
+/** A scene item's own placement: metres and degrees, as the UI shows them. */
+export interface ItemTransform {
+  position: Vec3;
+  /** Euler XYZ in degrees (Three's default order), like Blender's rotation fields. */
+  rotation: Vec3;
+}
+
 /** One entry in the Scene list. */
 export interface SceneItem {
   id: string;
@@ -37,6 +54,7 @@ export interface SceneItem {
   visible: boolean;
   /** Source location (e.g. asset file URI) for the hover tooltip; undefined when unknown. */
   source?: string;
+  transform: ItemTransform;
 }
 
 /** Read-only snapshot of view state, for the UI to render controls from. */
@@ -49,6 +67,7 @@ export interface ViewerState {
   axes: boolean;
   wireframe: boolean;
   shaded: boolean;
+  splatMode: SplatRenderMode;
   orientation: Orientation;
   theme: ThemeName;
   pointSize: number;
@@ -57,6 +76,9 @@ export interface ViewerState {
   hasPoints: boolean;
   hasCameras: boolean;
   hasAsset: boolean;
+  hasSplat: boolean;
+  /** Sensible nudge for the position fields, derived from the scene's size. */
+  positionStep: number;
   items: SceneItem[];
 }
 
@@ -104,6 +126,9 @@ export class Viewer {
   // Meshes are lit/shaded by default (GLB PBR, etc.); turning "Shaded" off shows
   // unlit albedo (base color + texture only).
   private shaded = true;
+  // How 3DGS assets are drawn: oriented ellipsoids by default (they read as the
+  // Gaussians they are); "points" is the cheap centers-only fallback.
+  private splatMode: SplatRenderMode = "ellipsoids";
   private orientation: Orientation = "upright";
   // UI + viewport color scheme; applied to <body data-viewer-theme> so the CSS
   // palette and the 3D background follow it. Default is dark (the glass look).
@@ -187,6 +212,7 @@ export class Viewer {
       axes: this.showAxes,
       wireframe: this.wireframe,
       shaded: this.shaded,
+      splatMode: this.splatMode,
       orientation: this.orientation,
       theme: this.themeName,
       pointSize: this.opts.pointSize,
@@ -195,12 +221,15 @@ export class Viewer {
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
       hasAsset: this.layers.some((l) => l.kind === "asset"),
+      hasSplat: this.assetLayers().some((l) => l.isSplat),
+      positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
         kind: l.kind,
         visible: l.visible,
         source: l.source,
+        transform: readTransform(l.object),
       })),
     };
   }
@@ -221,12 +250,14 @@ export class Viewer {
     this.byId.set(id, layer);
     this.root.add(layer.object);
     layer
-      .load(uri, name, (phase) => this.onProgress?.(`${label} — ${phase}`))
+      .load(uri, name, this.splatMode, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
         layer.setWireframe(this.wireframe);
         layer.setShaded(this.shaded);
+        // The mode may have been toggled while this was loading; a no-op otherwise.
+        layer.setSplatMode(this.splatMode);
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -242,6 +273,38 @@ export class Viewer {
   setItemVisible(id: string, visible: boolean): void {
     this.byId.get(id)?.setVisible(visible);
     this.requestRender();
+  }
+
+  /**
+   * Move / rotate one scene item, Blender-style: its own placement inside the
+   * scene, independent of every other item. Only the given fields change, so the
+   * UI can drive one axis at a time. Rotation is Euler XYZ in degrees.
+   *
+   * Deliberately does not fire `onChange` — the caller is a live number field, and
+   * a panel re-render would steal its focus mid-edit.
+   */
+  setItemTransform(id: string, patch: Partial<ItemTransform>): void {
+    const layer = this.byId.get(id);
+    if (!layer) {
+      return;
+    }
+    if (patch.position) {
+      layer.object.position.fromArray(patch.position);
+    }
+    if (patch.rotation) {
+      const [x, y, z] = patch.rotation.map(THREE.MathUtils.degToRad);
+      layer.object.rotation.set(x, y, z);
+    }
+    layer.object.updateMatrix(); // bounds below read `matrix`, not the render-time one
+    this.recomputeBounds();
+    this.rebuildHelpers(); // the grid + axes span the scene, so they follow
+    this.refreshTextures();
+    this.requestRender();
+  }
+
+  /** Put a scene item back at the origin, unrotated. */
+  resetItemTransform(id: string): void {
+    this.setItemTransform(id, { position: [0, 0, 0], rotation: [0, 0, 0] });
   }
 
   /** Rename a scene item's display label; re-renders the Scene list via onChange. */
@@ -306,6 +369,17 @@ export class Viewer {
 
   toggleGlobal(toggle: GlobalToggle): void {
     this.setGlobal(toggle, !this.getState()[toggle]);
+  }
+
+  /** Switch how 3DGS assets are drawn; each splat layer rebuilds from its decoded cloud. */
+  setSplatMode(mode: SplatRenderMode): void {
+    this.splatMode = mode;
+    this.layers.forEach((l) => l.setSplatMode(mode));
+    this.requestRender();
+  }
+
+  toggleSplatMode(): void {
+    this.setSplatMode(this.splatMode === "points" ? "ellipsoids" : "points");
   }
 
   setPointSize(size: number): void {
@@ -385,9 +459,17 @@ export class Viewer {
     );
   }
 
+  private assetLayers(): AssetLayer[] {
+    return this.layers.filter((l): l is AssetLayer => l.kind === "asset");
+  }
+
+  /** Scene bounds in root space: each layer's local bounds under its own placement. */
   private recomputeBounds(): void {
     const parts = this.layers
-      .map((l) => l.bounds())
+      .map((l) => {
+        const local = l.bounds();
+        return local && transformBounds(local, l.object.matrix);
+      })
       .filter((b): b is Bounds => b != null);
     this.bounds = unionBounds(parts);
     this.frustumScaleMax = diagonalOf(this.bounds) * 0.16;
@@ -406,10 +488,8 @@ export class Viewer {
   }
 
   private refreshTextures(): void {
-    this.root.updateMatrixWorld(true);
-    this.reconstructionLayers().forEach((l) =>
-      l.refreshTextures(this.camera.position, this.root.matrixWorld)
-    );
+    this.root.updateMatrixWorld(true); // also refreshes each layer's matrixWorld
+    this.reconstructionLayers().forEach((l) => l.refreshTextures(this.camera.position));
   }
 
   private applyOrientation(): void {
@@ -420,19 +500,9 @@ export class Viewer {
 
   private fitCamera(): void {
     this.root.updateMatrixWorld(true);
-    const { min, max } = this.bounds;
-    const wMin = new THREE.Vector3(Infinity, Infinity, Infinity);
-    const wMax = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
-    const c = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) {
-      c.set(
-        i & 1 ? max[0] : min[0],
-        i & 2 ? max[1] : min[1],
-        i & 4 ? max[2] : min[2]
-      ).applyMatrix4(this.root.matrixWorld);
-      wMin.min(c);
-      wMax.max(c);
-    }
+    const world = transformBounds(this.bounds, this.root.matrixWorld);
+    const wMin = new THREE.Vector3().fromArray(world.min);
+    const wMax = new THREE.Vector3().fromArray(world.max);
     const center = wMin.clone().add(wMax).multiplyScalar(0.5);
     const diag = wMin.distanceTo(wMax) || 1;
     this.camera.near = diag / 1000;
@@ -495,4 +565,19 @@ export class Viewer {
       this.needsRender = false;
     }
   };
+}
+
+/** An object's placement in the units the transform fields edit: metres and degrees. */
+function readTransform(object: THREE.Object3D): ItemTransform {
+  const { x, y, z } = object.rotation;
+  return {
+    position: object.position.toArray() as Vec3,
+    rotation: [x, y, z].map(THREE.MathUtils.radToDeg) as Vec3,
+  };
+}
+
+/** Round down to the nearest power of ten (1, 0.1, 0.01, …), so a nudge step reads
+ *  as a round number whatever the scene's scale. Zero-safe. */
+function roundToPowerOfTen(value: number): number {
+  return value > 0 ? 10 ** Math.floor(Math.log10(value)) : 0.01;
 }

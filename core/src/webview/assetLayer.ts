@@ -2,25 +2,22 @@
 // mirroring CameraLayer so the Viewer treats all scene sources uniformly. An
 // asset is a mesh (glTF/GLB/OBJ/PLY) or a 3D Gaussian Splatting cloud
 // (.ply / .splat / .spz / .ksplat). Mesh asset siblings (.bin, .mtl, textures)
-// resolve relative to the file's webview URI; splats are loaded via Spark and
-// rendered (v1) as a colored point cloud — base color only, no covariance/SH.
+// resolve relative to the file's webview URI; splats are decoded via Spark (see
+// splats.ts) and drawn as centers or ellipsoids, per the current render mode.
 //
 // Mesh shading: each mesh keeps its loaded material (lit PBR, incl. GLB
 // textures) plus a derived unlit "albedo" material (base-color texture + color,
 // no lighting). The "Shaded" toggle swaps between them; shaded is the default.
+// Splat ellipsoids are lit meshes too, so they pick this up for free.
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
-import { unpackSplats, unpackSplat } from "@sparkjsdev/spark";
 import type { Bounds } from "../shared/messages";
-import { computeBounds } from "../colmap/bounds";
-import { buildBox, buildSplatPoints, disposeObject, eachMaterial } from "./builders";
+import { buildBox, disposeObject, eachMaterial } from "./builders";
+import { decodeSplats, buildSplatObject } from "./splats";
+import type { SplatCloud, SplatRenderMode } from "./splats";
 import type { SceneLayer } from "./sceneLayer";
-
-// 3DGS point clouds have no per-point size of their own (v1), so render their
-// centers at the same constant pixel size the COLMAP/PLY point paths use.
-const SPLAT_POINT_SIZE = 1.5;
 
 /** A single loaded asset (mesh or splat cloud) as a scene layer. */
 export class AssetLayer implements SceneLayer {
@@ -31,8 +28,15 @@ export class AssetLayer implements SceneLayer {
   private current?: THREE.Object3D;
   private currentBounds?: Bounds;
   private box?: THREE.Box3Helper;
-  /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splats. */
+  /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splat points. */
   private shadingPairs: ShadingPair[] = [];
+  /** The decoded 3DGS cloud, kept so a render-mode switch rebuilds without re-decoding. */
+  private cloud?: SplatCloud;
+  private splatMode: SplatRenderMode = "points";
+  // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
+  // in the same state the Viewer last set (its materials are new objects).
+  private wireframe = false;
+  private shaded = true;
 
   constructor(
     readonly id: string,
@@ -59,6 +63,7 @@ export class AssetLayer implements SceneLayer {
   setWireframe(on: boolean): void {
     // Apply to both the lit material and its unlit twin so the active one is right.
     // No-op for splat point clouds (they have no shading pairs).
+    this.wireframe = on;
     const apply = (m: THREE.Material) => {
       (m as THREE.MeshBasicMaterial).wireframe = on;
     };
@@ -71,24 +76,67 @@ export class AssetLayer implements SceneLayer {
   setShaded(on: boolean): void {
     // Swap each mesh between its loaded (lit) material and its unlit albedo twin.
     // No-op for splat point clouds (they have no shading pairs).
+    this.shaded = on;
     for (const pair of this.shadingPairs) {
       pair.mesh.material = on ? pair.lit : pair.unlit;
     }
   }
 
+  /** True once loaded, if this asset is a 3DGS cloud (so the render mode applies). */
+  get isSplat(): boolean {
+    return this.cloud != null;
+  }
+
+  /**
+   * Switch how a 3DGS asset is drawn (centers vs. ellipsoids), rebuilding its
+   * geometry from the decoded cloud. No-op for meshes and for the current mode.
+   */
+  setSplatMode(mode: SplatRenderMode): void {
+    if (!this.cloud || mode === this.splatMode) {
+      return;
+    }
+    this.splatMode = mode;
+    this.disposeCurrent();
+    this.attachCurrent(buildSplatObject(this.cloud, mode));
+  }
+
   /** Load the asset file and add it (plus a bounding box) under this layer's group.
-   *  `onProgress` reports the current phase (download %, then "Decoding…"). */
-  async load(uri: string, name: string, onProgress?: Progress): Promise<void> {
-    const { object, bounds } = await loadAsset(uri, name, onProgress);
-    this.current = object;
+   *  A 3DGS cloud is built in `splatMode`; `onProgress` reports the current phase
+   *  (download %, then "Decoding…"). */
+  async load(
+    uri: string,
+    name: string,
+    splatMode: SplatRenderMode,
+    onProgress?: Progress
+  ): Promise<void> {
+    const { object, bounds, cloud } = await loadAsset(uri, name, splatMode, onProgress);
+    this.cloud = cloud;
+    this.splatMode = splatMode;
     this.currentBounds = bounds;
-    this.shadingPairs = collectShadingPairs(object);
-    this.object.add(object);
+    this.attachCurrent(object);
     this.box = buildBox(bounds);
     this.object.add(this.box);
   }
 
   dispose(): void {
+    this.disposeCurrent();
+    disposeObject(this.object); // also disposes the box (a child of object)
+    this.currentBounds = undefined;
+    this.box = undefined;
+    this.cloud = undefined;
+  }
+
+  /** Add a freshly built object as the layer's content, in the current shading state. */
+  private attachCurrent(object: THREE.Object3D): void {
+    this.current = object;
+    this.shadingPairs = collectShadingPairs(object);
+    this.object.add(object);
+    this.setWireframe(this.wireframe);
+    this.setShaded(this.shaded);
+  }
+
+  /** Free the current content's GPU resources, leaving the group (and box) in place. */
+  private disposeCurrent(): void {
     // Each unlit twin reuses its lit material's textures, so dispose the unlit
     // material objects here (not their shared maps) and re-activate the lit
     // material so disposeObject frees the textures + geometry exactly once.
@@ -98,10 +146,7 @@ export class AssetLayer implements SceneLayer {
     }
     this.shadingPairs = [];
     disposeObject(this.current);
-    disposeObject(this.object); // also disposes the box (a child of object)
     this.current = undefined;
-    this.currentBounds = undefined;
-    this.box = undefined;
   }
 }
 
@@ -153,6 +198,8 @@ function toUnlit(mat: THREE.Material): THREE.MeshBasicMaterial {
 interface LoadedAsset {
   object: THREE.Object3D;
   bounds: Bounds;
+  /** Set only for 3DGS files: the decoded cloud, retained for render-mode switches. */
+  cloud?: SplatCloud;
 }
 
 /** Reports a human-readable loading phase ("Downloading… 45%", "Decoding…"). */
@@ -169,7 +216,12 @@ const gltfLoader = new GLTFLoader();
 const objLoader = new OBJLoader();
 const plyLoader = new PLYLoader();
 
-function loadAsset(uri: string, name: string, onProgress?: Progress): Promise<LoadedAsset> {
+function loadAsset(
+  uri: string,
+  name: string,
+  splatMode: SplatRenderMode,
+  onProgress?: Progress
+): Promise<LoadedAsset> {
   const ext = name.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "glb":
@@ -178,11 +230,11 @@ function loadAsset(uri: string, name: string, onProgress?: Progress): Promise<Lo
     case "obj":
       return load(objLoader, uri, onProgress).then((group) => finalize(group));
     case "ply":
-      return loadPly(uri, name, onProgress);
+      return loadPly(uri, name, splatMode, onProgress);
     case "splat":
     case "spz":
     case "ksplat":
-      return loadSplat(uri, name, onProgress);
+      return loadSplat(uri, name, splatMode, onProgress);
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext ?? "?"}`));
   }
@@ -217,21 +269,31 @@ function load<T>(
  * which a mesh/normal-cloud PLY never has. Splats go through Spark; the rest reuse
  * three's PLYLoader.
  */
-async function loadPly(uri: string, name: string, onProgress?: Progress): Promise<LoadedAsset> {
+async function loadPly(
+  uri: string,
+  name: string,
+  splatMode: SplatRenderMode,
+  onProgress?: Progress
+): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
   const bytes = new Uint8Array(buffer);
   if (isSplatPly(bytes)) {
     onProgress?.("Decoding…");
-    return buildSplatLayer(bytes, name);
+    return buildSplatLayer(bytes, name, splatMode);
   }
   return finalize(plyToObject(plyLoader.parse(buffer)));
 }
 
-/** Load a Spark-supported splat file (.splat/.spz/.ksplat) as a colored point cloud. */
-async function loadSplat(uri: string, name: string, onProgress?: Progress): Promise<LoadedAsset> {
+/** Load a Spark-supported splat file (.splat/.spz/.ksplat) as a 3DGS cloud. */
+async function loadSplat(
+  uri: string,
+  name: string,
+  splatMode: SplatRenderMode,
+  onProgress?: Progress
+): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
   onProgress?.("Decoding…");
-  return buildSplatLayer(new Uint8Array(buffer), name);
+  return buildSplatLayer(new Uint8Array(buffer), name, splatMode);
 }
 
 /**
@@ -249,45 +311,14 @@ function isSplatPly(bytes: Uint8Array): boolean {
   return header.includes("f_dc_0") || header.includes("packed_position");
 }
 
-/**
- * Decode a splat file with Spark (WASM in a worker) into packed splats, then read
- * each Gaussian's center + base color CPU-side into a colored `THREE.Points`.
- *
- * Spark stores centers as half-floats, so a Gaussian whose coordinate exceeds the
- * half-float range (~65504) — common "floater" splats in 3DGS files — decodes to
- * ±Infinity/NaN. We drop those: a single non-finite point would poison the bounds,
- * blowing up fit-to-view and the world grid.
- */
-async function buildSplatLayer(input: Uint8Array, name: string): Promise<LoadedAsset> {
-  const { packedArray, numSplats } = await unpackSplats({ input, pathOrUrl: name });
-  const positions = new Float32Array(numSplats * 3);
-  const colors = new Uint8Array(numSplats * 3);
-  let n = 0; // count of finite splats kept
-  for (let i = 0; i < numSplats; i++) {
-    const s = unpackSplat(packedArray, i); // reused output object; copy immediately
-    const { x, y, z } = s.center;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      continue;
-    }
-    positions[n * 3] = x;
-    positions[n * 3 + 1] = y;
-    positions[n * 3 + 2] = z;
-    colors[n * 3] = to255(s.color.r);
-    colors[n * 3 + 1] = to255(s.color.g);
-    colors[n * 3 + 2] = to255(s.color.b);
-    n++;
-  }
-  if (n < numSplats) {
-    console.warn(`3DView: dropped ${numSplats - n} splat(s) with non-finite centers`);
-  }
-  const pos = positions.slice(0, n * 3);
-  const col = colors.slice(0, n * 3);
-  const bounds = computeBounds(pos);
-  return { object: buildSplatPoints(pos, col, bounds, SPLAT_POINT_SIZE), bounds };
-}
-
-function to255(v: number): number {
-  return Math.max(0, Math.min(255, Math.round(v * 255)));
+/** Decode a splat file (Spark, WASM in a worker) and build it in `splatMode`. */
+async function buildSplatLayer(
+  input: Uint8Array,
+  name: string,
+  splatMode: SplatRenderMode
+): Promise<LoadedAsset> {
+  const cloud = await decodeSplats(input, name);
+  return { object: buildSplatObject(cloud, splatMode), bounds: cloud.bounds, cloud };
 }
 
 /**

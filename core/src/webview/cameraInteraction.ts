@@ -150,7 +150,7 @@ export class CameraInteraction {
     this.deselect();
     layer.cameras.select(hit.index);
     this.selected = hit;
-    this.flyTo(cam);
+    this.flyTo(cam, layer.object);
     this.povActive = true;
     this.deps.onSelect(cam);
     this.deps.requestRender();
@@ -166,23 +166,20 @@ export class CameraInteraction {
     }
   }
 
-  /** Position the viewer camera at a reconstruction camera, looking where it did. */
-  private flyTo(cam: CameraView): void {
+  /** Position the viewer camera at a reconstruction camera, looking where it did.
+   *  Poses are layer-local, so they go through the layer's own world matrix — which
+   *  carries both the root's upright flip and the item's placement. */
+  private flyTo(cam: CameraView, layerObject: THREE.Object3D): void {
     const { camera, controls, root } = this.deps;
-    root.updateMatrixWorld(true);
+    root.updateMatrixWorld(true); // also refreshes layerObject.matrixWorld
+    const toWorld = layerObject.matrixWorld;
     const m = cam.worldFromCamera; // row-major, maps camera dir -> world (local)
-    const center = new THREE.Vector3(
-      cam.center[0],
-      cam.center[1],
-      cam.center[2]
-    ).applyMatrix4(root.matrixWorld);
+    const center = new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2]).applyMatrix4(
+      toWorld
+    );
     // COLMAP camera looks down +z; image +y is down, so view-up is -y axis.
-    const forward = new THREE.Vector3(m[2], m[5], m[8])
-      .transformDirection(root.matrixWorld)
-      .normalize();
-    const up = new THREE.Vector3(-m[1], -m[4], -m[7])
-      .transformDirection(root.matrixWorld)
-      .normalize();
+    const forward = new THREE.Vector3(m[2], m[5], m[8]).transformDirection(toWorld).normalize();
+    const up = new THREE.Vector3(-m[1], -m[4], -m[7]).transformDirection(toWorld).normalize();
     const diag = this.deps.boundsDiagonal();
     const back = diag * 0.1; // sit a bit behind the lens so the frustum is in view
     const targetDist = diag * 0.15;

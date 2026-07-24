@@ -76,18 +76,26 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     viewer.ts            Viewer: scene graph/camera/layers/global display — THE seam
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
     assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY) or a
-                         3DGS splat (.ply/.splat/.spz/.ksplat, via Spark → colored
-                         points; .ply auto-disambiguated by `f_dc_0`) into a group.
+                         3DGS splat (.ply/.splat/.spz/.ksplat; .ply auto-disambiguated
+                         by `f_dc_0` / `packed_position`) into a group, and rebuilds a
+                         splat on a render-mode switch from its retained SplatCloud.
                          Each mesh keeps its loaded (lit PBR, incl. GLB textures)
                          material + a derived unlit-albedo twin; "Shaded" swaps
                          between them (shaded is the default), "Wireframe" sets both
+    splats.ts            3DGS: decodeSplats() (Spark, WASM in a worker) → SplatCloud,
+                         then buildSplatObject() in either render mode — "ellipsoids"
+                         (default; one instanced icosphere per Gaussian, opacity- and
+                         budget-culled) or "points" (centers only). Neither is true
+                         splatting: no per-view sort, SH, or alpha falloff
     cameraLayer.ts       per-camera frustums + image planes; hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup + model chooser)
-  test/colmap.test.ts    pure parser/pose unit tests
+  test/                  pure unit tests, run under `node --test`: colmap.test.ts
+                         (parsers/poses), builders.test.ts (bounds + scene math),
+                         splats.test.ts (3DGS render-mode geometry)
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
@@ -126,13 +134,21 @@ Node `require`. Don't leak host code into core to "make it work" — adapt at th
 `root` group; helpers (grid/axes) and fit-to-view union over all layers. The UI
 (`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
 `addAsset`, `removeItem`,
-`renameItem`, `setItemVisible`, `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
+`renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
+`setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
+`setSplatMode`/`toggleSplatMode`,
 `setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
 `onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
+
+**Each layer carries its own placement.** `Viewer.setItemTransform` writes position /
+rotation onto the layer's root group, so sources that don't share a coordinate frame
+can be lined up by hand. Anything that turns layer-local data into world space must
+therefore go through *that layer's* matrix, never the `root`'s: scene bounds
+(`transformBounds`), fit-to-view, click-to-fly POV, and the frustum-texture LOD all do.
 
 **Scene-item flow (multiple reconstructions + assets):** the host assigns each item
 a stable `id` and tracks the list in `panel.ts`. The Scene "+" menu posts

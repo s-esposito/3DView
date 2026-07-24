@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
+import type { SplatRenderMode } from "./splats";
 import { ThumbnailLoader } from "./textures";
 import { buildPoints, buildBox, computeLocalBounds, disposeObject } from "./builders";
 
@@ -37,6 +38,8 @@ export interface SceneLayer {
   setWireframe(on: boolean): void;
   /** Light mesh materials (the global "Shaded" option); off = unlit albedo. No-op otherwise. */
   setShaded(on: boolean): void;
+  /** How 3DGS clouds are drawn (the global "Gaussians" option); no-op for anything else. */
+  setSplatMode(mode: SplatRenderMode): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -100,9 +103,11 @@ export class ReconstructionLayer implements SceneLayer {
     }
   }
 
-  // Reconstructions are points + lines — no meshes to wireframe or shade.
+  // Reconstructions are points + lines — no meshes to wireframe or shade, and no
+  // Gaussians to re-render.
   setWireframe(): void {}
   setShaded(): void {}
+  setSplatMode(): void {}
 
   /** Apply scene-wide options that don't require rebuilding geometry. */
   applyOptions(opts: DisplayOptions): void {
@@ -122,8 +127,10 @@ export class ReconstructionLayer implements SceneLayer {
     this.cameras.setVisible(opts.frustums);
   }
 
-  refreshTextures(viewerPosition: THREE.Vector3, rootMatrixWorld: THREE.Matrix4): void {
-    this.cameras.refreshTextures(viewerPosition, rootMatrixWorld);
+  /** Caller must have updated world matrices; distances are measured through this
+   *  layer's own matrix, so its placement in the scene counts. */
+  refreshTextures(viewerPosition: THREE.Vector3): void {
+    this.cameras.refreshTextures(viewerPosition, this.object.matrixWorld);
   }
 
   dispose(): void {
