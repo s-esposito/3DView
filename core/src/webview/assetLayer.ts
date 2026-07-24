@@ -16,7 +16,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
 import { buildBox, disposeObject, eachMaterial } from "./builders";
-import { decodeSplats, buildSplatObject } from "./splats";
+import { decodeSplats, buildSplatObject, disposeSplatMesh } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { readNpy, readNpz } from "./npz";
 import { decodeTracks, buildTrackLines, setTrackTrail, setTrackOpacity, trackSteps } from "./tracks";
@@ -177,6 +177,7 @@ export class AssetLayer implements SceneLayer {
       pair.mesh.material = pair.lit;
     }
     this.shadingPairs = [];
+    disposeSplatMesh(this.current); // Spark owns buffers disposeObject can't see
     disposeObject(this.current);
     this.current = undefined;
   }

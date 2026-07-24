@@ -23,6 +23,8 @@ import {
   DEFAULT_ASSET_OPTIONS,
 } from "./sceneLayer";
 import { AssetLayer } from "./assetLayer";
+import { SparkRenderer } from "@sparkjsdev/spark";
+import { SPLAT_RENDER_MODES } from "./splats";
 import type { SplatRenderMode } from "./splats";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
@@ -123,6 +125,9 @@ export class Viewer {
   private readonly byId = new Map<string, SceneLayer>();
   private grid?: THREE.GridHelper;
   private axes?: THREE.AxesHelper;
+  /** Spark's splat rasterizer — one per scene, present only while a splat asset is
+   *  loaded and splatting is in use (see syncSpark). */
+  private spark?: SparkRenderer;
   private bounds: Bounds = { min: [-1, -1, -1], max: [1, 1, 1] };
 
   // Scene-wide display state.
@@ -276,6 +281,7 @@ export class Viewer {
         layer.setShaded(this.shaded);
         // The options may have changed while this was loading; a no-op otherwise.
         layer.applyAssetOptions(this.assetOpts);
+        this.syncSpark(); // this asset may be the scene's first splat
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -344,6 +350,7 @@ export class Viewer {
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
     this.byId.delete(id);
+    this.syncSpark(); // that may have been the scene's last splat
     this.recomputeBounds();
     this.rebuildHelpers();
     this.onChange?.();
@@ -394,8 +401,10 @@ export class Viewer {
     this.setAssetOptions({ splatMode: mode });
   }
 
-  toggleSplatMode(): void {
-    this.setSplatMode(this.assetOpts.splatMode === "points" ? "ellipsoids" : "points");
+  /** Step through the 3DGS render modes (the E key), in decreasing fidelity. */
+  cycleSplatMode(): void {
+    const at = SPLAT_RENDER_MODES.indexOf(this.assetOpts.splatMode);
+    this.setSplatMode(SPLAT_RENDER_MODES[(at + 1) % SPLAT_RENDER_MODES.length]);
   }
 
   /** Draw point-track trajectories up to `frames` time steps. At the maximum this
@@ -421,7 +430,31 @@ export class Viewer {
   private setAssetOptions(patch: Partial<AssetOptions>): void {
     this.assetOpts = { ...this.assetOpts, ...patch };
     this.layers.forEach((l) => l.applyAssetOptions(this.assetOpts));
+    this.syncSpark();
     this.requestRender();
+  }
+
+  /**
+   * Match Spark's renderer to what the scene needs — call after the layers have been
+   * updated, so the SplatMeshes it draws already exist. It goes up when splatting is
+   * in use and comes down once no splat asset is left, because it holds GPU
+   * accumulators sized to the largest cloud it has drawn.
+   *
+   * It belongs to the scene rather than to `root`: its own transform is the origin
+   * Spark encodes splat positions against, so leaving it at identity keeps that
+   * precise. `onDirty` is what makes it fit our on-demand loop — Spark calls it when
+   * a viewpoint sort or LoD update lands, exactly when the last frame went stale.
+   */
+  private syncSpark(): void {
+    const hasSplat = this.assetLayers().some((l) => l.isSplat);
+    if (this.spark && !hasSplat) {
+      this.spark.removeFromParent();
+      this.spark.dispose();
+      this.spark = undefined;
+    } else if (!this.spark && hasSplat && this.assetOpts.splatMode === "splatting") {
+      this.spark = new SparkRenderer({ renderer: this.renderer, onDirty: this.requestRender });
+      this.scene.add(this.spark);
+    }
   }
 
   setPointSize(size: number): void {

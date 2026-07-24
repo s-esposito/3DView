@@ -4,6 +4,7 @@
 // list + add menu). Both are thin views over the Viewer: they read `getState()`
 // to render and call Viewer setters on interaction; the Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
+import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
   section,
@@ -28,6 +29,14 @@ const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor
 
 // Four-way move arrows: the per-item transform (position + rotation) disclosure.
 const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
+
+/** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
+ *  SPLAT_RENDER_MODES fails to compile until it is described here. */
+const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }> = {
+  splatting: { label: "Splats", title: "True Gaussian splatting, sorted per viewpoint (Spark)" },
+  ellipsoids: { label: "Ellipsoids", title: "Each Gaussian as a solid oriented ellipsoid" },
+  points: { label: "Points", title: "Each Gaussian's center as a point (fastest)" },
+};
 
 export class ControlPanel {
   private collapsed = false; // the 3DView (display) panel
@@ -157,14 +166,7 @@ export class ControlPanel {
 
     // Gaussians — how 3DGS assets are drawn; only when the scene holds one.
     if (s.hasSplat) {
-      const modes: Array<{ label: string; value: SplatRenderMode; title: string }> = [
-        { label: "Points", value: "points", title: "Draw each Gaussian's center as a point (fast)" },
-        {
-          label: "Ellipsoids",
-          value: "ellipsoids",
-          title: "Draw each Gaussian as an oriented ellipsoid (E)",
-        },
-      ];
+      const modes = SPLAT_RENDER_MODES.map((value) => ({ value, ...SPLAT_MODE_COPY[value] }));
       body.append(
         section("Gaussians", [
           choiceRow(modes, s.splatMode, (mode) => this.viewer.setSplatMode(mode)),

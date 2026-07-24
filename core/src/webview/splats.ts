@@ -1,23 +1,29 @@
 // 3D Gaussian Splatting: decode a splat file into a plain CPU-side cloud (Spark
-// parses the file with WASM in a worker), then build one of two render modes from
-// it. Both are self-built approximations — neither is true splatting (no per-view
-// sort, no SH view-dependence, no alpha falloff):
-//   - "points"     — one colored point per Gaussian center; cheap, scales to any file.
+// parses the file with WASM in a worker), then build one of three render modes:
+//   - "splatting"  — real Gaussian splatting, rendered by Spark's own SparkRenderer
+//                    (per-viewpoint sorted, SH, alpha falloff). See the Viewer,
+//                    which owns the one SparkRenderer every SplatMesh draws through.
 //   - "ellipsoids" — each Gaussian as a solid oriented ellipsoid (the unit sphere
 //                    transformed by T(center)·R(quat)·S(σ·scales)), drawn as one
 //                    instanced icosphere per Gaussian. Opaque, so the z-buffer
-//                    handles occlusion and no per-viewpoint work is needed — it
-//                    fits the Viewer's on-demand `requestRender()` loop.
-// The decoded cloud is kept so switching modes rebuilds geometry without re-decoding.
+//                    handles occlusion and no per-viewpoint work is needed.
+//   - "points"     — one colored point per Gaussian center; cheap, scales to any file.
+// The last two are self-built approximations, useful for seeing the Gaussians as
+// data (and as a fallback where splatting is too slow).
+//
+// The decoded cloud is kept so switching modes rebuilds without re-decoding — and
+// that includes Spark's own packed buffer, which `SplatMesh` adopts as-is.
 import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { unpackSplats, unpackSplat } from "@sparkjsdev/spark";
+import { unpackSplats, unpackSplat, PackedSplats, SplatMesh } from "@sparkjsdev/spark";
 import type { Bounds } from "../shared/messages";
 import { computeBounds } from "../colmap/bounds";
 import { buildColoredPoints, sphereFromBounds } from "./builders";
 
-/** How a decoded splat cloud is rendered. */
-export type SplatRenderMode = "points" | "ellipsoids";
+/** How a decoded splat cloud is rendered, in decreasing fidelity — also the order
+ *  the E key cycles and the control panel lists. */
+export const SPLAT_RENDER_MODES = ["splatting", "ellipsoids", "points"] as const;
+export type SplatRenderMode = (typeof SPLAT_RENDER_MODES)[number];
 
 /** 3DGS point clouds have no per-point size of their own, so render their centers
  *  at the same constant pixel size the COLMAP/PLY point paths use. */
@@ -35,15 +41,24 @@ const MIN_OPACITY = 0.05;
 
 /**
  * Ellipsoid budget. Sized to draw a typical full 3DGS reconstruction (~1M
- * Gaussians) rather than quietly halving it, since ellipsoids are the default mode:
- * 20M triangles at the 20-triangle (detail 0) icosphere, and ~76 MB of instance
- * matrix + color buffers. Lower it if a big scene drags while orbiting.
+ * Gaussians) rather than quietly halving it: 20M triangles at the 20-triangle
+ * (detail 0) icosphere, and ~76 MB of instance matrix + color buffers. Lower it if
+ * a big scene drags while orbiting.
  */
 export const MAX_ELLIPSOIDS = 1_000_000;
 
 /** A decoded 3DGS cloud, kept CPU-side so render modes rebuild without re-decoding. */
 export interface SplatCloud {
-  /** Number of Gaussians (all arrays are sized from this). */
+  /**
+   * Spark's own packed buffer, exactly as its decoder produced it — the source the
+   * "splatting" mode renders from, adopted without a copy or a second parse. Unlike
+   * the arrays below it still holds the non-finite "floater" Gaussians; Spark's
+   * renderer deals with them, and dropping them here would mean rewriting the
+   * buffer. Sized `packedCount`, which is >= `count`.
+   */
+  packed: Uint32Array;
+  packedCount: number;
+  /** Number of finite Gaussians (the plain arrays below are all sized from this). */
   count: number;
   centers: Float32Array; // 3n — xyz
   colors: Uint8Array; // 3n — rgb, base (SH DC) color
@@ -96,6 +111,8 @@ export async function decodeSplats(input: Uint8Array, name: string): Promise<Spl
   }
   const cloudCenters = trim(centers, n * 3);
   return {
+    packed: packedArray,
+    packedCount: numSplats,
     count: n,
     centers: cloudCenters,
     colors: trim(colors, n * 3),
@@ -114,7 +131,39 @@ function trim<T extends Float32Array | Uint8Array>(array: T, length: number): T 
 
 /** Build the renderable object for a decoded cloud in the requested mode. */
 export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THREE.Object3D {
+  if (mode === "splatting") {
+    return buildSplatMesh(cloud);
+  }
   return mode === "ellipsoids" ? buildSplatEllipsoids(cloud) : buildSplatPoints(cloud);
+}
+
+/**
+ * The real thing: a Spark `SplatMesh`, drawn by the scene's `SparkRenderer` with a
+ * per-viewpoint sort, spherical harmonics and proper alpha falloff.
+ *
+ * It adopts our already-decoded packed buffer (`PackedSplats` takes `packedArray`
+ * directly and initializes synchronously), so switching into this mode neither
+ * re-fetches nor re-parses the file. Nothing is built here per-Gaussian: Spark
+ * gathers every visible SplatMesh in the scene each frame, honouring `.visible`
+ * and world matrices — so the Scene list's show/hide and the per-item transform
+ * apply to splats like anything else.
+ */
+function buildSplatMesh(cloud: SplatCloud): THREE.Object3D {
+  const mesh = new SplatMesh({
+    packedSplats: new PackedSplats({ packedArray: cloud.packed, numSplats: cloud.packedCount }),
+  });
+  mesh.initialized.catch((err: unknown) =>
+    console.error("3DView: Spark could not prepare the splat mesh", err)
+  );
+  return mesh;
+}
+
+/** Free a splat object's GPU resources. A no-op unless it is a Spark `SplatMesh`,
+ *  whose buffers only its own `dispose()` releases. */
+export function disposeSplatMesh(object: THREE.Object3D | undefined): void {
+  if (object instanceof SplatMesh) {
+    object.dispose();
+  }
 }
 
 /** The cloud's centers as a colored `THREE.Points` — base color only, no covariance. */

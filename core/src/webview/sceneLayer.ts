@@ -25,9 +25,9 @@ export interface AssetOptions {
   trackDensity: number;
 }
 
-/** Ellipsoids read as the Gaussians they are; tracks start whole, opaque, undecimated. */
+/** Splats render 3DGS as it was trained to look; tracks start whole, opaque, undecimated. */
 export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
-  splatMode: "ellipsoids",
+  splatMode: "splatting",
   trackFrames: Number.POSITIVE_INFINITY,
   trackOpacity: 1,
   trackDensity: 1,

@@ -81,7 +81,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (key === "e") {
-    viewer.toggleSplatMode(); // 3DGS: points <-> ellipsoids
+    viewer.cycleSplatMode(); // 3DGS: splatting -> ellipsoids -> points
     panel.render();
     return;
   }

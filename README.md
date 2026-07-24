@@ -18,9 +18,11 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   wireframe modes) and **3D Gaussian Splatting** files
   (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
   A `.ply` is auto-detected as a mesh or a splat, including the PlayCanvas /
-  SuperSplat **compressed** flavour. Gaussians render as solid oriented
-  **ellipsoids** (default) or as a colored **point cloud** — pick one in the
-  **Gaussians** section of the 3DView panel.
+  SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
+  of the 3DView panel: **Splats** (default) — true Gaussian splatting through Spark's
+  renderer, sorted per viewpoint with spherical harmonics; **Ellipsoids** — each
+  Gaussian as a solid oriented ellipsoid, to see the primitives as data; and
+  **Points** — bare centers, the cheap fallback for huge scenes.
 - **3D point tracks** (`.npz` / `.npy`) — trajectories a tracker followed over time,
   drawn as one colored polyline per point, with the trail breaking wherever a point
   is occluded. Sliders control the **trail** (how many time steps are drawn),
@@ -70,7 +72,7 @@ single mesh, splat, or point-track file. When a project holds several models und
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |
 | Toggle grid / axes / upright | **G** / **A** / **U** |
-| Switch Gaussians: ellipsoids ↔ points | **E** |
+| Cycle Gaussians: splats → ellipsoids → points | **E** |
 
 ## Development
 

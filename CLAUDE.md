@@ -87,10 +87,13 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          material + a derived unlit-albedo twin; "Shaded" swaps
                          between them (shaded is the default), "Wireframe" sets both
     splats.ts            3DGS: decodeSplats() (Spark, WASM in a worker) → SplatCloud,
-                         then buildSplatObject() in either render mode — "ellipsoids"
-                         (default; one instanced icosphere per Gaussian, opacity- and
-                         budget-culled) or "points" (centers only). Neither is true
-                         splatting: no per-view sort, SH, or alpha falloff
+                         then buildSplatObject() in one of three render modes —
+                         "splatting" (default; a Spark SplatMesh adopting our packed
+                         buffer, real per-view-sorted splatting drawn by the Viewer's
+                         SparkRenderer), "ellipsoids" (one instanced icosphere per
+                         Gaussian, opacity- and budget-culled), or
+                         "points" (centers only). The latter two are approximations:
+                         no per-view sort, SH, or alpha falloff
     tracks.ts            3D point tracks: decodeTracks() picks (steps, tracks, 3)
                          arrays + their visibility masks out of a NumPy archive,
                          buildTrackLines() draws one polyline per track in a single
@@ -158,6 +161,16 @@ callbacks) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
+
+**Spark's renderer is the Viewer's, not a layer's.** "splatting" mode needs one
+`SparkRenderer` in the scene — it gathers every visible `SplatMesh` each frame and
+rasterizes them together. The Viewer creates it lazily on first use (it allocates GPU
+accumulators) and adds it to `scene`, not `root`: its own transform is the origin
+Spark encodes splat positions against, so it stays at identity. It fits the on-demand
+loop through its `onDirty` callback — Spark fires it when a viewpoint sort or LoD
+update lands, i.e. exactly when the last frame went stale — wired to `requestRender`.
+Spark reads each mesh's `matrixWorld` and collects via `traverseVisible`, so per-item
+transforms, the upright flip, and Scene-list show/hide all apply for free.
 
 **Each layer carries its own placement.** `Viewer.setItemTransform` writes position /
 rotation onto the layer's root group, so sources that don't share a coordinate frame
