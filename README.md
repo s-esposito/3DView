@@ -21,6 +21,13 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   SuperSplat **compressed** flavour. Gaussians render as solid oriented
   **ellipsoids** (default) or as a colored **point cloud** — pick one in the
   **Gaussians** section of the 3DView panel.
+- **3D point tracks** (`.npz` / `.npy`) — trajectories a tracker followed over time,
+  drawn as one colored polyline per point, with the trail breaking wherever a point
+  is occluded. Sliders control the **trail** (how many time steps are drawn),
+  **opacity**, and **density** (a stable random subset of the tracks) — the last two
+  are what keep a few thousand overlapping trails readable.
+  Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
+  `(steps, tracks)` visibility mask.
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
   **position / rotation** fields (the ⤧ button on its row), so sources that don't
@@ -52,7 +59,7 @@ Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
 Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
-single mesh or splat file. When a project holds several models under `sparse/`
+single mesh, splat, or point-track file. When a project holds several models under `sparse/`
 (`0`, `1`, …) you're prompted to load one specific model or all of them.
 
 | Action | Input |

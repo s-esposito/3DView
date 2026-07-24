@@ -9,6 +9,30 @@ import type { SplatRenderMode } from "./splats";
 import { ThumbnailLoader } from "./textures";
 import { buildPoints, buildBox, computeLocalBounds, disposeObject } from "./builders";
 
+/**
+ * Scene-wide options for what an asset *draws* (as opposed to how it is lit, which
+ * is the Shaded/Wireframe pair). Grouped so the layer interface doesn't grow a
+ * method per control, mirroring `DisplayOptions` for reconstructions.
+ */
+export interface AssetOptions {
+  /** How 3DGS clouds render: solid ellipsoids or bare centers. */
+  splatMode: SplatRenderMode;
+  /** Point-track trail length in time steps; Infinity draws the whole trajectory. */
+  trackFrames: number;
+  /** Point-track line opacity, 0..1. */
+  trackOpacity: number;
+  /** Fraction of point tracks drawn, 0..1 — a stable random subset. */
+  trackDensity: number;
+}
+
+/** Ellipsoids read as the Gaussians they are; tracks start whole, opaque, undecimated. */
+export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
+  splatMode: "ellipsoids",
+  trackFrames: Number.POSITIVE_INFINITY,
+  trackOpacity: 1,
+  trackDensity: 1,
+};
+
 /** Scene-wide display options applied to every reconstruction layer. */
 export interface DisplayOptions {
   points: boolean;
@@ -38,8 +62,9 @@ export interface SceneLayer {
   setWireframe(on: boolean): void;
   /** Light mesh materials (the global "Shaded" option); off = unlit albedo. No-op otherwise. */
   setShaded(on: boolean): void;
-  /** How 3DGS clouds are drawn (the global "Gaussians" option); no-op for anything else. */
-  setSplatMode(mode: SplatRenderMode): void;
+  /** Apply the scene-wide asset options (3DGS mode, track trail/opacity/density).
+   *  Rebuilds only what actually changed; a no-op for reconstructions. */
+  applyAssetOptions(opts: AssetOptions): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -103,11 +128,11 @@ export class ReconstructionLayer implements SceneLayer {
     }
   }
 
-  // Reconstructions are points + lines — no meshes to wireframe or shade, and no
-  // Gaussians to re-render.
+  // Reconstructions are points + lines: no meshes to wireframe or shade, and none
+  // of the asset content options apply.
   setWireframe(): void {}
   setShaded(): void {}
-  setSplatMode(): void {}
+  applyAssetOptions(): void {}
 
   /** Apply scene-wide options that don't require rebuilding geometry. */
   applyOptions(opts: DisplayOptions): void {

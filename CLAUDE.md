@@ -75,9 +75,13 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          URLs → host-shaped loadColmap/addAsset, fed to main.ts's handler
     viewer.ts            Viewer: scene graph/camera/layers/global display — THE seam
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
-    assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY) or a
+                         (per-reconstruction) + AssetOptions (3DGS mode, track
+                         trail/opacity/density — one object so the layer interface
+                         doesn't grow a method per control)
+    assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY), a
                          3DGS splat (.ply/.splat/.spz/.ksplat; .ply auto-disambiguated
-                         by `f_dc_0` / `packed_position`) into a group, and rebuilds a
+                         by `f_dc_0` / `packed_position`), or 3D point tracks
+                         (.npz/.npy) into a group, and rebuilds a
                          splat on a render-mode switch from its retained SplatCloud.
                          Each mesh keeps its loaded (lit PBR, incl. GLB textures)
                          material + a derived unlit-albedo twin; "Shaded" swaps
@@ -87,6 +91,15 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          (default; one instanced icosphere per Gaussian, opacity- and
                          budget-culled) or "points" (centers only). Neither is true
                          splatting: no per-view sort, SH, or alpha falloff
+    tracks.ts            3D point tracks: decodeTracks() picks (steps, tracks, 3)
+                         arrays + their visibility masks out of a NumPy archive,
+                         buildTrackLines() draws one polyline per track in a single
+                         LineSegments (time-major, so setTrackTrail() reveals a
+                         prefix of the trail via drawRange — no rebuild). Opacity is
+                         a material tweak; density thins to a stable hashed subset
+                         and does rebuild
+    npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
+                         np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums + image planes; hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
@@ -95,7 +108,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup + model chooser)
   test/                  pure unit tests, run under `node --test`: colmap.test.ts
                          (parsers/poses), builders.test.ts (bounds + scene math),
-                         splats.test.ts (3DGS render-mode geometry)
+                         splats.test.ts (3DGS render-mode geometry),
+                         tracks.test.ts (NumPy reader + track polylines)
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
@@ -130,7 +144,8 @@ imports `vscode`/Node/`host`, or if `out/webview.js` contains `acquireVsCodeApi`
 Node `require`. Don't leak host code into core to "make it work" — adapt at the bridge.
 
 **The `Viewer` is the central seam.** A scene is a **list of `SceneLayer`s**
-(reconstructions + assets, where an asset is a mesh or a 3DGS splat) under a single
+(reconstructions + assets, where an asset is a mesh, a 3DGS splat, or 3D point
+tracks) under a single
 `root` group; helpers (grid/axes) and fit-to-view union over all layers. The UI
 (`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
 `addAsset`, `removeItem`,
@@ -291,7 +306,11 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
   shared by all hosts), and the picker filter in each host — `ASSET_EXTS` in
   `vscode/src/host/extension.ts`, `input.accept` in `demo/src/host.ts`, and
   `ASSET_EXTS` in `jetbrains/.../ColmapViewerService.kt`. Splat formats decode
-  through Spark; meshes through three's loaders.
+  through Spark; meshes through three's loaders; NumPy tracks through the local
+  `npz.ts` reader. Also add it to `ASSET_KIND_EXTS` in `core/src/shared/messages.ts`
+  (the one source every host filters by, and what the Scene "+" entries map to) and
+  its Kotlin mirror. The kind only picks a filter: what an asset *is* comes from the
+  file, so loading still works whichever entry was used.
 
 ## Build internals
 

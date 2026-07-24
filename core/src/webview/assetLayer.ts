@@ -1,9 +1,10 @@
 // The asset layer: holds at most one loaded asset under a container group,
 // mirroring CameraLayer so the Viewer treats all scene sources uniformly. An
-// asset is a mesh (glTF/GLB/OBJ/PLY) or a 3D Gaussian Splatting cloud
-// (.ply / .splat / .spz / .ksplat). Mesh asset siblings (.bin, .mtl, textures)
-// resolve relative to the file's webview URI; splats are decoded via Spark (see
-// splats.ts) and drawn as centers or ellipsoids, per the current render mode.
+// asset is a mesh (glTF/GLB/OBJ/PLY), a 3D Gaussian Splatting cloud
+// (.ply / .splat / .spz / .ksplat), or 3D point tracks (.npz / .npy). Mesh asset
+// siblings (.bin, .mtl, textures) resolve relative to the file's webview URI;
+// splats are decoded via Spark (see splats.ts) and drawn as centers or ellipsoids
+// per the current render mode; tracks become trajectory polylines (tracks.ts).
 //
 // Mesh shading: each mesh keeps its loaded material (lit PBR, incl. GLB
 // textures) plus a derived unlit "albedo" material (base-color texture + color,
@@ -17,7 +18,11 @@ import type { Bounds } from "../shared/messages";
 import { buildBox, disposeObject, eachMaterial } from "./builders";
 import { decodeSplats, buildSplatObject } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
-import type { SceneLayer } from "./sceneLayer";
+import { readNpy, readNpz } from "./npz";
+import { decodeTracks, buildTrackLines, setTrackTrail, setTrackOpacity, trackSteps } from "./tracks";
+import type { TrackSet } from "./tracks";
+import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
+import type { AssetOptions, SceneLayer } from "./sceneLayer";
 
 /** A single loaded asset (mesh or splat cloud) as a scene layer. */
 export class AssetLayer implements SceneLayer {
@@ -30,9 +35,12 @@ export class AssetLayer implements SceneLayer {
   private box?: THREE.Box3Helper;
   /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splat points. */
   private shadingPairs: ShadingPair[] = [];
-  /** The decoded 3DGS cloud, kept so a render-mode switch rebuilds without re-decoding. */
+  /** Decoded source data, kept so an option change rebuilds without re-decoding:
+   *  the 3DGS cloud for a splat, the trajectories for point tracks. */
   private cloud?: SplatCloud;
-  private splatMode: SplatRenderMode = "points";
+  private tracks?: TrackSet;
+  /** The asset options this layer's content was last built/updated for. */
+  private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
   // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
   // in the same state the Viewer last set (its materials are new objects).
   private wireframe = false;
@@ -87,31 +95,52 @@ export class AssetLayer implements SceneLayer {
     return this.cloud != null;
   }
 
+  /** Time steps in this asset's point tracks, or 0 if it holds none. */
+  get trackSteps(): number {
+    return trackSteps(this.current);
+  }
+
   /**
-   * Switch how a 3DGS asset is drawn (centers vs. ellipsoids), rebuilding its
-   * geometry from the decoded cloud. No-op for meshes and for the current mode.
+   * Apply the scene-wide asset options. Geometry is rebuilt only for the two that
+   * change which primitives exist — the 3DGS render mode and track density — and
+   * both rebuild from data this layer already holds, so nothing is re-decoded.
+   * Trail length and opacity are applied every time; they are just as cheap to
+   * re-apply as to compare, and a rebuild must restore them anyway.
    */
-  setSplatMode(mode: SplatRenderMode): void {
-    if (!this.cloud || mode === this.splatMode) {
+  applyAssetOptions(opts: AssetOptions): void {
+    const previous = this.opts;
+    this.opts = { ...opts };
+    if (this.cloud && opts.splatMode !== previous.splatMode) {
+      this.rebuild(buildSplatObject(this.cloud, opts.splatMode));
+      return; // attachCurrent re-applies the rest
+    }
+    if (this.tracks && opts.trackDensity !== previous.trackDensity) {
+      this.rebuild(buildTrackLines(this.tracks, opts.trackDensity));
       return;
     }
-    this.splatMode = mode;
+    setTrackTrail(this.current, opts.trackFrames);
+    setTrackOpacity(this.current, opts.trackOpacity);
+  }
+
+  /** Swap in freshly built content in place of the current object. */
+  private rebuild(object: THREE.Object3D): void {
     this.disposeCurrent();
-    this.attachCurrent(buildSplatObject(this.cloud, mode));
+    this.attachCurrent(object);
   }
 
   /** Load the asset file and add it (plus a bounding box) under this layer's group.
-   *  A 3DGS cloud is built in `splatMode`; `onProgress` reports the current phase
-   *  (download %, then "Decoding…"). */
+   *  Content that has options (3DGS mode, track density) is built for `opts`;
+   *  `onProgress` reports the current phase (download %, then "Decoding…"). */
   async load(
     uri: string,
     name: string,
-    splatMode: SplatRenderMode,
+    opts: AssetOptions,
     onProgress?: Progress
   ): Promise<void> {
-    const { object, bounds, cloud } = await loadAsset(uri, name, splatMode, onProgress);
+    const { object, bounds, cloud, tracks } = await loadAsset(uri, name, opts, onProgress);
     this.cloud = cloud;
-    this.splatMode = splatMode;
+    this.tracks = tracks;
+    this.opts = { ...opts };
     this.currentBounds = bounds;
     this.attachCurrent(object);
     this.box = buildBox(bounds);
@@ -124,15 +153,18 @@ export class AssetLayer implements SceneLayer {
     this.currentBounds = undefined;
     this.box = undefined;
     this.cloud = undefined;
+    this.tracks = undefined;
   }
 
-  /** Add a freshly built object as the layer's content, in the current shading state. */
+  /** Add a freshly built object as the layer's content, in the state last set. */
   private attachCurrent(object: THREE.Object3D): void {
     this.current = object;
     this.shadingPairs = collectShadingPairs(object);
     this.object.add(object);
     this.setWireframe(this.wireframe);
     this.setShaded(this.shaded);
+    setTrackTrail(object, this.opts.trackFrames);
+    setTrackOpacity(object, this.opts.trackOpacity);
   }
 
   /** Free the current content's GPU resources, leaving the group (and box) in place. */
@@ -200,6 +232,8 @@ interface LoadedAsset {
   bounds: Bounds;
   /** Set only for 3DGS files: the decoded cloud, retained for render-mode switches. */
   cloud?: SplatCloud;
+  /** Set only for track files: the decoded trajectories, retained for re-thinning. */
+  tracks?: TrackSet;
 }
 
 /** Reports a human-readable loading phase ("Downloading… 45%", "Decoding…"). */
@@ -219,7 +253,7 @@ const plyLoader = new PLYLoader();
 function loadAsset(
   uri: string,
   name: string,
-  splatMode: SplatRenderMode,
+  opts: AssetOptions,
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -230,11 +264,14 @@ function loadAsset(
     case "obj":
       return load(objLoader, uri, onProgress).then((group) => finalize(group));
     case "ply":
-      return loadPly(uri, name, splatMode, onProgress);
+      return loadPly(uri, name, opts.splatMode, onProgress);
     case "splat":
     case "spz":
     case "ksplat":
-      return loadSplat(uri, name, splatMode, onProgress);
+      return loadSplat(uri, name, opts.splatMode, onProgress);
+    case "npz":
+    case "npy":
+      return loadTracks(uri, ext === "npy", opts.trackDensity, onProgress);
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext ?? "?"}`));
   }
@@ -309,6 +346,28 @@ function isSplatPly(bytes: Uint8Array): boolean {
   const end = head.indexOf("end_header");
   const header = end >= 0 ? head.slice(0, end) : head;
   return header.includes("f_dc_0") || header.includes("packed_position");
+}
+
+/**
+ * Load 3D point tracks: a NumPy archive of trajectory arrays (`.npz`), or a single
+ * (steps, tracks, 3) array (`.npy`). Both parse in-process — no worker, no wasm.
+ */
+async function loadTracks(
+  uri: string,
+  bare: boolean,
+  density: number,
+  onProgress?: Progress
+): Promise<LoadedAsset> {
+  const buffer = await fetchBytes(uri, onProgress);
+  onProgress?.("Decoding…");
+  const bytes = new Uint8Array(buffer);
+  const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
+  const set = decodeTracks(arrays);
+  console.info(
+    `3DView: ${set.count} track(s) over ${set.steps} step(s) from ` +
+      set.groups.map((g) => `${g.name} (${g.count})`).join(", ")
+  );
+  return { object: buildTrackLines(set, density), bounds: set.bounds, tracks: set };
 }
 
 /** Decode a splat file (Spark, WASM in a worker) and build it in `splatMode`. */

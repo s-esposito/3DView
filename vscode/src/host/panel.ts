@@ -121,10 +121,11 @@ export class ViewerPanel {
         }
         break;
       case "requestAdd":
-        // Reuse the same pickers as the commands; they call back into open().
-        void vscode.commands.executeCommand(
-          msg.kind === "colmap" ? "3dview.openReconstruction" : "3dview.openAsset"
-        );
+        // Reuse the same pickers as the commands; they call back into open(). Asset
+        // kinds ride along so the dialog opens filtered to what was asked for.
+        void (msg.kind === "colmap"
+          ? vscode.commands.executeCommand("3dview.openReconstruction")
+          : vscode.commands.executeCommand("3dview.openAsset", msg.kind));
         break;
       case "removed":
         this.content = this.content.filter((i) => i.id !== msg.id);

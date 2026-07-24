@@ -15,7 +15,13 @@ import {
   computeLocalBounds,
   disposeObject,
 } from "./builders";
-import { SceneLayer, ReconstructionLayer, DisplayOptions } from "./sceneLayer";
+import {
+  SceneLayer,
+  ReconstructionLayer,
+  DisplayOptions,
+  AssetOptions,
+  DEFAULT_ASSET_OPTIONS,
+} from "./sceneLayer";
 import { AssetLayer } from "./assetLayer";
 import type { SplatRenderMode } from "./splats";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
@@ -77,6 +83,14 @@ export interface ViewerState {
   hasCameras: boolean;
   hasAsset: boolean;
   hasSplat: boolean;
+  /** Longest point-track asset in the scene, in time steps; 0 when there are none. */
+  trackSteps: number;
+  /** How many of those steps are currently drawn. */
+  trackFrames: number;
+  /** Point-track line opacity, 0..1. */
+  trackOpacity: number;
+  /** Fraction of point tracks drawn, 0..1. */
+  trackDensity: number;
   /** Sensible nudge for the position fields, derived from the scene's size. */
   positionStep: number;
   items: SceneItem[];
@@ -126,9 +140,8 @@ export class Viewer {
   // Meshes are lit/shaded by default (GLB PBR, etc.); turning "Shaded" off shows
   // unlit albedo (base color + texture only).
   private shaded = true;
-  // How 3DGS assets are drawn: oriented ellipsoids by default (they read as the
-  // Gaussians they are); "points" is the cheap centers-only fallback.
-  private splatMode: SplatRenderMode = "ellipsoids";
+  // What assets draw: 3DGS render mode + point-track trail/opacity/density.
+  private assetOpts: AssetOptions = { ...DEFAULT_ASSET_OPTIONS };
   private orientation: Orientation = "upright";
   // UI + viewport color scheme; applied to <body data-viewer-theme> so the CSS
   // palette and the 3D background follow it. Default is dark (the glass look).
@@ -203,6 +216,7 @@ export class Viewer {
   // --- Public API -----------------------------------------------------------
   getState(): ViewerState {
     const recon = this.reconstructionLayers();
+    const trackSteps = this.trackSteps();
     return {
       points: this.opts.points,
       frustums: this.opts.frustums,
@@ -212,7 +226,7 @@ export class Viewer {
       axes: this.showAxes,
       wireframe: this.wireframe,
       shaded: this.shaded,
-      splatMode: this.splatMode,
+      splatMode: this.assetOpts.splatMode,
       orientation: this.orientation,
       theme: this.themeName,
       pointSize: this.opts.pointSize,
@@ -222,6 +236,10 @@ export class Viewer {
       hasCameras: recon.some((l) => l.cameraCount > 0),
       hasAsset: this.layers.some((l) => l.kind === "asset"),
       hasSplat: this.assetLayers().some((l) => l.isSplat),
+      trackSteps,
+      trackFrames: Math.min(this.assetOpts.trackFrames, trackSteps),
+      trackOpacity: this.assetOpts.trackOpacity,
+      trackDensity: this.assetOpts.trackDensity,
       positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
       items: this.layers.map((l) => ({
         id: l.id,
@@ -250,14 +268,14 @@ export class Viewer {
     this.byId.set(id, layer);
     this.root.add(layer.object);
     layer
-      .load(uri, name, this.splatMode, (phase) => this.onProgress?.(`${label} — ${phase}`))
+      .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
         layer.setBoxVisible(this.opts.box);
         layer.setWireframe(this.wireframe);
         layer.setShaded(this.shaded);
-        // The mode may have been toggled while this was loading; a no-op otherwise.
-        layer.setSplatMode(this.splatMode);
+        // The options may have changed while this was loading; a no-op otherwise.
+        layer.applyAssetOptions(this.assetOpts);
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -373,13 +391,37 @@ export class Viewer {
 
   /** Switch how 3DGS assets are drawn; each splat layer rebuilds from its decoded cloud. */
   setSplatMode(mode: SplatRenderMode): void {
-    this.splatMode = mode;
-    this.layers.forEach((l) => l.setSplatMode(mode));
-    this.requestRender();
+    this.setAssetOptions({ splatMode: mode });
   }
 
   toggleSplatMode(): void {
-    this.setSplatMode(this.splatMode === "points" ? "ellipsoids" : "points");
+    this.setSplatMode(this.assetOpts.splatMode === "points" ? "ellipsoids" : "points");
+  }
+
+  /** Draw point-track trajectories up to `frames` time steps. At the maximum this
+   *  reverts to "all steps", so a longer track asset added later still shows whole. */
+  setTrackFrames(frames: number): void {
+    this.setAssetOptions({
+      trackFrames: frames >= this.trackSteps() ? Number.POSITIVE_INFINITY : frames,
+    });
+  }
+
+  /** Fade point-track lines (1 = opaque) — how a dense set of trails stays legible. */
+  setTrackOpacity(opacity: number): void {
+    this.setAssetOptions({ trackOpacity: opacity });
+  }
+
+  /** Draw only a fraction of the point tracks (1 = all). The subset is stable, so
+   *  raising this adds tracks back rather than reshuffling the set. */
+  setTrackDensity(density: number): void {
+    this.setAssetOptions({ trackDensity: density });
+  }
+
+  /** Merge a change into the scene-wide asset options and push it to every layer. */
+  private setAssetOptions(patch: Partial<AssetOptions>): void {
+    this.assetOpts = { ...this.assetOpts, ...patch };
+    this.layers.forEach((l) => l.applyAssetOptions(this.assetOpts));
+    this.requestRender();
   }
 
   setPointSize(size: number): void {
@@ -461,6 +503,11 @@ export class Viewer {
 
   private assetLayers(): AssetLayer[] {
     return this.layers.filter((l): l is AssetLayer => l.kind === "asset");
+  }
+
+  /** Steps in the longest point-track asset; 0 when the scene holds none. */
+  private trackSteps(): number {
+    return this.assetLayers().reduce((max, l) => Math.max(max, l.trackSteps), 0);
   }
 
   /** Scene bounds in root space: each layer's local bounds under its own placement. */

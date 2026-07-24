@@ -1,12 +1,12 @@
-import type { HostToWebview, WebviewToHost, ColmapModelRef, ColmapModelPaths } from "@3dview/core";
-import { groupColmapModels, isImagePath } from "@3dview/core";
+import type { HostToWebview, WebviewToHost, ColmapModelRef, ColmapModelPaths, AddKind } from "@3dview/core";
+import { groupColmapModels, isImagePath, ASSET_KIND_EXTS } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
 // All parsing/rendering lives in the core bundle — this host stays thin.
 
 /** Open the OS picker for a COLMAP folder or an asset file; resolves null if cancelled. */
-function showFilePicker(kind: "colmap" | "asset"): Promise<FileList | null> {
+function showFilePicker(kind: AddKind): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -17,8 +17,8 @@ function showFilePicker(kind: "colmap" | "asset"): Promise<FileList | null> {
       // `webkitRelativePath`), and it overrides `accept`, so we set none.
       input.webkitdirectory = true;
     } else {
-      // Meshes (glTF/GLB/OBJ/PLY) + 3DGS splats (PLY/SPLAT/SPZ/KSPLAT).
-      input.accept = ".gltf,.glb,.obj,.ply,.splat,.spz,.ksplat";
+      // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks).
+      input.accept = ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(",");
     }
     input.addEventListener("change", () => resolve(input.files));
     input.addEventListener("cancel", () => resolve(null));
@@ -51,7 +51,7 @@ export function installHostBridge() {
 }
 
 /** Run the picker for a Scene "+" request and forward the result to the webview. */
-async function handleAdd(kind: "colmap" | "asset"): Promise<void> {
+async function handleAdd(kind: AddKind): Promise<void> {
   const files = await showFilePicker(kind);
   if (!files || files.length === 0) return; // cancelled / empty
   if (kind === "colmap") sendColmap(files);

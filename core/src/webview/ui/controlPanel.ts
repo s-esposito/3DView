@@ -184,6 +184,21 @@ export class ControlPanel {
         )
       );
     }
+    if (s.trackSteps > 1) {
+      // Trail length in time steps; at the far right the whole trajectory shows.
+      // Opacity and density are how a few thousand overlapping trails stay readable.
+      appearance.push(
+        slider("Track trail", 2, s.trackSteps, 1, s.trackFrames, (v) =>
+          this.viewer.setTrackFrames(v)
+        ),
+        slider("Track opacity", 0.05, 1, 0.05, s.trackOpacity, (v) =>
+          this.viewer.setTrackOpacity(v)
+        ),
+        slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
+          this.viewer.setTrackDensity(v)
+        )
+      );
+    }
     if (appearance.length > 0) {
       body.append(section("Appearance", appearance));
     }
@@ -276,9 +291,14 @@ export class ControlPanel {
     const panel = document.createElement("div");
     panel.className = this.sceneCollapsed ? "viewer-panel collapsed" : "viewer-panel";
 
+    // One entry per loadable kind. The asset entries differ only in how the host
+    // filters its file picker — what a file actually is comes from the file itself
+    // (a .ply is a mesh or a splat by header), so a "wrong" entry still loads it.
     const add = menuButton("+", "Add to scene", [
-      { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Asset…", onClick: () => this.viewer.requestAdd("asset") },
+      { label: "COLMAP…", onClick: () => this.viewer.requestAdd("colmap") },
+      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
+      { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
     ]);
 
     panel.append(

@@ -14,7 +14,7 @@ package dev.colmapview
 /** Inbound: webview -> host. */
 sealed interface WebviewToHost {
     object Ready : WebviewToHost
-    data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "asset"
+    data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "mesh" | "splat" | "tracks"
     data class Removed(val id: String) : WebviewToHost
 
     /** A PNG render of the current viewpoint to save; `png` is a data URL. */
