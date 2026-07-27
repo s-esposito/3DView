@@ -44,6 +44,15 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 
 ## Install
 
+**VS Code — from a release:** download the latest `3dview-<version>.vsix` from the
+[Releases](https://github.com/s-esposito/3DView/releases) page and install it:
+
+```bash
+code --install-extension 3dview-1.0.0.vsix --force
+```
+
+**From source:**
+
 ```bash
 git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ```
