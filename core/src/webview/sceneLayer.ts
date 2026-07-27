@@ -5,8 +5,33 @@
 import * as THREE from "three";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
+import type { SplatRenderMode } from "./splats";
 import { ThumbnailLoader } from "./textures";
 import { buildPoints, buildBox, computeLocalBounds, disposeObject } from "./builders";
+
+/**
+ * Scene-wide options for what an asset *draws* (as opposed to how it is lit, which
+ * is the Shaded/Wireframe pair). Grouped so the layer interface doesn't grow a
+ * method per control, mirroring `DisplayOptions` for reconstructions.
+ */
+export interface AssetOptions {
+  /** How 3DGS clouds render: solid ellipsoids or bare centers. */
+  splatMode: SplatRenderMode;
+  /** Point-track trail length in time steps; Infinity draws the whole trajectory. */
+  trackFrames: number;
+  /** Point-track line opacity, 0..1. */
+  trackOpacity: number;
+  /** Fraction of point tracks drawn, 0..1 — a stable random subset. */
+  trackDensity: number;
+}
+
+/** Splats render 3DGS as it was trained to look; tracks start whole, opaque, undecimated. */
+export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
+  splatMode: "splatting",
+  trackFrames: Number.POSITIVE_INFINITY,
+  trackOpacity: 1,
+  trackDensity: 1,
+};
 
 /** Scene-wide display options applied to every reconstruction layer. */
 export interface DisplayOptions {
@@ -37,6 +62,9 @@ export interface SceneLayer {
   setWireframe(on: boolean): void;
   /** Light mesh materials (the global "Shaded" option); off = unlit albedo. No-op otherwise. */
   setShaded(on: boolean): void;
+  /** Apply the scene-wide asset options (3DGS mode, track trail/opacity/density).
+   *  Rebuilds only what actually changed; a no-op for reconstructions. */
+  applyAssetOptions(opts: AssetOptions): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
   bounds(): Bounds | undefined;
   dispose(): void;
@@ -100,9 +128,11 @@ export class ReconstructionLayer implements SceneLayer {
     }
   }
 
-  // Reconstructions are points + lines — no meshes to wireframe or shade.
+  // Reconstructions are points + lines: no meshes to wireframe or shade, and none
+  // of the asset content options apply.
   setWireframe(): void {}
   setShaded(): void {}
+  applyAssetOptions(): void {}
 
   /** Apply scene-wide options that don't require rebuilding geometry. */
   applyOptions(opts: DisplayOptions): void {
@@ -122,8 +152,10 @@ export class ReconstructionLayer implements SceneLayer {
     this.cameras.setVisible(opts.frustums);
   }
 
-  refreshTextures(viewerPosition: THREE.Vector3, rootMatrixWorld: THREE.Matrix4): void {
-    this.cameras.refreshTextures(viewerPosition, rootMatrixWorld);
+  /** Caller must have updated world matrices; distances are measured through this
+   *  layer's own matrix, so its placement in the scene counts. */
+  refreshTextures(viewerPosition: THREE.Vector3): void {
+    this.cameras.refreshTextures(viewerPosition, this.object.matrixWorld);
   }
 
   dispose(): void {

@@ -1,6 +1,6 @@
 {
   "name": "@3dview/core",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Host-agnostic 3D viewer core: COLMAP parsing + the Three.js webview bundle. Consumed by the VS Code extension and the PyCharm plugin.",
   "license": "MIT",
   "private": true,

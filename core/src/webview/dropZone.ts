@@ -16,10 +16,8 @@
 // recognised file loads as an asset. The path classification is shared with the
 // demo host's folder picker via `colmap/grouping.ts` (groupColmapModels).
 import type { HostToWebview, ColmapModelRef } from "../shared/messages";
+import { ASSET_EXTS } from "../shared/messages";
 import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
-
-/** Asset extensions we can load (meshes + 3DGS splats); mirrors each host's picker filter. */
-const ASSET_EXTS = ["glb", "gltf", "obj", "ply", "splat", "spz", "ksplat"];
 
 // A dropped file with its path relative to the drop (folders recursed); the path's
 // directory groups files into candidate COLMAP models.

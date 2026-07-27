@@ -86,6 +86,46 @@ export function button(label: string, onClick: () => void): HTMLButtonElement {
   return el;
 }
 
+/**
+ * A row of mutually exclusive text options (a small radio group). Updates its own
+ * pressed state in place — like the theme switcher — so picking one doesn't need a
+ * panel re-render.
+ */
+export function choiceRow<T extends string>(
+  options: Array<{ label: string; value: T; title?: string }>,
+  value: T,
+  onChange: (value: T) => void
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "viewer-scale-row";
+  row.setAttribute("role", "radiogroup");
+  const buttons: HTMLButtonElement[] = [];
+  for (const opt of options) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = opt.value === value ? "viewer-scale-btn selected" : "viewer-scale-btn";
+    btn.textContent = opt.label;
+    btn.setAttribute("role", "radio");
+    btn.setAttribute("aria-checked", String(opt.value === value));
+    if (opt.title) {
+      btn.title = opt.title;
+    }
+    btn.addEventListener("click", () => {
+      if (btn.classList.contains("selected")) {
+        return;
+      }
+      for (const other of buttons) {
+        other.classList.toggle("selected", other === btn);
+        other.setAttribute("aria-checked", String(other === btn));
+      }
+      onChange(opt.value);
+    });
+    buttons.push(btn);
+    row.append(btn);
+  }
+  return row;
+}
+
 /** A compact icon/symbol button (e.g. "+" or "✕"). */
 export function iconButton(
   symbol: string,
@@ -141,6 +181,52 @@ export function menuButton(
 
   wrap.append(trigger, menu);
   return wrap;
+}
+
+/**
+ * A labelled X/Y/Z number row (the Blender transform-field layout). Reports the
+ * whole triple on every edit, and never re-renders itself — the caller keeps the
+ * inputs so typing is never interrupted.
+ */
+export function vectorRow(
+  label: string,
+  values: [number, number, number],
+  step: number,
+  onInput: (values: [number, number, number]) => void
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "viewer-xform-row";
+  const caption = document.createElement("span");
+  caption.className = "viewer-xform-label";
+  caption.textContent = label;
+  row.append(caption);
+
+  const current: [number, number, number] = [...values];
+  (["X", "Y", "Z"] as const).forEach((axis, i) => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "viewer-xform-num";
+    input.step = String(step);
+    input.value = fmtField(values[i]);
+    input.title = `${label} ${axis}`;
+    input.setAttribute("aria-label", `${label} ${axis}`);
+    input.addEventListener("input", () => {
+      const v = Number(input.value);
+      if (!Number.isFinite(v)) {
+        return; // mid-edit ("-", "1e") — wait for a complete number
+      }
+      current[i] = v;
+      onInput([...current]);
+    });
+    row.append(input);
+  });
+  return row;
+}
+
+/** Editable-field formatting: enough precision to round-trip what the user typed
+ *  (unlike `fmtNum`, which rounds hard for read-only readouts), no trailing zeros. */
+function fmtField(v: number): string {
+  return String(Number(v.toFixed(4)));
 }
 
 /** A label/value row used by the info popup. */

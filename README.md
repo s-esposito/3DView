@@ -16,10 +16,24 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 - **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, **shaded** with their
   glTF/GLB materials and textures by default, with optional unlit-albedo and
   wireframe modes) and **3D Gaussian Splatting** files
-  (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)
-  and shown as a colored point cloud). A `.ply` is auto-detected as a mesh or a splat.
+  (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
+  A `.ply` is auto-detected as a mesh or a splat, including the PlayCanvas /
+  SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
+  of the 3DView panel: **Splats** (default) — true Gaussian splatting through Spark's
+  renderer, sorted per viewpoint with spherical harmonics; **Ellipsoids** — each
+  Gaussian as a solid oriented ellipsoid, to see the primitives as data; and
+  **Points** — bare centers, the cheap fallback for huge scenes.
+- **3D point tracks** (`.npz` / `.npy`) — trajectories a tracker followed over time,
+  drawn as one colored polyline per point, with the trail breaking wherever a point
+  is occluded. Sliders control the **trail** (how many time steps are drawn),
+  **opacity**, and **density** (a stable random subset of the tracks) — the last two
+  are what keep a few thousand overlapping trails readable.
+  Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
+  `(steps, tracks)` visibility mask.
 - **Multi-source scenes** — open many reconstructions and assets together; add,
-  show/hide, and remove them from the **Scene** panel.
+  show/hide, and remove them from the **Scene** panel. Each item has its own
+  **position / rotation** fields (the ⤧ button on its row), so sources that don't
+  share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
 - **Adjust & export** — tune point size and frustum scale, rename / hide / remove
@@ -29,6 +43,15 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   textures keep big reconstructions responsive.
 
 ## Install
+
+**VS Code — from a release:** download the latest `3dview-<version>.vsix` from the
+[Releases](https://github.com/s-esposito/3DView/releases) page and install it:
+
+```bash
+code --install-extension 3dview-1.0.0.vsix --force
+```
+
+**From source:**
 
 ```bash
 git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
@@ -47,7 +70,7 @@ Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
 Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
-single mesh or splat file. When a project holds several models under `sparse/`
+single mesh, splat, or point-track file. When a project holds several models under `sparse/`
 (`0`, `1`, …) you're prompted to load one specific model or all of them.
 
 | Action | Input |
@@ -58,6 +81,7 @@ single mesh or splat file. When a project holds several models under `sparse/`
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |
 | Toggle grid / axes / upright | **G** / **A** / **U** |
+| Cycle Gaussians: splats → ellipsoids → points | **E** |
 
 ## Development
 

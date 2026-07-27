@@ -31,7 +31,9 @@ class ColmapViewerService(private val project: Project) : Disposable {
     private val panel: JcefViewerPanel by lazy {
         JcefViewerPanel(this).also { p ->
             p.onRequestAdd = { kind ->
-                if (kind == "asset") openAssetInteractive() else openReconstructionInteractive()
+                // "colmap" picks a folder; every other kind picks an asset file and
+                // only narrows the chooser's filter (mesh / splat / tracks).
+                if (kind == "colmap") openReconstructionInteractive() else openAssetInteractive(kind)
             }
             p.onError = ::notifyError
             p.onSaveImage = ::saveImage
@@ -60,11 +62,16 @@ class ColmapViewerService(private val project: Project) : Disposable {
         }
     }
 
-    fun openAssetInteractive() {
+    /** Pick an asset file. `kind` (mesh / splat / tracks) only narrows the filter;
+     *  null offers every asset format. What a file *is* comes from the file itself. */
+    fun openAssetInteractive(kind: String? = null) {
         if (!ensureSupported()) return
+        val exts = kind?.let { ASSET_KIND_EXTS[it] } ?: ASSET_EXTS
+        val title = kind?.let { ASSET_KIND_TITLES[it] }
+            ?: "Select an asset — mesh, 3DGS splat, or 3D point tracks"
         val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor()
-            .withTitle("Select an asset — mesh (glTF / GLB / OBJ / PLY) or splat (PLY / SPLAT / SPZ / KSPLAT)")
-            .withFileFilter { vf -> vf.extension?.lowercase() in ASSET_EXTS }
+            .withTitle(title)
+            .withFileFilter { vf -> vf.extension?.lowercase() in exts }
         val chosen = FileChooser.chooseFile(descriptor, project, null) ?: return
         activate()
         panel.openAsset(chosen.toNioPath())
@@ -139,8 +146,19 @@ class ColmapViewerService(private val project: Project) : Disposable {
 
     companion object {
         const val TOOL_WINDOW_ID = "3D Viewer"
-        // Meshes (glTF/GLB/OBJ/PLY) + 3DGS splats (PLY/SPLAT/SPZ/KSPLAT); a .ply is
-        // disambiguated in the webview.
-        private val ASSET_EXTS = setOf("glb", "gltf", "obj", "ply", "splat", "spz", "ksplat")
+        // Asset formats per kind, mirroring core's ASSET_KIND_EXTS (the webview's
+        // Scene "+" sends the kind). A .ply is under both mesh and splat: the two
+        // are told apart by the PLY header, in the webview.
+        private val ASSET_KIND_EXTS = mapOf(
+            "mesh" to setOf("glb", "gltf", "obj", "ply"),
+            "splat" to setOf("ply", "splat", "spz", "ksplat"),
+            "tracks" to setOf("npz", "npy"),
+        )
+        private val ASSET_EXTS = ASSET_KIND_EXTS.values.flatten().toSet()
+        private val ASSET_KIND_TITLES = mapOf(
+            "mesh" to "Select a mesh (glTF / GLB / OBJ / PLY)",
+            "splat" to "Select a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT)",
+            "tracks" to "Select 3D point tracks (NPZ / NPY)",
+        )
     }
 }

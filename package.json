@@ -1,6 +1,6 @@
 {
   "name": "3dview-monorepo",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "3DView — a host-agnostic Three.js viewer for COLMAP reconstructions and 3D meshes, with VS Code and PyCharm hosts over a shared core.",
   "license": "MIT",
   "private": true,

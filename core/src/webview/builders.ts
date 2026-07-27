@@ -13,21 +13,9 @@ export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
   return buildColoredPoints(data.positions, data.colors, data.bounds, pointSize);
 }
 
-/**
- * A 3DGS splat cloud's centers as a colored `THREE.Points` (v1: base color only,
- * no covariance/opacity/SH splatting). Same render path as `buildPoints`.
- */
-export function buildSplatPoints(
-  positions: Float32Array,
-  colors: Uint8Array,
-  bounds: Bounds,
-  pointSize: number
-): THREE.Points {
-  return buildColoredPoints(positions, colors, bounds, pointSize);
-}
-
-/** Shared colored-points builder: positions + Uint8 rgb + AABB-derived sphere. */
-function buildColoredPoints(
+/** Shared colored-points builder: positions + Uint8 rgb + AABB-derived sphere.
+ *  Used by the COLMAP cloud above and by the splat layer's "points" render mode. */
+export function buildColoredPoints(
   positions: Float32Array,
   colors: Uint8Array,
   bounds: Bounds,
@@ -37,23 +25,31 @@ function buildColoredPoints(
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   // Uint8 rgb, normalized to 0..1 in the shader.
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3, true));
-  // Set the bounding sphere from the AABB so Three doesn't scan the whole position
-  // buffer on first render (a per-cloud first-frame hitch). Radius is half the
-  // space diagonal — undersizing would wrongly frustum-cull points.
-  const { min, max } = bounds;
-  const center = new THREE.Vector3(
-    (min[0] + max[0]) / 2,
-    (min[1] + max[1]) / 2,
-    (min[2] + max[2]) / 2
-  );
-  const radius = 0.5 * Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-  geometry.boundingSphere = new THREE.Sphere(center, Math.max(radius, 1e-6));
+  // Preset the bounding sphere so Three doesn't scan the whole position buffer on
+  // first render (a per-cloud first-frame hitch).
+  geometry.boundingSphere = sphereFromBounds(bounds);
   const material = new THREE.PointsMaterial({
     size: pointSize,
     vertexColors: true,
     sizeAttenuation: false,
   });
   return new THREE.Points(geometry, material);
+}
+
+/**
+ * Sphere enclosing `bounds`, optionally grown by `margin` (how far geometry built
+ * on those bounds reaches past them — e.g. a splat's ellipsoid radius). Radius is
+ * half the space diagonal; undersizing would wrongly frustum-cull the content.
+ */
+export function sphereFromBounds(b: Bounds, margin = 0): THREE.Sphere {
+  const center = new THREE.Vector3(
+    (b.min[0] + b.max[0]) / 2,
+    (b.min[1] + b.max[1]) / 2,
+    (b.min[2] + b.max[2]) / 2
+  );
+  const halfDiagonal =
+    0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+  return new THREE.Sphere(center, Math.max(halfDiagonal + margin, 1e-6));
 }
 
 /** World-space corners of a camera's image plane at depth `d` (TL, TR, BR, BL). */
@@ -176,6 +172,30 @@ export function diagonalOf(b: Bounds): number {
   );
 }
 
+/**
+ * The AABB of `b`'s eight corners after `matrix` — how a layer's local bounds read
+ * once its own placement (or the root's upright flip) is applied. Axis-aligned in,
+ * axis-aligned out, so a rotation grows the box; that is the intent for fit-to-view
+ * and the world grid.
+ */
+export function transformBounds(b: Bounds, matrix: THREE.Matrix4): Bounds {
+  const corner = new THREE.Vector3();
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < 8; i++) {
+    corner
+      .set(i & 1 ? b.max[0] : b.min[0], i & 2 ? b.max[1] : b.min[1], i & 4 ? b.max[2] : b.min[2])
+      .applyMatrix4(matrix);
+    min[0] = Math.min(min[0], corner.x);
+    min[1] = Math.min(min[1], corner.y);
+    min[2] = Math.min(min[2], corner.z);
+    max[0] = Math.max(max[0], corner.x);
+    max[1] = Math.max(max[1], corner.y);
+    max[2] = Math.max(max[2], corner.z);
+  }
+  return { min, max };
+}
+
 /** Smallest box containing all given bounds, or a unit box if none. */
 export function unionBounds(parts: Bounds[]): Bounds {
   if (parts.length === 0) {
@@ -216,6 +236,12 @@ export function disposeObject(obj: THREE.Object3D | undefined): void {
     };
     node.geometry?.dispose?.();
     eachMaterial(node.material, disposeMaterial);
+    // An InstancedMesh (the splat ellipsoids) also owns per-instance matrix/color
+    // buffers, which only its own dispose() frees.
+    const instanced = child as THREE.InstancedMesh;
+    if (instanced.isInstancedMesh) {
+      instanced.dispose();
+    }
   });
 }
 

@@ -4,7 +4,19 @@
 // list + add menu). Both are thin views over the Viewer: they read `getState()`
 // to render and call Viewer setters on interaction; the Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
-import { section, hint, checkbox, slider, button, iconButton, menuButton } from "./components";
+import { SPLAT_RENDER_MODES } from "../splats";
+import type { SplatRenderMode } from "../splats";
+import {
+  section,
+  hint,
+  checkbox,
+  slider,
+  button,
+  choiceRow,
+  vectorRow,
+  iconButton,
+  menuButton,
+} from "./components";
 
 // Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
 const EYE_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -15,9 +27,22 @@ const ICON_LIGHT = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentCol
 const ICON_DARK = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M12.5 8.473a10.968 10.968 0 0 1 8.785-.97 7.435 7.435 0 0 0-3.737 4.672l-.09.373A7.454 7.454 0 0 0 28.732 20.4a10.97 10.97 0 0 1-5.232 7.125l-.497.27c-5.014 2.566-11.175.916-14.234-3.813l-.295-.483C5.53 18.403 7.13 11.93 12.017 8.77l.483-.297Zm4.234.616a8.946 8.946 0 0 0-2.805.883l-.429.234A9 9 0 0 0 10.206 22.5l.241.395A9 9 0 0 0 22.5 25.794l.416-.255a8.94 8.94 0 0 0 2.167-1.99 9.433 9.433 0 0 1-2.782-.313c-5.043-1.352-8.036-6.535-6.686-11.578l.147-.491c.242-.745.573-1.44.972-2.078Z"/></svg>`;
 const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M5 21a1 1 0 0 1 1-1h24a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1ZM12 25a1 1 0 0 1 1-1h10a1 1 0 1 1 0 2H13a1 1 0 0 1-1-1ZM15 29a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2h-4a1 1 0 0 1-1-1ZM18 13a6 6 0 0 1 5.915 7h-2.041A4.005 4.005 0 0 0 18 15a4 4 0 0 0-3.874 5h-2.041A6 6 0 0 1 18 13ZM17 7.038a1 1 0 1 1 2 0v3a1 1 0 0 1-2 0v-3ZM24.244 8.742a1 1 0 1 1 1.618 1.176L24.1 12.345a1 1 0 1 1-1.618-1.176l1.763-2.427ZM29.104 14.379a1 1 0 0 1 .618 1.902l-2.854.927a1 1 0 1 1-.618-1.902l2.854-.927ZM6.278 16.28a1 1 0 1 1 .618-1.901l2.853.927a1 1 0 1 1-.618 1.902l-2.853-.927ZM10.137 9.918a1 1 0 0 1 1.618-1.176l1.764 2.427a1 1 0 0 1-1.618 1.176l-1.764-2.427Z"/></svg>`;
 
+// Four-way move arrows: the per-item transform (position + rotation) disclosure.
+const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
+
+/** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
+ *  SPLAT_RENDER_MODES fails to compile until it is described here. */
+const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }> = {
+  splatting: { label: "Splats", title: "True Gaussian splatting, sorted per viewpoint (Spark)" },
+  ellipsoids: { label: "Ellipsoids", title: "Each Gaussian as a solid oriented ellipsoid" },
+  points: { label: "Points", title: "Each Gaussian's center as a point (fastest)" },
+};
+
 export class ControlPanel {
   private collapsed = false; // the 3DView (display) panel
   private sceneCollapsed = false; // the Scene panel
+  /** Scene items whose transform fields are open, kept across panel re-renders. */
+  private readonly transformOpen = new Set<string>();
 
   constructor(private readonly viewer: Viewer) {}
 
@@ -29,7 +54,7 @@ export class ControlPanel {
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
+    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
     document.body.appendChild(ui);
   }
 
@@ -139,6 +164,16 @@ export class ControlPanel {
     );
     body.append(section("Show", [toggles]));
 
+    // Gaussians — how 3DGS assets are drawn; only when the scene holds one.
+    if (s.hasSplat) {
+      const modes = SPLAT_RENDER_MODES.map((value) => ({ value, ...SPLAT_MODE_COPY[value] }));
+      body.append(
+        section("Gaussians", [
+          choiceRow(modes, s.splatMode, (mode) => this.viewer.setSplatMode(mode)),
+        ])
+      );
+    }
+
     // Appearance — sliders relevant to present content.
     const appearance: HTMLElement[] = [];
     if (s.hasPoints) {
@@ -148,6 +183,21 @@ export class ControlPanel {
       appearance.push(
         slider("Frustum size", 0, s.frustumScaleMax, s.frustumScaleMax / 80, s.frustumScale, (v) =>
           this.viewer.setFrustumScale(v)
+        )
+      );
+    }
+    if (s.trackSteps > 1) {
+      // Trail length in time steps; at the far right the whole trajectory shows.
+      // Opacity and density are how a few thousand overlapping trails stay readable.
+      appearance.push(
+        slider("Track trail", 2, s.trackSteps, 1, s.trackFrames, (v) =>
+          this.viewer.setTrackFrames(v)
+        ),
+        slider("Track opacity", 0.05, 1, 0.05, s.trackOpacity, (v) =>
+          this.viewer.setTrackOpacity(v)
+        ),
+        slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
+          this.viewer.setTrackDensity(v)
         )
       );
     }
@@ -243,9 +293,14 @@ export class ControlPanel {
     const panel = document.createElement("div");
     panel.className = this.sceneCollapsed ? "viewer-panel collapsed" : "viewer-panel";
 
+    // One entry per loadable kind. The asset entries differ only in how the host
+    // filters its file picker — what a file actually is comes from the file itself
+    // (a .ply is a mesh or a splat by header), so a "wrong" entry still loads it.
     const add = menuButton("+", "Add to scene", [
-      { label: "Reconstruction…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Asset…", onClick: () => this.viewer.requestAdd("asset") },
+      { label: "COLMAP…", onClick: () => this.viewer.requestAdd("colmap") },
+      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
+      { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
     ]);
 
     panel.append(
@@ -285,16 +340,70 @@ export class ControlPanel {
       const kind = document.createElement("span");
       kind.className = "kind";
       kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
+
+      const editor = this.buildTransformEditor(item, s.positionStep);
+      editor.hidden = !this.transformOpen.has(item.id);
+
       row.append(
         this.visibilityToggle(item),
         label,
         kind,
+        this.transformToggle(item, editor),
         iconButton("✎", "Rename", () => this.startRename(label, item)),
         iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
       );
-      body.append(row);
+      body.append(row, editor);
     }
     return body;
+  }
+
+  /** Move-arrows button that shows/hides an item's transform fields in place. */
+  private transformToggle(item: SceneItem, editor: HTMLElement): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = "viewer-iconbtn";
+    btn.innerHTML = ICON_MOVE;
+    btn.title = "Position / rotation";
+    btn.setAttribute("aria-expanded", String(!editor.hidden));
+    btn.addEventListener("click", () => {
+      editor.hidden = !editor.hidden;
+      if (editor.hidden) {
+        this.transformOpen.delete(item.id);
+      } else {
+        this.transformOpen.add(item.id);
+      }
+      btn.setAttribute("aria-expanded", String(!editor.hidden));
+    });
+    return btn;
+  }
+
+  /**
+   * Per-item position + rotation fields, Blender-style: the item's own placement in
+   * the scene. Edits go straight to the Viewer and update nothing else in the panel,
+   * so a field keeps focus while it is being typed in or nudged.
+   */
+  private buildTransformEditor(item: SceneItem, positionStep: number): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "viewer-xform";
+
+    const reset = document.createElement("button");
+    reset.className = "viewer-xform-reset";
+    reset.textContent = "Reset";
+    reset.title = "Back to the origin, unrotated";
+    reset.addEventListener("click", () => {
+      this.viewer.resetItemTransform(item.id);
+      this.render(); // a click, not a keystroke — re-reading the fields is safe here
+    });
+
+    wrap.append(
+      vectorRow("Position", item.transform.position, positionStep, (v) =>
+        this.viewer.setItemTransform(item.id, { position: v })
+      ),
+      vectorRow("Rotation°", item.transform.rotation, 1, (v) =>
+        this.viewer.setItemTransform(item.id, { rotation: v })
+      ),
+      reset
+    );
+    return wrap;
   }
 
   /** Open-/closed-eye button that toggles a scene item's visibility in place. */
@@ -365,6 +474,16 @@ function collapseWrap(body: HTMLElement): HTMLElement {
   clip.append(body);
   wrap.append(clip);
   return wrap;
+}
+
+/** A small muted "v<x.y.z>" caption under the panels; the running build's version
+ *  (`__APP_VERSION__` is inlined from package.json at build time). */
+function buildVersion(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "viewer-version";
+  el.textContent = `v${__APP_VERSION__}`;
+  el.title = "3DView version";
+  return el;
 }
 
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */

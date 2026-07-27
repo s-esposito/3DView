@@ -1,14 +1,15 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { ASSET_EXTS, ASSET_KIND_EXTS, ASSET_KIND_LABELS, type AssetKind } from "@3dview/core";
 import { ViewerPanel, pathOf, type OpenTarget } from "./panel";
 import { findModelDirs, findImagesDir } from "./colmapLoad";
 import { RecentsProvider } from "./recents";
 
-// Single source for the asset formats — used by the open dialog, the drop filter,
-// and the drop error message. Meshes (glTF/GLB/OBJ/PLY) plus 3D Gaussian Splatting
-// files (.splat/.spz/.ksplat; a .ply may be a mesh or a splat — disambiguated in
-// the webview).
-const ASSET_EXTS = ["glb", "gltf", "obj", "ply", "splat", "spz", "ksplat"];
+/** The asset kind a picker was opened for, or undefined for "any asset" (the
+ *  Command Palette entry). Guards against a menu passing an unrelated argument. */
+function assetKindOf(value: unknown): AssetKind | undefined {
+  return typeof value === "string" && value in ASSET_KIND_EXTS ? (value as AssetKind) : undefined;
+}
 
 export function activate(context: vscode.ExtensionContext) {
   // The Activity Bar "3DView" view is a recents launcher (drag-drop + click to
@@ -23,7 +24,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("3dview.openReconstruction", () =>
       openReconstruction(context, recents)
     ),
-    vscode.commands.registerCommand("3dview.openAsset", () => openAsset(context, recents)),
+    // The Scene "+" passes the kind it asked for; the palette entry passes nothing.
+    vscode.commands.registerCommand("3dview.openAsset", (kind?: unknown) =>
+      openAsset(context, recents, assetKindOf(kind))
+    ),
     vscode.commands.registerCommand("3dview.openViewer", () => ViewerPanel.open(context)),
     vscode.commands.registerCommand("3dview.openRecent", (t: OpenTarget) => {
       ViewerPanel.open(context, t);
@@ -93,14 +97,32 @@ async function openReconstructionFromRoot(
   }
 }
 
-async function openAsset(context: vscode.ExtensionContext, recents: RecentsProvider) {
+async function openAsset(
+  context: vscode.ExtensionContext,
+  recents: RecentsProvider,
+  kind?: AssetKind
+) {
+  // The requested kind leads the filter list (so the dialog opens on it), with the
+  // others still reachable from the dropdown — a .ply is a mesh or a splat by
+  // header, not by which menu entry was used, so nothing here is a dead end.
+  const kinds = Object.keys(ASSET_KIND_EXTS) as AssetKind[];
+  const filters: Record<string, string[]> = {};
+  if (kind) {
+    filters[ASSET_KIND_LABELS[kind]] = [...ASSET_KIND_EXTS[kind]];
+  }
+  filters["All 3D assets"] = [...ASSET_EXTS];
+  for (const other of kinds.filter((k) => k !== kind)) {
+    filters[ASSET_KIND_LABELS[other]] = [...ASSET_KIND_EXTS[other]];
+  }
   const picked = await vscode.window.showOpenDialog({
     canSelectFolders: false,
     canSelectFiles: true,
     canSelectMany: false,
     openLabel: "Open Asset",
-    title: "Select an asset — mesh (glTF / GLB / OBJ / PLY) or splat (PLY / SPLAT / SPZ / KSPLAT)",
-    filters: { "3D assets": ASSET_EXTS },
+    title: kind
+      ? `Select a file — ${ASSET_KIND_LABELS[kind]} (${ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(" / ")})`
+      : "Select an asset — mesh, 3DGS splat, or 3D point tracks",
+    filters,
   });
   if (!picked || picked.length === 0) {
     return;

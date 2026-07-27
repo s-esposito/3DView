@@ -57,8 +57,37 @@ export interface AssetRef {
   name: string;
 }
 
-/** What kind of content the "+" add action should pick. */
-export type AddKind = "colmap" | "asset";
+/** The asset families a host offers separately in its "add" menu and file picker. */
+export type AssetKind = "mesh" | "splat" | "tracks";
+
+/** What kind of content the "+" add action should pick — a COLMAP *folder*, or an
+ *  asset *file* of one family. The kind only chooses the picker's filter: what an
+ *  asset actually is comes from the file itself (a `.ply` is a mesh or a splat by
+ *  header), so picking the "wrong" menu entry still loads the file correctly. */
+export type AddKind = "colmap" | AssetKind;
+
+/**
+ * File extensions per asset family — the single source every host filters by.
+ * `.ply` appears under both mesh and splat on purpose: the two are told apart by
+ * the PLY header, not the name.
+ */
+export const ASSET_KIND_EXTS: Record<AssetKind, readonly string[]> = {
+  mesh: ["glb", "gltf", "obj", "ply"],
+  splat: ["ply", "splat", "spz", "ksplat"],
+  tracks: ["npz", "npy"],
+};
+
+/** Every loadable asset extension, in menu order and without duplicates. */
+export const ASSET_EXTS: readonly string[] = [
+  ...new Set(Object.values(ASSET_KIND_EXTS).flat()),
+];
+
+/** Human-readable name of an asset family, for picker titles and messages. */
+export const ASSET_KIND_LABELS: Record<AssetKind, string> = {
+  mesh: "Mesh",
+  splat: "3DGS splat",
+  tracks: "3D point tracks",
+};
 
 /**
  * One COLMAP model the webview can fetch + parse from URLs — the `loadColmap`
