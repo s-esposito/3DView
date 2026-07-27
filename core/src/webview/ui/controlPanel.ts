@@ -54,7 +54,7 @@ export class ControlPanel {
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
+    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
     document.body.appendChild(ui);
   }
 
@@ -474,6 +474,16 @@ function collapseWrap(body: HTMLElement): HTMLElement {
   clip.append(body);
   wrap.append(clip);
   return wrap;
+}
+
+/** A small muted "v<x.y.z>" caption under the panels; the running build's version
+ *  (`__APP_VERSION__` is inlined from package.json at build time). */
+function buildVersion(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "viewer-version";
+  el.textContent = `v${__APP_VERSION__}`;
+  el.title = "3DView version";
+  return el;
 }
 
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */

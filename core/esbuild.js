@@ -9,6 +9,11 @@ const path = require("node:path");
 const watch = process.argv.includes("--watch");
 const buildTests = process.argv.includes("--test");
 
+// Inject the package version so the webview can show which build is running. Read
+// from package.json here so there's one source of truth (no hand-kept constant).
+const version = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
+const define = { __APP_VERSION__: JSON.stringify(version) };
+
 // Every webview build is minified to keep the shipped bundle lean. Watch builds
 // (`npm run watch`) still emit a sourcemap so the minified output is debuggable;
 // production builds (`npm run build`, used for the VSIX + Pages demo) drop it.
@@ -24,6 +29,7 @@ const webviewConfig = {
   target: "es2020",
   minify: true,
   sourcemap: !prod,
+  define,
 };
 
 // Bundle each test/*.test.ts into out/test/ as a Node CJS module (node builtins
@@ -42,6 +48,7 @@ function testConfig() {
     format: "cjs",
     target: "node18",
     sourcemap: true,
+    define, // in case a test bundles a module referencing __APP_VERSION__
   };
 }
 
