@@ -41,6 +41,10 @@ export interface DisplayOptions {
   box: boolean;
   pointSize: number;
   frustumScale: number;
+  /** Frustum wireframe thickness, in screen pixels. */
+  frustumLineWidth: number;
+  /** Frustum wireframe base color, as 0xRRGGBB. */
+  frustumColor: number;
 }
 
 /** One source of content in the scene. */
@@ -99,7 +103,7 @@ export class ReconstructionLayer implements SceneLayer {
       this.box = buildBox(data.bounds);
       this.object.add(this.box);
     }
-    this.cameras.build(data, opts.frustumScale, opts.images);
+    this.cameras.build(data, opts.frustumScale, opts.images, opts.frustumLineWidth, opts.frustumColor);
     this.applyOptions(opts);
   }
 
@@ -144,11 +148,13 @@ export class ReconstructionLayer implements SceneLayer {
       this.box.visible = opts.box;
     }
     this.cameras.setVisible(opts.frustums);
+    this.cameras.setLineWidth(opts.frustumLineWidth);
+    this.cameras.setColor(opts.frustumColor);
   }
 
   /** Rebuild frustums (needed when frustum scale or the images toggle changes). */
   rebuildCameras(opts: DisplayOptions): void {
-    this.cameras.build(this.data, opts.frustumScale, opts.images);
+    this.cameras.build(this.data, opts.frustumScale, opts.images, opts.frustumLineWidth, opts.frustumColor);
     this.cameras.setVisible(opts.frustums);
   }
 
