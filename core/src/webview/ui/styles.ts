@@ -79,6 +79,11 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-slider-head{display:flex;justify-content:space-between;margin-bottom:5px}
 .viewer-slider-val{color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
 .viewer-slider input{width:100%;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
+.viewer-colorrow{display:flex;align-items:center;justify-content:space-between;margin-top:12px;cursor:pointer}
+.viewer-color{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;padding:0;background:none;border:1px solid color-mix(in srgb,var(--vscode-widget-border,#fff) 55%,transparent);border-radius:6px;box-shadow:var(--glass-shadow-sm);cursor:pointer}
+.viewer-color::-webkit-color-swatch-wrapper{padding:2px}
+.viewer-color::-webkit-color-swatch{border:none;border-radius:4px}
+.viewer-color::-moz-color-swatch{border:none;border-radius:4px}
 .viewer-btn{display:block;width:100%;margin-top:14px;padding:7px 8px;cursor:pointer;color:var(--vscode-button-foreground,#fff);background:var(--vscode-button-background,#0e639c);border:none;border-radius:6px;font:inherit;font-weight:500;transition:background .15s ease,transform .1s ease,box-shadow .15s ease}
 .viewer-btn:hover{background:var(--vscode-button-hoverBackground,#1177bb);transform:translateY(-1px);box-shadow:0 3px 12px rgba(0,0,0,0.3)}
 .viewer-btn:active{transform:translateY(0);box-shadow:none}

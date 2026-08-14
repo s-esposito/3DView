@@ -2,9 +2,14 @@
 // DOM — everything here takes data in and returns objects/values out, so each
 // piece is easy to read, reuse, and reason about.
 import * as THREE from "three";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 
-export const FRUSTUM_COLOR = 0x4aa3ff;
+// Default frustum wireframe color (RGB 0.423, 0.5568, 0.7490 → 8-bit). The Scene
+// panel's "Frustum color" picker overrides it per session via Viewer.setFrustumColor.
+export const FRUSTUM_COLOR = 0x6c8ebf;
 const GRID_PADDING = 1.5;
 const BOX_COLOR = 0x33dd88;
 
@@ -74,12 +79,20 @@ export function frustumCorners(cam: CameraView, d: number): number[][] {
   });
 }
 
-/** Frustum wireframe: apex -> each corner, then the image-plane rectangle. */
+/**
+ * Frustum wireframe: apex -> each corner, then the image-plane rectangle. Drawn as
+ * a Spark-independent "fat line" (LineSegments2) so `linewidth` actually takes
+ * effect — plain WebGL ignores LineBasicMaterial.linewidth — giving the frustums a
+ * thicker, more solid, 3D read. `linewidth` is in screen pixels (worldUnits: false);
+ * the material's resolution is kept in sync automatically by LineSegments2's
+ * onBeforeRender (from the renderer viewport), so callers needn't manage it.
+ */
 export function buildFrustumLines(
   center: number[],
   corners: number[][],
-  color: number
-): THREE.LineSegments {
+  color: number,
+  linewidth: number
+): LineSegments2 {
   const seg: number[] = [];
   const push = (a: number[], b: number[]) =>
     seg.push(a[0], a[1], a[2], b[0], b[1], b[2]);
@@ -90,9 +103,15 @@ export function buildFrustumLines(
   push(corners[1], corners[2]);
   push(corners[2], corners[3]);
   push(corners[3], corners[0]);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(seg, 3));
-  return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color }));
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions(seg);
+  const material = new LineMaterial({
+    color,
+    linewidth,
+    worldUnits: false, // linewidth in screen px: constant thickness at any zoom
+    alphaToCoverage: true, // smooth edges (the renderer is antialiased)
+  });
+  return new LineSegments2(geometry, material);
 }
 
 /**
@@ -119,9 +138,39 @@ export function buildImagePlane(corners: number[][]): THREE.Mesh {
     color: 0xffffff,
     side: THREE.DoubleSide,
     transparent: true,
-    opacity: 0, // invisible until a texture is assigned
+    opacity: 0, // invisible until a texture is assigned (opacity is the show/hide gate)
   });
+  patchImagePlaneAlpha(material);
   return new THREE.Mesh(geometry, material);
+}
+
+/** Opacity floor for an image's fully-transparent pixels (image alpha 0). */
+const IMAGE_ALPHA_FLOOR = 0.5;
+
+/**
+ * Remap how an image plane blends by the image's own alpha, per-pixel: opaque
+ * pixels (image alpha 1) keep their color at full opacity; fully-transparent
+ * pixels (image alpha 0) become white at `IMAGE_ALPHA_FLOOR` opacity; in between
+ * interpolates. So a masked-out (transparent) region reads as a faint white fill
+ * instead of vanishing. The material's `opacity` stays the load/evict show-hide
+ * gate (1 shown, 0 hidden) and multiplies the result. Patched via onBeforeCompile
+ * so MeshBasicMaterial keeps doing the sRGB decode/encode (the sampler returns
+ * linear, and `vec3(1.0)` is white in linear too).
+ */
+function patchImagePlaneAlpha(material: THREE.MeshBasicMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#ifdef USE_MAP
+        vec4 imgTexel = texture2D( map, vMapUv );
+        diffuseColor.rgb = mix( vec3( 1.0 ), imgTexel.rgb, imgTexel.a );
+        diffuseColor.a = mix( ${IMAGE_ALPHA_FLOOR.toFixed(2)}, 1.0, imgTexel.a ) * opacity;
+      #endif`
+    );
+  };
+  // Give the patched shader its own program bucket so it never shares a compiled
+  // program with an unpatched MeshBasicMaterial of the same parameters.
+  material.customProgramCacheKey = () => "frustum-image-plane-alpha";
 }
 
 /**

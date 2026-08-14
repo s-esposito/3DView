@@ -11,6 +11,7 @@ import {
   hint,
   checkbox,
   slider,
+  colorRow,
   button,
   choiceRow,
   vectorRow,
@@ -183,7 +184,11 @@ export class ControlPanel {
       appearance.push(
         slider("Frustum size", 0, s.frustumScaleMax, s.frustumScaleMax / 80, s.frustumScale, (v) =>
           this.viewer.setFrustumScale(v)
-        )
+        ),
+        slider("Frustum line size", 1, 10, 0.5, s.frustumLineWidth, (v) =>
+          this.viewer.setFrustumLineWidth(v)
+        ),
+        colorRow("Frustum color", s.frustumColor, (v) => this.viewer.setFrustumColor(v))
       );
     }
     if (s.trackSteps > 1) {
@@ -212,6 +217,19 @@ export class ControlPanel {
           this.viewer.setOrientation(on ? "upright" : "raw")
         ),
         button("Reset view (R)", () => this.viewer.resetView()),
+      ])
+    );
+
+    // Camera — controls OrbitControls' drag can't reach: perspective FOV and a
+    // roll (tilt) about the view axis. Reset snaps both sliders back to default.
+    body.append(
+      section("Camera", [
+        slider("Field of view", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
+        slider("Roll (tilt)°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
+        button("Reset camera", () => {
+          this.viewer.resetCamera();
+          this.render(); // a click, not a keystroke — re-reading the sliders is safe
+        }),
       ])
     );
 

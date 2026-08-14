@@ -14,6 +14,7 @@ import {
   transformBounds,
   computeLocalBounds,
   disposeObject,
+  FRUSTUM_COLOR,
 } from "./builders";
 import {
   SceneLayer,
@@ -81,6 +82,14 @@ export interface ViewerState {
   pointSize: number;
   frustumScale: number;
   frustumScaleMax: number;
+  /** Frustum wireframe thickness, in screen pixels. */
+  frustumLineWidth: number;
+  /** Frustum wireframe base color, as 0xRRGGBB. */
+  frustumColor: number;
+  /** Perspective field of view, in degrees. */
+  fov: number;
+  /** Camera roll (tilt) about the view axis, in degrees. */
+  roll: number;
   hasPoints: boolean;
   hasCameras: boolean;
   hasAsset: boolean;
@@ -138,6 +147,8 @@ export class Viewer {
     box: true,
     pointSize: 1.5,
     frustumScale: 0,
+    frustumLineWidth: 3,
+    frustumColor: FRUSTUM_COLOR,
   };
   private showGrid = true;
   private showAxes = true;
@@ -153,6 +164,9 @@ export class Viewer {
   private themeName: ThemeName = "dark";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
+  // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
+  // after OrbitControls.update() (which owns the un-rolled orientation).
+  private rollDeg = 0;
   // On-demand rendering: render only when the camera is moving (damping) or
   // something requested a redraw, instead of re-rasterizing the cloud every frame.
   private needsRender = true;
@@ -161,7 +175,17 @@ export class Viewer {
     // Apply the default theme before reading any themed CSS var below (the
     // 3D background reads --vscode-editor-background, which the theme overrides).
     document.body.dataset.viewerTheme = this.themeName;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // alpha: true → the drawing buffer has an alpha channel so saveViewpoint() can
+    // capture a transparent PNG (normal frames still paint scene.background opaquely).
+    // preserveDrawingBuffer: true → saveViewpoint() renders outside the rAF loop and
+    // then reads the canvas via toDataURL(); without this the webview compositor can
+    // hand back the *previous* frame (opaque theme background), saving a black
+    // background instead of the transparent one we just rendered.
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
@@ -202,7 +226,6 @@ export class Viewer {
       controls: this.controls,
       root: this.root,
       reconstructions: () => this.reconstructionLayers(),
-      frustumScale: () => this.opts.frustumScale,
       boundsDiagonal: () => diagonalOf(this.bounds),
       onSelect: (cam) => this.onSelect?.(cam),
       requestRender: this.requestRender,
@@ -237,6 +260,10 @@ export class Viewer {
       pointSize: this.opts.pointSize,
       frustumScale: this.opts.frustumScale,
       frustumScaleMax: this.frustumScaleMax,
+      frustumLineWidth: this.opts.frustumLineWidth,
+      frustumColor: this.opts.frustumColor,
+      fov: this.camera.fov,
+      roll: this.rollDeg,
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
       hasAsset: this.layers.some((l) => l.kind === "asset"),
@@ -470,6 +497,41 @@ export class Viewer {
     this.requestRender();
   }
 
+  /** Set the frustum wireframe thickness (screen px); live, no geometry rebuild. */
+  setFrustumLineWidth(width: number): void {
+    this.opts.frustumLineWidth = width;
+    this.reconstructionLayers().forEach((l) => l.applyOptions(this.opts));
+    this.requestRender();
+  }
+
+  /** Set the frustum wireframe base color (0xRRGGBB); live, no geometry rebuild.
+   *  Hovered/selected frustums keep their highlight colors until deselected. */
+  setFrustumColor(color: number): void {
+    this.opts.frustumColor = color;
+    this.reconstructionLayers().forEach((l) => l.applyOptions(this.opts));
+    this.requestRender();
+  }
+
+  /** Set the perspective field of view, in degrees. */
+  setFov(deg: number): void {
+    this.camera.fov = deg;
+    this.camera.updateProjectionMatrix();
+    this.requestRender();
+  }
+
+  /** Roll (tilt) the camera about its view axis, in degrees. Applied each frame in
+   *  `animate` on top of OrbitControls' orientation, so orbit/pan/zoom are unaffected. */
+  setRoll(deg: number): void {
+    this.rollDeg = deg;
+    this.requestRender();
+  }
+
+  /** Reset the camera controls (field of view + roll) to their defaults. */
+  resetCamera(): void {
+    this.setRoll(0);
+    this.setFov(DEFAULT_FOV);
+  }
+
   setOrientation(orientation: Orientation): void {
     this.orientation = orientation;
     this.applyOrientation();
@@ -598,7 +660,8 @@ export class Viewer {
   /**
    * Render the current viewpoint at `scale`× the on-screen resolution and hand the
    * resulting PNG (data URL) to `onSaveImage` for the host to save. The 3D canvas
-   * only (no UI overlay) is captured. Guards against exceeding the GPU's max buffer.
+   * only (no UI overlay) is captured, with a fully transparent background (the
+   * viewer background color is dropped). Guards against exceeding the GPU's max buffer.
    */
   saveViewpoint(scale: number): void {
     const maxDim = this.renderer.capabilities.maxTextureSize;
@@ -609,13 +672,19 @@ export class Viewer {
       return;
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,
-    // then read it back synchronously — valid without preserveDrawingBuffer because
-    // nothing repaints between render() and toDataURL() in this same task.
+    // then read it back with toDataURL(); the renderer's preserveDrawingBuffer (see
+    // the constructor) is what keeps that read pointing at this render, not a stale frame.
+    // Drop the opaque scene.background and clear to alpha 0 so the PNG is transparent;
+    // restore both afterwards so the live view keeps its background color.
     const prevRatio = this.renderer.getPixelRatio();
+    const prevBackground = this.scene.background;
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(w, h, false);
+    this.scene.background = null;
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.render(this.scene, this.camera);
     const png = this.renderer.domElement.toDataURL("image/png");
+    this.scene.background = prevBackground;
     this.renderer.setPixelRatio(prevRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.requestRender();
@@ -640,6 +709,13 @@ export class Viewer {
     // OrbitControls.update() returns true while the camera is still moving
     // (incl. damping glide); render then, or whenever a redraw was requested.
     const moving = this.controls.update();
+    // Roll is a pure tilt about the view axis, layered on top of the orientation
+    // OrbitControls just wrote. Re-applied every frame (update() re-derives the
+    // un-rolled orientation from target + up each call, so this never accumulates),
+    // which also keeps the camera consistently rolled for pointer picking.
+    if (this.rollDeg !== 0) {
+      this.camera.rotateZ(THREE.MathUtils.degToRad(this.rollDeg));
+    }
     if (moving || this.needsRender) {
       this.renderer.render(this.scene, this.camera);
       this.needsRender = false;

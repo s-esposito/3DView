@@ -3,6 +3,7 @@
 // Owns hover/selection highlighting and lazy texture loading. Picking is done by
 // the Viewer across all layers; each group is stamped with its owning layer id.
 import * as THREE from "three";
+import type { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { ModelData } from "../shared/messages";
 import { ThumbnailLoader } from "./textures";
 import {
@@ -28,7 +29,7 @@ export interface CameraHit {
 interface CameraRecord {
   index: number;
   group: THREE.Group;
-  lineMaterial: THREE.LineBasicMaterial;
+  lineMaterial: LineMaterial;
   planeMaterial?: THREE.MeshBasicMaterial;
   uri?: string;
   width: number;
@@ -43,6 +44,8 @@ export class CameraLayer {
   private records = new Map<number, CameraRecord>();
   private hovered = -1;
   private selected = -1;
+  private baseColor = FRUSTUM_COLOR; // default frustum color; overridden per hover/select
+  private lineWidth = 0; // current frustum line width (px); tracked so no-op sweeps are skipped
   private readonly tmp = new THREE.Vector3();
 
   constructor(
@@ -53,16 +56,25 @@ export class CameraLayer {
     private readonly onTextureChange: () => void = () => {}
   ) {}
 
-  /** (Re)build all per-camera objects for a model at the given frustum scale. */
-  build(data: ModelData, scale: number, showImages: boolean): void {
+  /** (Re)build all per-camera objects for a model at the given frustum scale,
+   *  line width (screen px), and base color (0xRRGGBB). */
+  build(
+    data: ModelData,
+    scale: number,
+    showImages: boolean,
+    lineWidth: number,
+    color: number
+  ): void {
     this.clear();
+    this.baseColor = color;
+    this.lineWidth = lineWidth;
     data.cameras.forEach((cam, index) => {
       if (!cam.fx || !cam.fy) {
         return; // no usable intrinsics
       }
       const corners = frustumCorners(cam, scale);
       const group = new THREE.Group();
-      const lines = buildFrustumLines(cam.center, corners, FRUSTUM_COLOR);
+      const lines = buildFrustumLines(cam.center, corners, this.baseColor, lineWidth);
       group.add(lines);
 
       let planeMaterial: THREE.MeshBasicMaterial | undefined;
@@ -78,7 +90,7 @@ export class CameraLayer {
       this.records.set(index, {
         index,
         group,
-        lineMaterial: lines.material as THREE.LineBasicMaterial,
+        lineMaterial: lines.material as LineMaterial,
         planeMaterial,
         uri: cam.imageUri,
         width: cam.width,
@@ -92,6 +104,32 @@ export class CameraLayer {
 
   setVisible(visible: boolean): void {
     this.object.visible = visible;
+  }
+
+  /** Live-update every frustum's line thickness (screen px) without a rebuild.
+   *  Skips the O(n) sweep when unchanged — applyOptions re-applies all display
+   *  options on unrelated changes (e.g. a point-size drag). */
+  setLineWidth(width: number): void {
+    if (width === this.lineWidth) {
+      return;
+    }
+    this.lineWidth = width;
+    for (const r of this.records.values()) {
+      r.lineMaterial.linewidth = width;
+    }
+  }
+
+  /** Live-update the base frustum color without a rebuild. Hovered/selected
+   *  frustums keep their highlight color (colorFor sees this new base). Skips the
+   *  O(n) sweep when unchanged (see setLineWidth). */
+  setColor(color: number): void {
+    if (color === this.baseColor) {
+      return;
+    }
+    this.baseColor = color;
+    for (const r of this.records.values()) {
+      r.lineMaterial.color.setHex(this.colorFor(r.index));
+    }
   }
 
   /**
@@ -137,7 +175,7 @@ export class CameraLayer {
       }
       r.planeMaterial.map?.dispose();
       r.planeMaterial.map = texture;
-      r.planeMaterial.opacity = 1;
+      r.planeMaterial.opacity = 1; // show; the per-pixel alpha remap lives in the shader
       r.planeMaterial.needsUpdate = true;
       r.loaded = true;
       this.onTextureChange();
@@ -199,7 +237,7 @@ export class CameraLayer {
     if (index === this.hovered) {
       return FRUSTUM_HOVER;
     }
-    return FRUSTUM_COLOR;
+    return this.baseColor;
   }
 
   private applyColor(index: number): void {

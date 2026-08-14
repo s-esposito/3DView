@@ -78,6 +78,40 @@ export function slider(
   return wrap;
 }
 
+/**
+ * A label + native color swatch. Works in numbers (0xRRGGBB) so the Viewer's
+ * contract stays numeric; the hex-string conversion the `<input type=color>`
+ * needs is encapsulated here. Fires live while the user drags the picker.
+ */
+export function colorRow(
+  label: string,
+  value: number,
+  onInput: (value: number) => void
+): HTMLElement {
+  const wrap = document.createElement("label");
+  wrap.className = "viewer-colorrow";
+  const caption = document.createElement("span");
+  caption.textContent = label;
+  const input = document.createElement("input");
+  input.type = "color";
+  input.className = "viewer-color";
+  input.value = numToHex(value);
+  input.setAttribute("aria-label", label);
+  input.addEventListener("input", () => onInput(hexToNum(input.value)));
+  wrap.append(caption, input);
+  return wrap;
+}
+
+/** 0xRRGGBB → "#rrggbb" for a color input. */
+function numToHex(n: number): string {
+  return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
+}
+
+/** "#rrggbb" → 0xRRGGBB. */
+function hexToNum(s: string): number {
+  return parseInt(s.replace(/^#/, ""), 16) || 0;
+}
+
 export function button(label: string, onClick: () => void): HTMLButtonElement {
   const el = document.createElement("button");
   el.className = "viewer-btn";

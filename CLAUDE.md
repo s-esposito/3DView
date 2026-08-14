@@ -103,7 +103,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          and does rebuild
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
-    cameraLayer.ts       per-camera frustums + image planes; hover/select; lazy textures (cap)
+    cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/LineMaterial,
+                         screen-px linewidth via setLineWidth) + image planes;
+                         hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
     builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
@@ -153,8 +155,8 @@ tracks) under a single
 (`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
 `addAsset`, `removeItem`,
 `renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
-`setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`,
-`setSplatMode`/`toggleSplatMode`,
+`setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
+`setFrustumColor`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
 `setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
 `onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
@@ -218,12 +220,20 @@ pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
   calls `renderer.render` when `controls.update()` reports motion (incl. damping)
   OR `needsRender` is set. Anything that changes what's on screen *without moving
   the camera* MUST call `requestRender()` — every Viewer mutator
-  (`setGlobal`/`setPointSize`/`setFrustumScale`/`setItemVisible`/`fitCamera`/
-  `rebuildHelpers`/`onResize`), interaction hover/select/deselect (via
+  (`setGlobal`/`setPointSize`/`setFrustumScale`/`setFrustumLineWidth`/
+  `setFrustumColor`/`setFov`/`setRoll`/`setItemVisible`/`fitCamera`/`rebuildHelpers`/
+  `onResize`), interaction hover/select/deselect (via
   `InteractionDeps.requestRender`), and async texture load/evict (via
   `CameraLayer`'s `onTextureChange` → `Viewer.requestRender`). Forgetting this
   leaves the view frozen until the next interaction. Don't also add an
   OrbitControls `'change'` listener — `update()` already covers damping.
+- **Camera roll (tilt) rides on top of OrbitControls.** `animate()` applies the
+  roll as `camera.rotateZ` *after* `controls.update()`, every frame. `update()`
+  unconditionally rewrites the orientation from target + up (`lookAt`) each call,
+  so the roll re-composes fresh and never accumulates, and orbit/pan/zoom are
+  untouched (they own the un-rolled orientation). FOV is a plain
+  `camera.fov`/`updateProjectionMatrix`. Both are webview-only camera state (no host
+  message); `resetCamera` returns them to defaults (`DEFAULT_FOV`, roll 0).
 - **Render cost knobs:** pixel ratio is capped at `MAX_PIXEL_RATIO` (1.5) in
   `viewer.ts` (re-applied on resize); `buildPoints` sets `geometry.boundingSphere`
   from `data.bounds` (radius = ½ space diagonal) to skip Three's O(n) first-frame
@@ -298,6 +308,16 @@ pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
   resident (see `textures.ts`/`cameraLayer.ts`). The flip is baked into the
   bitmap (`imageOrientation:"flipY"` + `texture.flipY=false`) — ImageBitmap
   ignores `flipY`. The click-popup uses the full-res `<img>` (one at a time).
+- **Image-plane alpha remap** (`builders.ts buildImagePlane`, `patchImagePlaneAlpha`):
+  the frustum image plane blends by the image's **own** alpha, per-pixel — opaque
+  pixels keep their color at full opacity; fully-transparent pixels become white at
+  `IMAGE_ALPHA_FLOOR` (0.5); in between interpolates. So a masked-out region reads
+  as a faint white fill instead of vanishing. Done via a `MeshBasicMaterial`
+  `onBeforeCompile` that rewrites `<map_fragment>` (keeps three's sRGB decode/encode,
+  since the sampler returns linear and `vec3(1.0)` is white in linear too), with a
+  `customProgramCacheKey` so it never shares a program with a plain textured
+  material. The material's `opacity` stays the load/evict show-hide gate (1/0) and
+  multiplies the result — don't repurpose it for translucency.
 - **Precision caveat:** point positions are downcast float64→float32 in
   `points3d.ts` (~7 sig digits). Fine for normalized scenes; revisit for
   geo-referenced coordinates (would need an origin offset).

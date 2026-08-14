@@ -10,6 +10,9 @@ import type { CameraHit } from "./cameraLayer";
 
 export const DEFAULT_FOV = 60;
 const CLICK_DRAG_TOLERANCE_PX = 5;
+// Frustums are fat lines (LineSegments2); their pick width is the material
+// linewidth plus this margin (both screen px), so thin frustums stay clickable.
+const FRUSTUM_PICK_MARGIN_PX = 8;
 
 export interface InteractionDeps {
   dom: HTMLElement;
@@ -18,8 +21,6 @@ export interface InteractionDeps {
   root: THREE.Group;
   /** Current reconstruction layers (cameras live in these). */
   reconstructions: () => ReconstructionLayer[];
-  /** Current global frustum scale, for the line-pick threshold. */
-  frustumScale: () => number;
   /** World-space diagonal of the scene, for the POV pivot distance. */
   boundsDiagonal: () => number;
   /** Notified with the selected camera on POV entry, and null on exit. */
@@ -37,6 +38,7 @@ export class CameraInteraction {
   private povActive = false;
 
   constructor(private readonly deps: InteractionDeps) {
+    this.raycaster.params.Line2 = { threshold: FRUSTUM_PICK_MARGIN_PX };
     const el = deps.dom;
     el.addEventListener("pointerdown", (e) => {
       this.pointerDown = { x: e.clientX, y: e.clientY };
@@ -107,7 +109,6 @@ export class CameraInteraction {
     this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.deps.camera);
-    this.raycaster.params.Line.threshold = this.deps.frustumScale() * 0.2;
 
     for (const hit of this.raycaster.intersectObjects(objects, true)) {
       let obj: THREE.Object3D | null = hit.object;
