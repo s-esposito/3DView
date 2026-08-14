@@ -2,7 +2,7 @@
   "name": "3dview",
   "displayName": "3DView",
   "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "3dview",
   "license": "MIT",
   "repository": {

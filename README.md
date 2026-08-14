@@ -48,7 +48,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.0.0.vsix --force
+code --install-extension 3dview-1.0.1.vsix --force
 ```
 
 **From source:**

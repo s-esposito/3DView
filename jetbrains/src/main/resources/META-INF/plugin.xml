@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>dev.colmapview</id>
     <name>3DView</name>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <vendor email="stefano2142x@gmail.com" url="https://github.com/s-esposito/3DView">Stefano Esposito</vendor>
 
     <description><![CDATA[
