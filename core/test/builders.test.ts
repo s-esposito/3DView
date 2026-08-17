@@ -9,6 +9,7 @@ import {
   unionBounds,
   sphereFromBounds,
   frustumScaleFromDepth,
+  NEAR_FRACTION,
 } from "../src/webview/builders";
 import { computeBounds } from "../src/colmap";
 import type { Bounds, CameraView, ModelData } from "../src/shared/messages";
@@ -85,7 +86,8 @@ test("frustumScaleFromDepth sizes off what the camera sees, not the scene extent
   const wall = Array.from({ length: 40 }, (_, i) => [(i - 20) / 40, 0, 4]);
   const data = modelOf([...wall, [0, 0, 1000]], [cameraAtOrigin()]);
   const scale = frustumScaleFromDepth(data);
-  assert.ok(Math.abs(scale - 0.6) < 1e-6, `expected 0.15 * 4, got ${scale}`);
+  // The wall is 4 units out, so the scale is that depth, scaled down to taste.
+  assert.ok(Math.abs(scale - NEAR_FRACTION * 4) < 1e-6, `got ${scale}`);
 });
 
 test("frustumScaleFromDepth ignores points behind the camera or outside the image", () => {
@@ -93,14 +95,14 @@ test("frustumScaleFromDepth ignores points behind the camera or outside the imag
   // to the side (x = 10 at z = 2 projects to u = 300, past the 100px width).
   const wall = Array.from({ length: 40 }, (_, i) => [(i - 20) / 40, 0, 8]);
   const data = modelOf([...wall, [0, 0, -1], [10, 0, 2]], [cameraAtOrigin()]);
-  assert.ok(Math.abs(frustumScaleFromDepth(data) - 1.2) < 1e-6); // 0.15 * 8
+  assert.ok(Math.abs(frustumScaleFromDepth(data) - NEAR_FRACTION * 8) < 1e-6);
 });
 
 test("frustumScaleFromDepth follows the tightest camera", () => {
   // Same wall at z = 8, seen by a second camera standing at z = 6 — 2 units out.
   const wall = Array.from({ length: 40 }, (_, i) => [(i - 20) / 40, 0, 8]);
   const data = modelOf(wall, [cameraAtOrigin(), cameraAtOrigin([0, 0, 6])]);
-  assert.ok(Math.abs(frustumScaleFromDepth(data) - 0.3) < 1e-6); // 0.15 * 2
+  assert.ok(Math.abs(frustumScaleFromDepth(data) - NEAR_FRACTION * 2) < 1e-6);
 });
 
 test("frustumScaleFromDepth reports 0 when there is nothing to measure", () => {

@@ -221,11 +221,11 @@ export function diagonalOf(b: Bounds): number {
   );
 }
 
-// How far a frustum reaches toward the nearest thing its camera sees. Picked so
-// that on an object-centric capture — cameras about one scene-diameter out, the
-// common case — the result still lands inside the slider's own 0.16·diagonal range
-// instead of pinned at its maximum.
-const NEAR_FRACTION = 0.15;
+// How far a frustum reaches toward the nearest thing its camera sees. A pure
+// matter of taste — big enough to read the camera's orientation at a glance,
+// short enough to stay clear of the geometry it points at. Exported so the tests
+// pin the measurement rather than this number.
+export const NEAR_FRACTION = 0.25;
 // The near depth is read off a low quantile, at both levels of frustumScaleFromDepth
 // and for the same reason at each: within one camera it stops a single stray point
 // in the foreground setting the depth, and across cameras it degrades to (near-)the
