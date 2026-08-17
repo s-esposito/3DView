@@ -13,6 +13,7 @@ import {
   unionBounds,
   transformBounds,
   computeLocalBounds,
+  frustumScaleFromDepth,
   disposeObject,
   FRUSTUM_COLOR,
 } from "./builders";
@@ -288,7 +289,14 @@ export class Viewer {
     if (!this.frustumInitialized) {
       const b = computeLocalBounds(data);
       this.frustumScaleMax = diagonalOf(b) * 0.16;
-      this.opts.frustumScale = this.frustumScaleMax / 80;
+      // What the cameras see, falling back to one slider step of the scene extent
+      // for a model that gives nothing to measure, and capped at the slider's own
+      // maximum so the initial value is always one it can express.
+      const measured = frustumScaleFromDepth(data);
+      this.opts.frustumScale = Math.min(
+        measured || this.frustumScaleMax / 80,
+        this.frustumScaleMax
+      );
       this.frustumInitialized = true;
     }
     this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source));

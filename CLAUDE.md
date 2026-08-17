@@ -107,7 +107,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          screen-px linewidth via setLineWidth) + image planes;
                          hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
-    builders.ts          pure three.js geometry builders + scene math (bounds, dispose)
+    builders.ts          pure three.js geometry builders + scene math (bounds, frustum
+                         sizing, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup + model chooser)
@@ -187,6 +188,19 @@ a stable `id` and tracks the list in `panel.ts`. The Scene "+" menu posts
 posts `removed` so the host forgets it (won't replay it). Per-item controls are
 visibility + remove; appearance (point/frustum size, images, grid, axes, orientation)
 is global across the scene.
+
+**Frustum size is measured, not guessed** (`frustumScaleFromDepth`, applied once in
+`addReconstruction`). Each camera's frustum reaches `NEAR_FRACTION` of the way to
+the nearest thing that camera actually sees: the cloud is projected into every
+camera, points behind it or outside the image are dropped, and a low quantile is
+taken of the depths — per camera, then across cameras, since one scale is drawn for
+all of them. Sizing off the scene's diagonal instead (what this used to do) fails in
+both directions: one far background point shrinks every frustum to nothing, and a
+camera standing close to its subject gets one that buries it. The measurement
+returns **0** when a model gives it nothing (no cloud, or cameras pointed away), so
+the fallback stays where the policy belongs — at the `addReconstruction` seam, which
+also caps the result at the slider's own `0.16 · diagonal` so the initial value is
+one the slider can express.
 
 **Drag-and-drop is a third, webview-owned intake path** (`dropZone.ts`), separate
 from the host pickers. A sandboxed webview can read dropped *bytes* but never the
