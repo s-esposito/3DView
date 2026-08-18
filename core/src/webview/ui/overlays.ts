@@ -171,3 +171,77 @@ export function showColmapChooser(
   document.body.append(backdrop);
   refreshLoad();
 }
+
+/**
+ * Ask whether several items that arrived together are one temporal item (a
+ * capture's timesteps) or that many separate scene items. The single place this
+ * question is asked, for every host — see CLAUDE.md.
+ *
+ * Resolves "cancel" on ✕ / Esc / backdrop click, so the caller can free the blob:
+ * URLs of content it will now never load. Promise-based, unlike the callback-style
+ * chooser above, because callers chain it between a pick and an awaited load.
+ */
+export function askTemporalGrouping(
+  count: number,
+  label: string
+): Promise<"temporal" | "separate" | "cancel"> {
+  return new Promise((resolve) => {
+    document.getElementById("viewer-modal")?.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "viewer-modal";
+    backdrop.className = "viewer-modal-backdrop";
+    const box = document.createElement("div");
+    box.className = "viewer-modal";
+
+    const { head, close } = popupHead(`${count} items — ${label}`, "Cancel");
+
+    const body = document.createElement("div");
+    body.className = "viewer-modal-list";
+    const sub = document.createElement("span");
+    sub.className = "viewer-modal-sub";
+    sub.style.whiteSpace = "normal";
+    sub.textContent =
+      "They arrived together. Load them as frames of one item you can scrub through, or as separate items?";
+    body.append(sub);
+
+    const foot = document.createElement("div");
+    foot.className = "viewer-modal-foot";
+    const temporal = document.createElement("button");
+    temporal.className = "viewer-btn";
+    temporal.textContent = "One temporal item";
+    const separate = document.createElement("button");
+    separate.className = "viewer-btn";
+    separate.textContent = `${count} separate items`;
+    foot.append(temporal, separate);
+
+    const dismiss = (answer: "temporal" | "separate" | "cancel") => {
+      document.removeEventListener("keydown", onKey);
+      backdrop.remove();
+      resolve(answer);
+    };
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismiss("cancel");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        dismiss("temporal");
+      }
+    }
+
+    temporal.addEventListener("click", () => dismiss("temporal"));
+    separate.addEventListener("click", () => dismiss("separate"));
+    close.addEventListener("click", () => dismiss("cancel"));
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        dismiss("cancel");
+      }
+    });
+    document.addEventListener("keydown", onKey);
+
+    box.append(head, body, foot);
+    backdrop.append(box);
+    document.body.append(backdrop);
+  });
+}

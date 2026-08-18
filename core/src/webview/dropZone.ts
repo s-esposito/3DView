@@ -15,7 +15,7 @@
 // reconstruction with its sibling images mapped by basename to blob: URLs; a lone
 // recognised file loads as an asset. The path classification is shared with the
 // demo host's folder picker via `colmap/grouping.ts` (groupColmapModels).
-import type { HostToWebview, ColmapModelRef } from "../shared/messages";
+import type { AddAssetMsg, HostToWebview, ColmapModelRef } from "../shared/messages";
 import { ASSET_EXTS } from "../shared/messages";
 import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
 
@@ -153,8 +153,11 @@ function readDir(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
   });
 }
 
-/** Classify the dropped files into COLMAP reconstruction(s) or a single asset (else throw). */
+/** Classify the dropped files into COLMAP reconstruction(s) or asset file(s) (else throw). */
 function buildContent(files: DroppedFile[]): HostToWebview {
+  // A COLMAP model in the drop wins outright: a real reconstruction tree routinely
+  // holds meshes too (dense/fused.ply, meshed-poisson.ply), and loading those
+  // alongside it would be slow and surprising. Drop them on their own to see them.
   const models = groupColmapModels(files.map((f) => f.path));
   if (models.length > 0) {
     const byPath = new Map(files.map((f) => [f.path, f.file]));
@@ -166,11 +169,33 @@ function buildContent(files: DroppedFile[]): HostToWebview {
       ? { type: "loadColmap", ...refs[0] }
       : { type: "chooseColmap", models: refs };
   }
-  const asset = files.find((f) => ASSET_EXTS.includes(ext(f.path)));
-  if (asset) return buildAsset(asset.file);
+  // Every asset in the drop, not just the first: dropping a folder of per-frame
+  // splats is how a temporal item is meant to arrive.
+  const assets = files.filter((f) => ASSET_EXTS.includes(ext(f.path)));
+  if (assets.length === 1) return buildAsset(assets[0].file);
+  if (assets.length > 1) {
+    return {
+      type: "addGroup",
+      id: nextId("group"),
+      label: commonFolder(assets.map((a) => a.path)),
+      members: assets.map((a) => buildAsset(a.file)),
+    };
+  }
   throw new Error(
     `Unrecognised drop — expected a COLMAP folder (cameras/images/points3D) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
   );
+}
+
+/** The folder the dropped files share, as a name for the group they form. */
+function commonFolder(paths: string[]): string {
+  const dir = paths[0].split("/").slice(0, -1);
+  for (const path of paths) {
+    const parts = path.split("/").slice(0, -1);
+    while (dir.length > 0 && parts.slice(0, dir.length).join("/") !== dir.join("/")) {
+      dir.pop();
+    }
+  }
+  return dir.pop() || "Dropped files";
 }
 
 /** Map every image-like file to a blob: URL keyed by basename (the loader matches a
@@ -205,7 +230,7 @@ function toColmapRef(
 }
 
 /** Build an `addAsset` message from a single dropped file (mesh or splat) as a blob: URL. */
-function buildAsset(file: File): HostToWebview {
+function buildAsset(file: File): AddAssetMsg {
   return {
     type: "addAsset",
     id: nextId("asset"),

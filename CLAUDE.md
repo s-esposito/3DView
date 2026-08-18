@@ -227,14 +227,18 @@ one the slider can express.
 from the host pickers. A sandboxed webview can read dropped *bytes* but never the
 filesystem *path* (and Explorer→webview drops don't fire — microsoft/vscode#182449),
 so a drop can't route through a host's path-based loader. Instead the webview reads
-the bytes into `blob:` URLs and emits the **same** `loadColmap`/`addAsset` messages a
-host would (id self-assigned `dnd-*`), converging on the same `main.ts` handler — so
+the bytes into `blob:` URLs and emits the **same** `loadColmap`/`addAsset`/`addGroup`
+messages a host would (id self-assigned `dnd-*`), converging on the same `main.ts` handler — so
 it works identically in every host with no host code and no CSP change (`blob:` is
 already allowed on `connect-src`). Consequences, by design: dropped items are NOT in
 the host's tracked list, so they get no VS Code Recents entry and aren't replayed if
 the panel is ever recreated, and images load in-memory rather than streamed
 on-demand. Path-based opening (Recents, streaming) stays available via the host
-pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths.
+pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths. A drop
+holding several assets sends them as one `addGroup` (dropping a folder of per-frame
+splats is how a temporal item is meant to arrive); a drop holding a COLMAP model still
+wins outright over any asset files beside it, since a reconstruction tree routinely
+carries `dense/fused.ply` and friends.
 
 ## Invariants & conventions (do not break)
 

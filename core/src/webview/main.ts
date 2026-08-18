@@ -2,11 +2,13 @@
 // status text to the Viewer and its UI. All real work lives in the modules. This
 // bundle is host-agnostic: it talks to the embedding IDE only through the
 // `window.__viewerHost` bridge (see shared/hostBridge), never a host-specific API.
-import type { HostToWebview, ColmapModelRef } from "../shared/messages";
+import type { AddItem, HostToWebview, ColmapModelRef } from "../shared/messages";
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
+import type { TemporalFrame } from "./viewer";
+import { compareNatural } from "./temporalLayer";
 import { ControlPanel } from "./ui/controlPanel";
-import { InfoPopup, showColmapChooser } from "./ui/overlays";
+import { InfoPopup, showColmapChooser, askTemporalGrouping } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 import { loadColmapFromUrls } from "./colmapLoader";
 import { installDropZone } from "./dropZone";
@@ -140,16 +142,23 @@ function handleHostMessage(msg: HostToWebview) {
       // converge on the same addReconstruction path the inline `data` case uses.
       loadColmapModel(msg);
       break;
+    case "addGroup":
+      // Several items from one user action — ask once what they are.
+      void addItems(msg.id, msg.label, msg.members);
+      break;
     case "chooseColmap":
       // Several models found (e.g. sparse/0, sparse/1); let the user pick which to
       // load. Unselected models' trio URLs are freed so dropped/demo blobs aren't
       // left pinned. (imageUrls are shared across models + needed lazily — see below.)
       showColmapChooser(
         msg.models, // ColmapModelRef has the label/source ChooserModel reads
-        (selected) =>
-          msg.models.forEach((m, i) =>
-            selected.includes(i) ? loadColmapModel(m) : revokeColmapTrio(m.urls)
-          ),
+        (selected) => {
+          msg.models.forEach((m, i) => selected.includes(i) || revokeColmapTrio(m.urls));
+          const picked = msg.models.filter((_, i) => selected.includes(i));
+          // Picking several chains into the same grouping question every other
+          // multi-item path asks — one question per modal, one code path.
+          void addItems(nextGroupId(), groupLabel(picked), picked.map(toAddItem));
+        },
         () => msg.models.forEach((m) => revokeColmapTrio(m.urls))
       );
       break;
@@ -159,18 +168,109 @@ function handleHostMessage(msg: HostToWebview) {
   }
 }
 
+/**
+ * Several items that arrived from ONE user action. Ask once whether they are a
+ * capture's timesteps, then either build one temporal item or replay each member
+ * through the very handler it would have taken alone — so nothing about the
+ * single-item paths changes, in any host.
+ */
+async function addItems(groupId: string, label: string, members: AddItem[]) {
+  if (members.length < 2) {
+    members.forEach(handleHostMessage);
+    return;
+  }
+  // Loads finish out of order and pickers return their own order; the timeline
+  // reads labels the way a person does.
+  const ordered = [...members].sort((a, b) => compareNatural(a.label, b.label));
+  const answer = await askTemporalGrouping(ordered.length, label);
+  if (answer === "separate") {
+    ordered.forEach(handleHostMessage);
+    return;
+  }
+  if (answer === "cancel") {
+    ordered.forEach(release);
+    return;
+  }
+  const frames: TemporalFrame[] = [];
+  for (const m of ordered) {
+    if (m.type === "addAsset") {
+      frames.push({ kind: "asset", id: m.id, label: m.label, uri: m.asset.uri, name: m.asset.name });
+    } else if (m.type === "addReconstruction") {
+      frames.push({ kind: "reconstruction", id: m.id, label: m.label, data: m.data, source: m.source });
+    } else {
+      showStatus(`Loading ${m.label}…`, true);
+      try {
+        frames.push({
+          kind: "reconstruction",
+          id: m.id,
+          label: m.label,
+          data: await loadColmapData(m),
+          source: m.source,
+        });
+      } catch (err) {
+        showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  await viewer.addTemporal(groupId, label, frames);
+}
+
+/** Free the bytes behind an item the user decided not to load. */
+function release(m: AddItem) {
+  if (m.type === "addAsset") {
+    URL.revokeObjectURL(m.asset.uri);
+  } else if (m.type === "loadColmap") {
+    revokeColmapTrio(m.urls);
+  }
+}
+
+/** A name for a set of models: the folder they share, else the first one's label
+ *  (sparse/0, sparse/1, … share "sparse", which reads better than "0"). */
+function groupLabel(models: ColmapModelRef[]): string {
+  const shared = models
+    .map((m) => m.source ?? m.label)
+    .reduce((a, b) => {
+      let i = 0;
+      while (i < a.length && i < b.length && a[i] === b[i]) {
+        i++;
+      }
+      return a.slice(0, i);
+    });
+  return shared.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || models[0].label;
+}
+
+/** A discovered model as the message that would have carried it on its own. */
+function toAddItem(m: ColmapModelRef): AddItem {
+  return { type: "loadColmap", ...m };
+}
+
+/** Group ids for content the webview groups itself (a chooser pick), mirroring the
+ *  `dnd-` ids drag-and-drop mints — the host never sees these and never replays them. */
+let groupCounter = 0;
+function nextGroupId(): string {
+  return `web-group-${++groupCounter}`;
+}
+
+/**
+ * Fetch + parse a URL-served COLMAP model. The trio is fetched exactly once, so the
+ * URLs are freed either way: a dropped / demo blob: model (a large points3D
+ * especially) must not stay pinned for the session. A no-op on non-blob host URLs
+ * (VS Code / PyCharm). The per-image `imageUrls` are deliberately NOT revoked —
+ * frustum textures load lazily and re-fetch after eviction (and the map is shared
+ * across a chooser's models).
+ */
+function loadColmapData(m: ColmapModelRef) {
+  return loadColmapFromUrls(m.urls, m.format, m.imageBaseUrl, m.imageUrls).finally(() =>
+    revokeColmapTrio(m.urls)
+  );
+}
+
 /** Fetch + parse a URL-served COLMAP model and add it to the scene. */
 function loadColmapModel(m: ColmapModelRef) {
   showStatus(`Loading ${m.label}…`, true);
-  loadColmapFromUrls(m.urls, m.format, m.imageBaseUrl, m.imageUrls)
+  loadColmapData(m)
     .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
-    .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`))
-    // The trio is fetched exactly once above; free the URLs so a dropped / demo
-    // blob: model (a large points3D especially) isn't pinned for the session. A
-    // no-op on non-blob host URLs (VS Code / PyCharm). The per-image `imageUrls`
-    // are deliberately NOT revoked — frustum textures load lazily and re-fetch
-    // after eviction (and the map is shared across a chooser's models).
-    .finally(() => revokeColmapTrio(m.urls));
+    .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));
 }
 
 function revokeColmapTrio(urls: { cameras: string; images: string; points3d: string }) {
