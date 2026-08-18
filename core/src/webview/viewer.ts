@@ -384,6 +384,10 @@ export class Viewer {
     }
     const first = frames[0];
     const source = first.kind === "reconstruction" ? first.source : first.uri;
+    // Attaching frame 1 fits the view if the scene was empty — on that one frame.
+    // Re-fit once the rest have landed, so the first thing opened is framed by all
+    // of its content and not by a prefix of it.
+    const fitWhenLoaded = this.layers.length === 0;
     const layer = new TemporalLayer(id, label, first.kind, source);
     for (const [at, frame] of frames.entries()) {
       const progress = (phase: string) =>
@@ -412,7 +416,7 @@ export class Viewer {
     }
     layer.frames.forEach((f) => this.syncLayerState(f));
     this.syncSpark(); // the sequence may hold the scene's first splat
-    this.refreshScene(false);
+    this.refreshScene(fitWhenLoaded);
   }
 
   /** One frame of a temporal item, built the same way a lone item of its kind is. */
