@@ -28,7 +28,7 @@ docs live in [README.md](README.md).
 ## Environment / commands
 
 - **Node/npm are not on the system PATH** — they live in a conda env
-  (`~/.conda/envs/sam3d-objects/bin`). `.vscode/tasks.json` and
+  (`~/.conda/envs/groundsam3d/bin`). `.vscode/tasks.json` and
   `.vscode/settings.json` prepend it via `${env:HOME}` so VS Code tasks and
   integrated terminals work. In a raw shell, prepend it yourself.
 
