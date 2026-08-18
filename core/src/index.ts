@@ -4,4 +4,5 @@
 // layers, builders, ...) are deliberately not re-exported.
 export * from "./shared/messages";
 export * from "./shared/hostBridge";
+export * from "./shared/naming";
 export * from "./colmap";

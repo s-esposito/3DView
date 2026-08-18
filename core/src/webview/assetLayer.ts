@@ -15,17 +15,23 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
-import { buildBox, disposeObject, eachMaterial } from "./builders";
-import { decodeSplats, buildSplatObject, disposeSplatMesh } from "./splats";
+import { buildBox, disposeObject, eachMaterial, unionBounds } from "./builders";
+import {
+  decodeSplats,
+  buildSplatObject,
+  buildSplatMeshFrom,
+  disposeSplatMesh,
+  swapSplatCloud,
+} from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { readNpy, readNpz } from "./npz";
 import { decodeTracks, buildTrackLines, setTrackTrail, setTrackOpacity, trackSteps } from "./tracks";
 import type { TrackSet } from "./tracks";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
-import type { AssetOptions, SceneLayer } from "./sceneLayer";
+import type { AssetOptions, FrameSource } from "./sceneLayer";
 
 /** A single loaded asset (mesh or splat cloud) as a scene layer. */
-export class AssetLayer implements SceneLayer {
+export class AssetLayer implements FrameSource {
   readonly kind = "asset" as const;
   readonly object = new THREE.Group();
   visible = true;
@@ -38,6 +44,11 @@ export class AssetLayer implements SceneLayer {
   /** Decoded source data, kept so an option change rebuilds without re-decoding:
    *  the 3DGS cloud for a splat, the trajectories for point tracks. */
   private cloud?: SplatCloud;
+  /** Every frame of an adopted splat sequence; `cloud` is the one on screen. */
+  private clouds?: SplatCloud[];
+  /** The buffer a sequence's splat mesh renders from — one frame wide, written by
+   *  each swap. The mesh must not share a frame's decoded array: swapping writes. */
+  private frameBuffer?: Uint32Array;
   private tracks?: TrackSet;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
@@ -95,6 +106,60 @@ export class AssetLayer implements SceneLayer {
     return this.cloud != null;
   }
 
+  /** Frames in the splat sequence this layer holds; 0 when it holds a lone asset. */
+  get frameCount(): number {
+    return this.clouds?.length ?? 0;
+  }
+
+  /**
+   * Adopt a decoded splat sequence — one capture's timesteps, already checked to
+   * share a packed layout — and draw its first frame. Used instead of `load` when a
+   * temporal item can render every frame from a single mesh; a sequence of one is
+   * also how a pre-decoded lone frame is taken in without fetching it twice.
+   */
+  adoptSplatFrames(clouds: SplatCloud[], opts: AssetOptions): void {
+    this.clouds = clouds;
+    this.opts = { ...opts };
+    this.cloud = clouds[0];
+    // The union across frames, so the box and fit-to-view hold still while playing.
+    this.currentBounds = unionBounds(clouds.map((c) => c.bounds));
+    this.attachCurrent(this.buildFrameObject(clouds[0]));
+    this.box = buildBox(this.currentBounds);
+    this.object.add(this.box);
+  }
+
+  /**
+   * Draw frame `index` of the adopted sequence. In the splatting mode the frame is
+   * written into the existing Spark mesh rather than built into a new one, which is
+   * what makes playback keep up (see `swapSplatCloud`). The other modes own their
+   * geometry, so they rebuild — as they already do on a mode switch.
+   */
+  showFrame(index: number): void {
+    const cloud = this.clouds?.[index];
+    if (!cloud || cloud === this.cloud) {
+      return;
+    }
+    this.cloud = cloud;
+    if (!swapSplatCloud(this.current, cloud)) {
+      this.rebuild(this.buildFrameObject(cloud));
+    }
+  }
+
+  /**
+   * The object for `cloud` in the current mode. A sequence's splatting mesh is built
+   * over a buffer of this layer's own, because swapping frames writes into it —
+   * building it over a frame's decoded array would corrupt that frame the first time
+   * another one was shown. The other modes rebuild per frame and share nothing.
+   */
+  private buildFrameObject(cloud: SplatCloud): THREE.Object3D {
+    if (!this.clouds || this.opts.splatMode !== "splatting") {
+      return buildSplatObject(cloud, this.opts.splatMode);
+    }
+    this.frameBuffer ??= new Uint32Array(cloud.packed.length);
+    this.frameBuffer.set(cloud.packed);
+    return buildSplatMeshFrom(this.frameBuffer, cloud.packedCount);
+  }
+
   /** Time steps in this asset's point tracks, or 0 if it holds none. */
   get trackSteps(): number {
     return trackSteps(this.current);
@@ -111,7 +176,7 @@ export class AssetLayer implements SceneLayer {
     const previous = this.opts;
     this.opts = { ...opts };
     if (this.cloud && opts.splatMode !== previous.splatMode) {
-      this.rebuild(buildSplatObject(this.cloud, opts.splatMode));
+      this.rebuild(this.buildFrameObject(this.cloud));
       return; // attachCurrent re-applies the rest
     }
     if (this.tracks && opts.trackDensity !== previous.trackDensity) {
@@ -153,6 +218,8 @@ export class AssetLayer implements SceneLayer {
     this.currentBounds = undefined;
     this.box = undefined;
     this.cloud = undefined;
+    this.clouds = undefined;
+    this.frameBuffer = undefined;
     this.tracks = undefined;
   }
 
@@ -276,6 +343,25 @@ function loadAsset(
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext ?? "?"}`));
   }
+}
+
+/**
+ * Fetch and decode one splat file into a cloud, building nothing to draw — how a
+ * temporal item takes in a sequence it may render from a single mesh. Rejects when
+ * the file is a mesh rather than 3DGS, so the caller can fall back to loading each
+ * frame as its own layer.
+ */
+export async function loadSplatCloud(
+  uri: string,
+  name: string,
+  onProgress?: Progress
+): Promise<SplatCloud> {
+  const bytes = new Uint8Array(await fetchBytes(uri, onProgress));
+  if (name.toLowerCase().endsWith(".ply") && !isSplatPly(bytes)) {
+    throw new Error(`${name} is a mesh, not a 3DGS file`);
+  }
+  onProgress?.("Decoding…");
+  return decodeSplats(bytes, name);
 }
 
 /** Promisified loader.load with normalized errors and download-progress reporting. */

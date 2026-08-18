@@ -15,8 +15,9 @@
 // reconstruction with its sibling images mapped by basename to blob: URLs; a lone
 // recognised file loads as an asset. The path classification is shared with the
 // demo host's folder picker via `colmap/grouping.ts` (groupColmapModels).
-import type { HostToWebview, ColmapModelRef } from "../shared/messages";
+import type { AddAssetMsg, HostToWebview, ColmapModelRef } from "../shared/messages";
 import { ASSET_EXTS } from "../shared/messages";
+import { sharedFolderName } from "../shared/naming";
 import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
 
 // A dropped file with its path relative to the drop (folders recursed); the path's
@@ -52,18 +53,18 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
   };
 
   window.addEventListener("dragenter", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault();
     depth++;
     overlay.classList.add("active");
   });
   window.addEventListener("dragover", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault(); // required, or the browser navigates to the file instead of firing `drop`
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   });
   window.addEventListener("dragleave", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault();
     if (--depth <= 0) hide();
   });
@@ -77,8 +78,8 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
 
 /** A drag carries files when its types list includes "Files" (DataTransfer.files is
  *  empty mid-drag — it's only populated on `drop` — so we can't test that here). */
-function hasFiles(e: DragEvent): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+function hasFiles(dt: DataTransfer | null): boolean {
+  return !!dt && Array.from(dt.types).includes("Files");
 }
 
 async function handleDrop(
@@ -87,7 +88,18 @@ async function handleDrop(
 ): Promise<void> {
   try {
     const files = await gatherFiles(dt);
-    if (files.length === 0) return; // not a file drop (e.g. dragged text) — ignore
+    if (files.length === 0) {
+      // A file drag whose bytes we can't read. Staying silent here reads as a broken
+      // viewer, and the usual cause has a workaround worth naming: a drag out of the
+      // editor's own file explorer never reaches a webview (microsoft/vscode#182449),
+      // and over a remote connection those files aren't on this machine anyway.
+      if (hasFiles(dt)) {
+        throw new Error(
+          "Couldn't read that drop — a drag from the editor's file explorer doesn't reach the viewer. Drag from your file manager instead, or use + in the Scene panel."
+        );
+      }
+      return; // not a file drag at all (e.g. dragged text) — ignore
+    }
     onContent(buildContent(files));
   } catch (err) {
     onContent({ type: "error", message: err instanceof Error ? err.message : String(err) });
@@ -153,8 +165,11 @@ function readDir(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
   });
 }
 
-/** Classify the dropped files into COLMAP reconstruction(s) or a single asset (else throw). */
+/** Classify the dropped files into COLMAP reconstruction(s) or asset file(s) (else throw). */
 function buildContent(files: DroppedFile[]): HostToWebview {
+  // A COLMAP model in the drop wins outright: a real reconstruction tree routinely
+  // holds meshes too (dense/fused.ply, meshed-poisson.ply), and loading those
+  // alongside it would be slow and surprising. Drop them on their own to see them.
   const models = groupColmapModels(files.map((f) => f.path));
   if (models.length > 0) {
     const byPath = new Map(files.map((f) => [f.path, f.file]));
@@ -166,8 +181,18 @@ function buildContent(files: DroppedFile[]): HostToWebview {
       ? { type: "loadColmap", ...refs[0] }
       : { type: "chooseColmap", models: refs };
   }
-  const asset = files.find((f) => ASSET_EXTS.includes(ext(f.path)));
-  if (asset) return buildAsset(asset.file);
+  // Every asset in the drop, not just the first: dropping a folder of per-frame
+  // splats is how a temporal item is meant to arrive.
+  const assets = files.filter((f) => ASSET_EXTS.includes(ext(f.path)));
+  if (assets.length === 1) return buildAsset(assets[0].file);
+  if (assets.length > 1) {
+    return {
+      type: "addGroup",
+      id: nextId("group"),
+      label: sharedFolderName(assets.map((a) => a.path)) ?? "Dropped files",
+      members: assets.map((a) => buildAsset(a.file)),
+    };
+  }
   throw new Error(
     `Unrecognised drop — expected a COLMAP folder (cameras/images/points3D) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
   );
@@ -205,7 +230,7 @@ function toColmapRef(
 }
 
 /** Build an `addAsset` message from a single dropped file (mesh or splat) as a blob: URL. */
-function buildAsset(file: File): HostToWebview {
+function buildAsset(file: File): AddAssetMsg {
   return {
     type: "addAsset",
     id: nextId("asset"),

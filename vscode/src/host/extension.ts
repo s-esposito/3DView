@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { ASSET_EXTS, ASSET_KIND_EXTS, ASSET_KIND_LABELS, type AssetKind } from "@3dview/core";
 import { ViewerPanel, pathOf, type OpenTarget } from "./panel";
@@ -27,6 +28,9 @@ export function activate(context: vscode.ExtensionContext) {
     // The Scene "+" passes the kind it asked for; the palette entry passes nothing.
     vscode.commands.registerCommand("3dview.openAsset", (kind?: unknown) =>
       openAsset(context, recents, assetKindOf(kind))
+    ),
+    vscode.commands.registerCommand("3dview.openAssetFolder", () =>
+      openAssetFolder(context, recents)
     ),
     vscode.commands.registerCommand("3dview.openViewer", () => ViewerPanel.open(context)),
     vscode.commands.registerCommand("3dview.openRecent", (t: OpenTarget) => {
@@ -89,12 +93,15 @@ async function openReconstructionFromRoot(
     selected = choice.dir ? [choice.dir] : dirs;
   }
 
-  for (const modelDir of selected) {
-    const imagesDir = findImagesDir(root, modelDir);
-    const target: OpenTarget = { kind: "colmap", modelDir, imagesDir };
-    ViewerPanel.open(context, target);
-    recents.add(target);
-  }
+  // Opened as one action: the webview asks whether several models are one
+  // capture's timesteps. Each still gets its own Recents entry.
+  const targets: OpenTarget[] = selected.map((modelDir) => ({
+    kind: "colmap",
+    modelDir,
+    imagesDir: findImagesDir(root, modelDir),
+  }));
+  targets.forEach((target) => recents.add(target));
+  ViewerPanel.openMany(context, targets);
 }
 
 async function openAsset(
@@ -117,23 +124,77 @@ async function openAsset(
   const picked = await vscode.window.showOpenDialog({
     canSelectFolders: false,
     canSelectFiles: true,
-    canSelectMany: false,
+    // Several at once: a dynamic capture is a folder of per-frame meshes or splats,
+    // and the webview offers to load such a pick as one temporal item.
+    canSelectMany: true,
     openLabel: "Open Asset",
     title: kind
-      ? `Select a file — ${ASSET_KIND_LABELS[kind]} (${ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(" / ")})`
-      : "Select an asset — mesh, 3DGS splat, or 3D point tracks",
+      ? `Select file(s) — ${ASSET_KIND_LABELS[kind]} (${ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(" / ")})`
+      : "Select asset file(s) — mesh, 3DGS splat, or 3D point tracks",
     filters,
   });
   if (!picked || picked.length === 0) {
     return;
   }
-  openAssetFromFile(context, recents, picked[0].fsPath);
+  openAssetFiles(context, recents, picked.map((p) => p.fsPath));
 }
 
-function openAssetFromFile(context: vscode.ExtensionContext, recents: RecentsProvider, file: string) {
-  const target: OpenTarget = { kind: "asset", file };
-  ViewerPanel.open(context, target);
-  recents.add(target);
+/**
+ * Open every asset file directly inside a chosen folder, as one action — so a
+ * per-frame capture can be loaded in one go and offered as a single temporal item.
+ *
+ * This is not just a convenience: over a remote connection VS Code substitutes its
+ * own file dialog, which cannot select several files at once, so a folder is the
+ * only way in there. It stays a separate command rather than letting the asset
+ * dialog take folders too, because a native dialog on Windows/Linux cannot offer
+ * files and folders at the same time — asking for both would silently turn the
+ * file picker into a folder-only one.
+ */
+async function openAssetFolder(context: vscode.ExtensionContext, recents: RecentsProvider) {
+  const picked = await vscode.window.showOpenDialog({
+    canSelectFolders: true,
+    canSelectFiles: false,
+    canSelectMany: false,
+    openLabel: "Open Assets",
+    title: `Select a folder of asset files (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")})`,
+  });
+  if (!picked || picked.length === 0) {
+    return;
+  }
+  const dir = picked[0].fsPath;
+  const files = assetFilesIn(dir);
+  if (files.length === 0) {
+    void vscode.window.showErrorMessage(
+      `3DView: no asset files directly inside "${path.basename(dir)}" — looked for ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`
+    );
+    return;
+  }
+  openAssetFiles(context, recents, files);
+}
+
+/** The asset files directly inside `dir`. Not recursive: the folder you pick is the
+ *  sequence. Left unsorted — the webview orders frames naturally when it builds the
+ *  item, so sorting here would only be a second opinion. */
+function assetFilesIn(dir: string): string[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isFile() && ASSET_EXTS.includes(path.extname(e.name).slice(1).toLowerCase()))
+    .map((e) => path.join(dir, e.name));
+}
+
+function openAssetFiles(context: vscode.ExtensionContext, recents: RecentsProvider, files: string[]) {
+  const targets: OpenTarget[] = files.map((file) => ({ kind: "asset", file }));
+  // Recents holds ten entries, so a sequence would flush it — and its rows re-open
+  // one file each, which is not what was opened. Only a single pick is recorded.
+  if (targets.length === 1) {
+    recents.add(targets[0]);
+  }
+  ViewerPanel.openMany(context, targets);
 }
 
 /** Open dropped resources: a folder → reconstruction, an asset file → asset. */
@@ -155,7 +216,7 @@ async function openDropped(
     if (stat.type & vscode.FileType.Directory) {
       await openReconstructionFromRoot(context, recents, uri.fsPath);
     } else if (ASSET_EXTS.includes(path.extname(uri.fsPath).slice(1).toLowerCase())) {
-      openAssetFromFile(context, recents, uri.fsPath);
+      openAssetFiles(context, recents, [uri.fsPath]);
     } else {
       void vscode.window.showErrorMessage(
         `3DView: drop a folder (a COLMAP reconstruction) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`

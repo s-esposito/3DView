@@ -132,7 +132,7 @@ function trim<T extends Float32Array | Uint8Array>(array: T, length: number): T 
 /** Build the renderable object for a decoded cloud in the requested mode. */
 export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THREE.Object3D {
   if (mode === "splatting") {
-    return buildSplatMesh(cloud);
+    return buildSplatMeshFrom(cloud.packed, cloud.packedCount);
   }
   return mode === "ellipsoids" ? buildSplatEllipsoids(cloud) : buildSplatPoints(cloud);
 }
@@ -141,21 +141,79 @@ export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THRE
  * The real thing: a Spark `SplatMesh`, drawn by the scene's `SparkRenderer` with a
  * per-viewpoint sort, spherical harmonics and proper alpha falloff.
  *
- * It adopts our already-decoded packed buffer (`PackedSplats` takes `packedArray`
+ * It adopts an already-decoded packed buffer (`PackedSplats` takes `packedArray`
  * directly and initializes synchronously), so switching into this mode neither
  * re-fetches nor re-parses the file. Nothing is built here per-Gaussian: Spark
  * gathers every visible SplatMesh in the scene each frame, honouring `.visible`
  * and world matrices — so the Scene list's show/hide and the per-item transform
  * apply to splats like anything else.
+ *
+ * The buffer is taken by reference, not copied: a lone asset passes its cloud's own
+ * array, while a sequence passes a buffer of its own that it writes each frame into
+ * (see `swapSplatCloud`).
  */
-function buildSplatMesh(cloud: SplatCloud): THREE.Object3D {
+export function buildSplatMeshFrom(packed: Uint32Array, count: number): THREE.Object3D {
   const mesh = new SplatMesh({
-    packedSplats: new PackedSplats({ packedArray: cloud.packed, numSplats: cloud.packedCount }),
+    packedSplats: new PackedSplats({ packedArray: packed, numSplats: count }),
   });
   mesh.initialized.catch((err: unknown) =>
     console.error("3DView: Spark could not prepare the splat mesh", err)
   );
   return mesh;
+}
+
+/**
+ * Redraw an existing Spark mesh from another frame of the same capture, in place.
+ * True when it took; false when the object isn't a Spark mesh (the ellipsoid and
+ * point modes build their own geometry) or the frame's layout differs, and the
+ * caller must rebuild instead.
+ *
+ * The point is what it avoids. A fresh `SplatMesh` per frame changes the set of
+ * meshes the SparkRenderer collects, and on such a change Spark withholds the new
+ * frame until a full re-sort has landed — a GPU→CPU depth readback plus a worker
+ * sort, per frame, which is what turns playback into a slideshow. Repointing the
+ * SAME `PackedSplats` at the next frame's buffer keeps the mesh, the splat count
+ * and therefore Spark's mapping identical, so the frame is displayed immediately
+ * and the re-sort follows behind it (one frame of slightly stale ordering, which
+ * is imperceptible when consecutive frames are the same Gaussians in motion).
+ *
+ * Assigning a *different* `PackedSplats` would not do: Spark keys its compiled
+ * splat program on the generator object it rebuilds whenever the source object
+ * changes, so that path pays a shader compile per frame instead.
+ */
+export function swapSplatCloud(object: THREE.Object3D | undefined, cloud: SplatCloud): boolean {
+  if (!(object instanceof SplatMesh)) {
+    return false;
+  }
+  const packed = object.packedSplats;
+  // The frame must fit the mesh exactly: same buffer size, and the same splat count
+  // once Spark's own clamp is applied (it rounds capacity down to whole rows of its
+  // splat texture, so comparing against the raw count would refuse valid frames).
+  const packedArray = packed?.packedArray;
+  if (
+    !packedArray ||
+    packedArray.length !== cloud.packed.length ||
+    packed.numSplats !== Math.min(packed.maxSplats, cloud.packedCount)
+  ) {
+    return false;
+  }
+  // Written INTO the mesh's own buffer rather than repointing it at the frame's.
+  // Repointing looks cheaper but does not work: Spark then swaps the texture's data
+  // for `new Uint8Array(buffer)`, and this texture is RGBA32UI — WebGL2 rejects a
+  // byte view for UNSIGNED_INT, so the upload is dropped and the mesh keeps showing
+  // whatever it was built with. Keeping one buffer also leaves each frame's decoded
+  // array untouched, which is why the mesh must own it (`buildSplatMeshFrom`).
+  packedArray.set(cloud.packed);
+  packed.needsUpdate = true; // three re-uploads the texture on the next generate
+  object.updateVersion(); // tells Spark the splats changed, so it regenerates
+  return true;
+}
+
+/** Whether two decoded frames can be swapped for one another on the same mesh:
+ *  same splat count, and the same bytes per splat (a differing spherical-harmonic
+ *  degree changes the packed layout, and with it Spark's program). */
+export function sameSplatLayout(a: SplatCloud, b: SplatCloud): boolean {
+  return a.packedCount === b.packedCount && a.packed.length === b.packed.length;
 }
 
 /** Free a splat object's GPU resources. A no-op unless it is a Spark `SplatMesh`,

@@ -13,6 +13,7 @@ import {
   unionBounds,
   transformBounds,
   computeLocalBounds,
+  frustumScaleFromDepth,
   disposeObject,
   FRUSTUM_COLOR,
 } from "./builders";
@@ -23,10 +24,12 @@ import {
   AssetOptions,
   DEFAULT_ASSET_OPTIONS,
 } from "./sceneLayer";
-import { AssetLayer } from "./assetLayer";
+import { AssetLayer, loadSplatCloud } from "./assetLayer";
+import { TemporalLayer } from "./temporalLayer";
 import { SparkRenderer } from "@sparkjsdev/spark";
-import { SPLAT_RENDER_MODES } from "./splats";
-import type { SplatRenderMode } from "./splats";
+import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
+import type { SplatCloud, SplatRenderMode } from "./splats";
+import { ASSET_KIND_EXTS } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
@@ -55,6 +58,12 @@ export interface ItemTransform {
   rotation: Vec3;
 }
 
+/** One frame of a temporal item, resolved to what a layer needs — the same two
+ *  shapes the single-item add paths take. */
+export type TemporalFrame =
+  | { kind: "reconstruction"; id: string; label: string; data: ModelData; source?: string }
+  | { kind: "asset"; id: string; label: string; uri: string; name: string };
+
 /** One entry in the Scene list. */
 export interface SceneItem {
   id: string;
@@ -64,6 +73,12 @@ export interface SceneItem {
   /** Source location (e.g. asset file URI) for the hover tooltip; undefined when unknown. */
   source?: string;
   transform: ItemTransform;
+  /** Frames in this item's sequence; 0 when it isn't a temporal item. */
+  frameCount: number;
+  /** Which frame is on screen (0-based). */
+  frame: number;
+  /** Whether the playback clock is advancing this item. */
+  playing: boolean;
 }
 
 /** Read-only snapshot of view state, for the UI to render controls from. */
@@ -104,6 +119,8 @@ export interface ViewerState {
   trackDensity: number;
   /** Sensible nudge for the position fields, derived from the scene's size. */
   positionStep: number;
+  /** How fast temporal items play back, in frames per second (shared by all of them). */
+  playbackFps: number;
   items: SceneItem[];
 }
 
@@ -116,6 +133,9 @@ export class Viewer {
   onError?: (message: string) => void;
   /** Fired with a human-readable loading phase (download %, "Decoding…") for async assets. */
   onProgress?: (message: string) => void;
+  /** Fired as a temporal item plays, so the panel can move the playhead in place.
+   *  Deliberately not onChange — that would rebuild the slider several times a second. */
+  onFrame?: (id: string, frame: number) => void;
   /** Fired when the "+" add action is invoked (the host opens a picker). */
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
@@ -164,6 +184,12 @@ export class Viewer {
   private themeName: ThemeName = "dark";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
+  // Temporal items currently playing, and the clock that steps them (shared, so
+  // several sequences advance together). Empty is the common case: the clock in
+  // `animate` costs one Set size check per frame.
+  private readonly playingLayers = new Set<TemporalLayer>();
+  private playbackFps = 10;
+  private lastStep = 0;
   // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
   // after OrbitControls.update() (which owns the un-rolled orientation).
   private rollDeg = 0;
@@ -273,6 +299,7 @@ export class Viewer {
       trackOpacity: this.assetOpts.trackOpacity,
       trackDensity: this.assetOpts.trackDensity,
       positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
+      playbackFps: this.playbackFps,
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -280,18 +307,43 @@ export class Viewer {
         visible: l.visible,
         source: l.source,
         transform: readTransform(l.object),
+        frameCount: l instanceof TemporalLayer ? l.frameCount : 0,
+        frame: l instanceof TemporalLayer ? l.frame : 0,
+        playing: l instanceof TemporalLayer && this.playingLayers.has(l),
       })),
     };
   }
 
   addReconstruction(id: string, label: string, data: ModelData, source?: string): void {
+    this.attach(this.buildReconstruction(id, label, data, source));
+  }
+
+  /**
+   * Build a reconstruction layer, sizing the scene's frustums from the first model
+   * to arrive (see CLAUDE.md, "Frustum size is measured, not guessed"). Separate
+   * from `addReconstruction` because a temporal item builds its frames itself and
+   * must trip the same latch.
+   */
+  private buildReconstruction(
+    id: string,
+    label: string,
+    data: ModelData,
+    source?: string
+  ): ReconstructionLayer {
     if (!this.frustumInitialized) {
       const b = computeLocalBounds(data);
       this.frustumScaleMax = diagonalOf(b) * 0.16;
-      this.opts.frustumScale = this.frustumScaleMax / 80;
+      // What the cameras see, falling back to one slider step of the scene extent
+      // for a model that gives nothing to measure, and capped at the slider's own
+      // maximum so the initial value is always one it can express.
+      const measured = frustumScaleFromDepth(data);
+      this.opts.frustumScale = Math.min(
+        measured || this.frustumScaleMax / 80,
+        this.frustumScaleMax
+      );
       this.frustumInitialized = true;
     }
-    this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source));
+    return new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source);
   }
 
   addAsset(id: string, label: string, uri: string, name: string): void {
@@ -303,11 +355,8 @@ export class Viewer {
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
-        layer.setBoxVisible(this.opts.box);
-        layer.setWireframe(this.wireframe);
-        layer.setShaded(this.shaded);
-        // The options may have changed while this was loading; a no-op otherwise.
-        layer.applyAssetOptions(this.assetOpts);
+        // The scene state may have changed while this was loading; a no-op otherwise.
+        this.syncLayerState(layer);
         this.syncSpark(); // this asset may be the scene's first splat
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
@@ -319,6 +368,215 @@ export class Viewer {
       // (a dropped / demo file) afterward so it isn't pinned for the session. A
       // no-op on non-blob host URLs (VS Code / PyCharm).
       .finally(() => URL.revokeObjectURL(uri));
+  }
+
+  /**
+   * Add several items as ONE scene item with a timeline — a capture's timesteps
+   * rather than that many unrelated things in the scene.
+   *
+   * Frames load eagerly (they are all scrubbable the moment the item exists) and
+   * SEQUENTIALLY: progress then reads as "frame k/N", peak decode pressure is one
+   * frame rather than fifty concurrent Spark decodes, and a frame that fails is
+   * skipped instead of taking the sequence down with it.
+   */
+  async addTemporal(id: string, label: string, frames: TemporalFrame[]): Promise<void> {
+    if (frames.length === 0) {
+      return;
+    }
+    const first = frames[0];
+    const source = first.kind === "reconstruction" ? first.source : first.uri;
+    // Attaching frame 1 fits the view if the scene was empty — on that one frame.
+    // Re-fit once the rest have landed, so the first thing opened is framed by all
+    // of its content and not by a prefix of it.
+    const fitWhenLoaded = this.layers.length === 0;
+
+    // A 3DGS sequence whose frames share a layout is taken in as ONE layer that
+    // swaps between them, which is the only way the splat renderer shows a new
+    // frame without first re-sorting it (see AssetLayer.showFrame).
+    const clouds = await this.decodeSplatFrames(label, frames);
+    if (clouds) {
+      this.attachSplatSequence(id, label, source, frames, clouds);
+      return;
+    }
+
+    const layer = new TemporalLayer(id, label, first.kind, source);
+    for (const [at, frame] of frames.entries()) {
+      const progress = (phase: string) =>
+        this.onProgress?.(`${label} — frame ${at + 1}/${frames.length} — ${phase}`);
+      let built: SceneLayer;
+      try {
+        built = await this.buildFrame(frame, progress);
+      } catch (err) {
+        this.onError?.(`${frame.label}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      if (layer.frameCount > 0 && !this.byId.has(id)) {
+        built.dispose(); // removed from the Scene list while this frame was loading
+        return;
+      }
+      layer.addFrame(built);
+      if (layer.frameCount === 1) {
+        // Show the sequence as soon as it has content, so fit-to-view lands on
+        // something real and the remaining frames have somewhere to appear.
+        this.attach(layer);
+      }
+    }
+    if (layer.frameCount === 0) {
+      this.onError?.(`${label}: no frame could be loaded.`);
+      return;
+    }
+    layer.frames.forEach((f) => this.syncLayerState(f));
+    this.syncSpark(); // the sequence may hold the scene's first splat
+    this.refreshScene(fitWhenLoaded);
+  }
+
+  /**
+   * Decode every frame of a would-be 3DGS sequence, and take ownership of their
+   * bytes; undefined when this isn't one, leaving the files untouched for the
+   * caller to load a frame at a time. Attempted only when every frame is a
+   * splat-shaped file, so the give-up cases — a `.ply` that turns out to be a mesh,
+   * a decode failure — cost at most the one download that revealed it.
+   */
+  private async decodeSplatFrames(
+    label: string,
+    frames: TemporalFrame[]
+  ): Promise<SplatCloud[] | undefined> {
+    const splatFile = (name: string) =>
+      ASSET_KIND_EXTS.splat.includes(name.split(".").pop()?.toLowerCase() ?? "");
+    // flatMap, not filter: it narrows the frames to the asset shape as it goes.
+    const assets = frames.flatMap((f) => (f.kind === "asset" && splatFile(f.name) ? [f] : []));
+    if (assets.length !== frames.length) {
+      return undefined;
+    }
+    const clouds: SplatCloud[] = [];
+    for (const [at, asset] of assets.entries()) {
+      try {
+        clouds.push(
+          await loadSplatCloud(asset.uri, asset.name, (phase) =>
+            this.onProgress?.(`${label} — frame ${at + 1}/${assets.length} — ${phase}`)
+          )
+        );
+      } catch {
+        return undefined; // not 3DGS after all, or unreadable — fall back
+      }
+    }
+    // The bytes are ours now: free a dropped / demo blob so it isn't pinned for the
+    // session, as every other loading path does once it has fetched.
+    assets.forEach((asset) => URL.revokeObjectURL(asset.uri));
+    return clouds;
+  }
+
+  /**
+   * Add decoded splat frames as one scene item. Frames that share a packed layout
+   * live in a single layer that swaps between them — the fast path, where a frame
+   * shows immediately and the re-sort follows. Frames that don't get a layer each,
+   * built from the clouds already decoded so nothing is fetched twice.
+   */
+  private attachSplatSequence(
+    id: string,
+    label: string,
+    source: string | undefined,
+    frames: TemporalFrame[],
+    clouds: SplatCloud[]
+  ): void {
+    // One layer holding every frame, or one layer per frame — the same timeline
+    // either way; only who owns the frames differs.
+    const swappable = clouds.every((cloud) => sameSplatLayout(cloud, clouds[0]));
+    const build = (held: SplatCloud[], at: number) => {
+      const layer = new AssetLayer(frames[at].id, frames[at].label, source ?? label);
+      layer.adoptSplatFrames(held, this.assetOpts);
+      this.syncLayerState(layer);
+      return layer;
+    };
+    const temporal = new TemporalLayer(
+      id,
+      label,
+      "asset",
+      source,
+      swappable ? build(clouds, 0) : undefined
+    );
+    if (!swappable) {
+      clouds.forEach((cloud, at) => temporal.addFrame(build([cloud], at)));
+    }
+    this.attach(temporal); // fits the view when this is the scene's first item
+    this.syncSpark(); // the sequence may hold the scene's first splat
+  }
+
+  /** One frame of a temporal item, built the same way a lone item of its kind is. */
+  private async buildFrame(
+    frame: TemporalFrame,
+    onProgress: (phase: string) => void
+  ): Promise<SceneLayer> {
+    if (frame.kind === "reconstruction") {
+      return this.buildReconstruction(frame.id, frame.label, frame.data, frame.source);
+    }
+    const layer = new AssetLayer(frame.id, frame.label, frame.uri);
+    try {
+      await layer.load(frame.uri, frame.name, this.assetOpts, onProgress);
+    } finally {
+      // Fetched exactly once above; free a blob: URL (a dropped / demo file) so it
+      // isn't pinned for the session. A no-op on non-blob host URLs.
+      URL.revokeObjectURL(frame.uri);
+    }
+    return layer;
+  }
+
+  /** Draw frame `frame` of a temporal item. Like setItemTransform, deliberately does
+   *  NOT fire onChange — the caller is a live slider, and a panel re-render would
+   *  destroy it mid-drag. */
+  setItemFrame(id: string, frame: number): void {
+    const layer = this.byId.get(id);
+    if (layer instanceof TemporalLayer) {
+      this.showFrame(layer, frame, true);
+    }
+  }
+
+  /**
+   * Draw one frame of a temporal item. `withTextures` is false while playing: each
+   * frame carries its own frustum thumbnails, and re-running the nearest-N budget
+   * ten times a second would keep the loader thrashing for images nobody can see at
+   * that rate. A scrub, and the pause that ends playback, refresh them.
+   */
+  private showFrame(layer: TemporalLayer, frame: number, withTextures: boolean): void {
+    const before = layer.frame;
+    const outgoing = layer.drawnFrame;
+    layer.setFrame(frame);
+    if (layer.frame === before) {
+      return; // clamped to the frame already drawn
+    }
+    if (outgoing && outgoing !== layer.drawnFrame) {
+      // That frame's layer left the scene, as far as hover/selection is concerned.
+      // A sequence layer stays and swaps its data, so there is nothing to drop.
+      this.interaction.handleRemoved(outgoing.id);
+    }
+    if (layer.drawnFrame) {
+      // It may have been hidden while the scene's state moved under it.
+      this.syncLayerState(layer.drawnFrame);
+    }
+    if (withTextures) {
+      this.refreshTextures();
+    }
+    this.requestRender();
+  }
+
+  /** Start / stop playback of a temporal item; it wraps at the end. */
+  setItemPlaying(id: string, playing: boolean): void {
+    const layer = this.byId.get(id);
+    if (!(layer instanceof TemporalLayer)) {
+      return;
+    }
+    if (playing && layer.frameCount > 1) {
+      this.playingLayers.add(layer);
+    } else {
+      this.playingLayers.delete(layer);
+      this.refreshTextures(); // the frame it stopped on is worth its thumbnails
+    }
+    this.requestRender();
+  }
+
+  /** How fast temporal items play back, in frames per second (shared by all of them). */
+  setPlaybackFps(fps: number): void {
+    this.playbackFps = fps;
   }
 
   setItemVisible(id: string, visible: boolean): void {
@@ -374,6 +632,11 @@ export class Viewer {
       return;
     }
     this.interaction.handleRemoved(id);
+    if (layer instanceof TemporalLayer) {
+      // Hover/selection belong to a FRAME's id, never the container's.
+      layer.frames.forEach((f) => this.interaction.handleRemoved(f.id));
+      this.playingLayers.delete(layer);
+    }
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
     this.byId.delete(id);
@@ -578,6 +841,24 @@ export class Viewer {
     this.refreshScene(first);
   }
 
+  /**
+   * Bring one layer up to the scene's current display + asset state — the single
+   * owner of "what the scene state is". Needed wherever a layer joins the scene
+   * later than the state it must obey: an asset whose load finished after a toggle
+   * moved, or a temporal frame that was hidden while one did. Idempotent, and cheap
+   * to repeat: both layer kinds rebuild only what actually changed.
+   */
+  private syncLayerState(layer: SceneLayer): void {
+    layer.setBoxVisible(this.opts.box);
+    layer.setWireframe(this.wireframe);
+    layer.setShaded(this.shaded);
+    layer.applyAssetOptions(this.assetOpts);
+    if (layer instanceof ReconstructionLayer) {
+      layer.rebuildCameras(this.opts);
+      layer.applyOptions(this.opts);
+    }
+  }
+
   /** Recompute bounds/helpers after a content change; only re-fit when asked
    * (so adding to an existing scene doesn't move the user's view). */
   private refreshScene(fit: boolean): void {
@@ -590,14 +871,25 @@ export class Viewer {
     this.onChange?.();
   }
 
+  /**
+   * Every layer the scene actually DRAWS: the top-level layers, with a temporal item
+   * replaced by its drawn frame. The kind filters below go through this, so a
+   * sequence's frames — real layers nested inside it, invisible to a top-level kind
+   * test — are reachable, while the frames waiting off-screen stay out of the
+   * texture budget, the derived state flags and camera picking.
+   */
+  private drawnLayers(): SceneLayer[] {
+    return this.layers.flatMap((l) => (l instanceof TemporalLayer ? (l.drawnFrame ?? []) : l));
+  }
+
   private reconstructionLayers(): ReconstructionLayer[] {
-    return this.layers.filter(
+    return this.drawnLayers().filter(
       (l): l is ReconstructionLayer => l.kind === "reconstruction"
     );
   }
 
   private assetLayers(): AssetLayer[] {
-    return this.layers.filter((l): l is AssetLayer => l.kind === "asset");
+    return this.drawnLayers().filter((l): l is AssetLayer => l.kind === "asset");
   }
 
   /** Steps in the longest point-track asset; 0 when the scene holds none. */
@@ -704,8 +996,30 @@ export class Viewer {
     this.needsRender = true;
   };
 
+  /**
+   * Step every playing temporal item, at most once per 1/fps. Rides the animation
+   * loop rather than a timer of its own, so it can't outlive the viewer or fire
+   * while the tab is hidden; the frame it advances to is what requestRender draws.
+   */
+  private advancePlayback(): void {
+    if (this.playingLayers.size === 0) {
+      this.lastStep = 0;
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastStep < 1000 / this.playbackFps) {
+      return;
+    }
+    this.lastStep = now;
+    for (const layer of this.playingLayers) {
+      this.showFrame(layer, (layer.frame + 1) % layer.frameCount, false);
+      this.onFrame?.(layer.id, layer.frame);
+    }
+  }
+
   private animate = (): void => {
     requestAnimationFrame(this.animate);
+    this.advancePlayback();
     // OrbitControls.update() returns true while the camera is still moving
     // (incl. damping glide); render then, or whenever a redraw was requested.
     const moving = this.controls.update();

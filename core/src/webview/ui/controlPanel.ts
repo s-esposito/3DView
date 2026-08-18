@@ -31,6 +31,10 @@ const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor
 // Four-way move arrows: the per-item transform (position + rotation) disclosure.
 const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
 
+// Play / pause, for a temporal item's timeline.
+const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>`;
+
 /** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
  *  SPLAT_RENDER_MODES fails to compile until it is described here. */
 const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }> = {
@@ -44,6 +48,9 @@ export class ControlPanel {
   private sceneCollapsed = false; // the Scene panel
   /** Scene items whose transform fields are open, kept across panel re-renders. */
   private readonly transformOpen = new Set<string>();
+  /** How to move each temporal item's playhead, by item id — repopulated on every
+   *  render, so playback updates the live slider instead of rebuilding the panel. */
+  private readonly playheads = new Map<string, (frame: number) => void>();
 
   constructor(private readonly viewer: Viewer) {}
 
@@ -57,6 +64,11 @@ export class ControlPanel {
     ui.className = "viewer-ui";
     ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
     document.body.appendChild(ui);
+  }
+
+  /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
+  setPlayhead(id: string, frame: number): void {
+    this.playheads.get(id)?.(frame);
   }
 
   /** A collapsible panel header: chevron + title (+ optional subtitle + action). */
@@ -206,6 +218,13 @@ export class ControlPanel {
         )
       );
     }
+    if (s.items.some((i) => i.frameCount > 0)) {
+      // One rate for every temporal item: each owns its playhead, but they share a
+      // clock, which keeps the per-item rows to a scrubber and a play button.
+      appearance.push(
+        slider("Playback fps", 1, 60, 1, s.playbackFps, (v) => this.viewer.setPlaybackFps(v))
+      );
+    }
     if (appearance.length > 0) {
       body.append(section("Appearance", appearance));
     }
@@ -319,6 +338,9 @@ export class ControlPanel {
       { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
       { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
       { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
+      // Every asset in a folder, as one temporal item — a per-frame capture, and the
+      // way in where a host's file dialog can't select several files at once.
+      { label: "Asset folder…", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
 
     panel.append(
@@ -339,6 +361,7 @@ export class ControlPanel {
   private buildSceneBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
+    this.playheads.clear(); // the rows below re-register the ones that still exist
 
     if (s.items.length === 0) {
       const empty = document.createElement("div");
@@ -362,17 +385,81 @@ export class ControlPanel {
       const editor = this.buildTransformEditor(item, s.positionStep);
       editor.hidden = !this.transformOpen.has(item.id);
 
+      row.append(this.visibilityToggle(item), label, kind);
+      if (item.frameCount > 0) {
+        // What marks an item as temporal in the Scene list.
+        const frames = document.createElement("span");
+        frames.className = "kind temporal";
+        frames.textContent = `⏱ ${item.frameCount}`;
+        frames.title = `Temporal item — ${item.frameCount} frames`;
+        row.append(frames);
+      }
       row.append(
-        this.visibilityToggle(item),
-        label,
-        kind,
         this.transformToggle(item, editor),
         iconButton("✎", "Rename", () => this.startRename(label, item)),
         iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
       );
-      body.append(row, editor);
+      body.append(row);
+      if (item.frameCount > 1) {
+        body.append(this.buildTimeline(item));
+      }
+      body.append(editor);
     }
     return body;
+  }
+
+  /**
+   * A temporal item's timeline: play/pause, a scrubber, and where it is. Always
+   * shown (no disclosure — a timeline you have to unfold is one you forget), and it
+   * drives the Viewer directly: scrubbing must not re-render the panel, or the drag
+   * would lose the element under the pointer. Playback comes back the other way,
+   * through `playheads`.
+   */
+  private buildTimeline(item: SceneItem): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "viewer-timeline";
+
+    let playing = item.playing;
+    const play = document.createElement("button");
+    play.className = "viewer-iconbtn";
+    const paintPlay = () => {
+      play.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+      play.title = playing ? "Pause" : "Play";
+    };
+    play.addEventListener("click", () => {
+      playing = !playing;
+      this.viewer.setItemPlaying(item.id, playing);
+      paintPlay();
+    });
+    paintPlay();
+
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = "1";
+    range.max = String(item.frameCount);
+    range.step = "1";
+    range.value = String(item.frame + 1);
+
+    const at = document.createElement("span");
+    at.className = "viewer-timeline-at";
+    const paintAt = (frame: number) => {
+      at.textContent = `${frame + 1}/${item.frameCount}`;
+    };
+    paintAt(item.frame);
+
+    range.addEventListener("input", () => {
+      const frame = Number(range.value) - 1;
+      this.viewer.setItemFrame(item.id, frame);
+      paintAt(frame);
+    });
+    // Playback moves the same two controls, without rebuilding them.
+    this.playheads.set(item.id, (frame) => {
+      range.value = String(frame + 1);
+      paintAt(frame);
+    });
+
+    wrap.append(play, range, at);
+    return wrap;
   }
 
   /** Move-arrows button that shows/hides an item's transform fields in place. */

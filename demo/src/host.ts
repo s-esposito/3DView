@@ -1,5 +1,5 @@
 import type { HostToWebview, WebviewToHost, ColmapModelRef, ColmapModelPaths, AddKind } from "@3dview/core";
-import { groupColmapModels, isImagePath, ASSET_KIND_EXTS } from "@3dview/core";
+import { groupColmapModels, isImagePath, ASSET_EXTS, ASSET_KIND_EXTS } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
@@ -10,15 +10,19 @@ function showFilePicker(kind: AddKind): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    if (kind === "colmap") {
-      // A COLMAP model is a folder (e.g. sparse/0) of cameras/images/points3D.
-      // `webkitdirectory` switches the dialog to folder selection; the FileList
-      // then holds every file under the chosen folder (each with a
+    if (kind === "colmap" || kind === "assetFolder") {
+      // Both pick a folder: a COLMAP model is a folder (e.g. sparse/0) of
+      // cameras/images/points3D, and an "assetFolder" is a folder of per-frame
+      // asset files. `webkitdirectory` switches the dialog to folder selection; the
+      // FileList then holds every file under the chosen folder (each with a
       // `webkitRelativePath`), and it overrides `accept`, so we set none.
       input.webkitdirectory = true;
     } else {
       // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks).
       input.accept = ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(",");
+      // Several at once: a dynamic capture is a folder of per-frame files, and the
+      // webview offers to load such a pick as one temporal item.
+      input.multiple = true;
     }
     input.addEventListener("change", () => resolve(input.files));
     input.addEventListener("cancel", () => resolve(null));
@@ -55,7 +59,8 @@ async function handleAdd(kind: AddKind): Promise<void> {
   const files = await showFilePicker(kind);
   if (!files || files.length === 0) return; // cancelled / empty
   if (kind === "colmap") sendColmap(files);
-  else sendAsset(files);
+  else if (kind === "assetFolder") sendAssetFolder(files);
+  else sendAssets(files);
 }
 
 /** A picked file's path relative to the chosen folder (the key the grouping uses). */
@@ -121,17 +126,37 @@ function toColmapRef(
   };
 }
 
-/** Post the first picked asset file (mesh or splat) to the webview as a blob URL. */
-function sendAsset(files: FileList): void {
-  const asset = files[0];
-  window.postMessage(
-    {
-      type: "addAsset",
-      id: `asset-${Date.now()}`,
-      label: asset.name,
-      asset: { uri: URL.createObjectURL(asset), name: asset.name },
-    } satisfies HostToWebview,
-    "*"
+/** Post every asset file in a picked folder — a per-frame capture, which the webview
+ *  offers to load as one temporal item (it orders the frames). The folder's other
+ *  files (a README, images) are ignored. */
+function sendAssetFolder(files: FileList): void {
+  const assets = Array.from(files).filter((f) =>
+    ASSET_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
   );
-  console.log(`[demo host] loaded asset ${asset.name}`);
+  if (assets.length === 0) {
+    throw new Error(
+      `No asset files in the selected folder — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`
+    );
+  }
+  sendAssets(assets);
+}
+
+/** Post the picked asset files (meshes / splats / tracks) to the webview as blob
+ *  URLs — one `addAsset`, or an `addGroup` when several were picked, which the
+ *  webview offers to load as a single temporal item. */
+function sendAssets(files: FileList | File[]): void {
+  const picked = Array.from(files);
+  const stamp = Date.now();
+  const members = picked.map((file, i) => ({
+    type: "addAsset" as const,
+    id: `asset-${stamp}-${i}`,
+    label: file.name,
+    asset: { uri: URL.createObjectURL(file), name: file.name },
+  }));
+  const msg: HostToWebview =
+    members.length === 1
+      ? members[0]
+      : { type: "addGroup", id: `group-${stamp}`, label: `${members.length} files`, members };
+  window.postMessage(msg, "*");
+  console.log(`[demo host] loaded ${members.length} asset(s)`);
 }

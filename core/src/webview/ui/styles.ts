@@ -51,6 +51,10 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-version{align-self:flex-end;padding:0 4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;user-select:text}
 .viewer-xform{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px 22px;padding:6px 6px 7px;border-radius:7px;background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,.14)) 45%,transparent);box-shadow:var(--glass-shadow-sm)}
 .viewer-xform[hidden]{display:none}
+.viewer-scene-item .kind.temporal{opacity:.7;letter-spacing:0}
+.viewer-timeline{display:flex;align-items:center;gap:6px;margin:2px 0 6px 22px}
+.viewer-timeline input[type=range]{flex:1;min-width:0}
+.viewer-timeline-at{color:var(--vscode-descriptionForeground,#999);font-size:10px;font-variant-numeric:tabular-nums}
 .viewer-xform-row{display:grid;grid-template-columns:52px repeat(3,1fr);align-items:center;gap:4px}
 .viewer-xform-label{color:var(--vscode-descriptionForeground,#999);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-xform-num{min-width:0;font:inherit;font-variant-numeric:tabular-nums;color:var(--vscode-input-foreground,inherit);background:var(--vscode-input-background,rgba(255,255,255,.08));border:1px solid transparent;border-radius:4px;padding:2px 4px}

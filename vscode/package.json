@@ -2,7 +2,7 @@
   "name": "3dview",
   "displayName": "3DView",
   "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "3dview",
   "license": "MIT",
   "repository": {
@@ -38,7 +38,7 @@
     "viewsWelcome": [
       {
         "view": "3dview.welcome",
-        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dview.openReconstruction)\n\nOr load an asset — a mesh (glTF / GLB / OBJ / PLY), a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT), or 3D point tracks (NPZ / NPY) — into the scene.\n[Open Asset](command:3dview.openAsset)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dview.openViewer)\n\nTip: drag a folder or an asset file here to open it. Recently opened items appear in this panel."
+        "contents": "View a COLMAP reconstruction as a colored point cloud with camera poses.\n[Open Reconstruction](command:3dview.openReconstruction)\n\nOr load an asset — a mesh (glTF / GLB / OBJ / PLY), a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT), or 3D point tracks (NPZ / NPY) — into the scene.\n[Open Asset](command:3dview.openAsset)\n\nOr load a whole folder of asset files at once — every mesh / splat / track file in it, offered as one temporal item you can scrub through.\n[Open Asset Folder](command:3dview.openAssetFolder)\n\nOr just open an empty viewer.\n[Open Viewer](command:3dview.openViewer)\n\nTip: drag a folder or an asset file here to open it. Recently opened items appear in this panel."
       }
     ],
     "commands": [
@@ -51,6 +51,11 @@
         "command": "3dview.openAsset",
         "title": "3DView: Open Asset",
         "icon": "$(file)"
+      },
+      {
+        "command": "3dview.openAssetFolder",
+        "title": "3DView: Open Asset Folder",
+        "icon": "$(folder-library)"
       },
       {
         "command": "3dview.openViewer",
@@ -80,7 +85,8 @@
       "view/title": [
         { "command": "3dview.openReconstruction", "when": "view == 3dview.welcome", "group": "navigation@1" },
         { "command": "3dview.openAsset", "when": "view == 3dview.welcome", "group": "navigation@2" },
-        { "command": "3dview.openViewer", "when": "view == 3dview.welcome", "group": "navigation@3" },
+        { "command": "3dview.openAssetFolder", "when": "view == 3dview.welcome", "group": "navigation@3" },
+        { "command": "3dview.openViewer", "when": "view == 3dview.welcome", "group": "navigation@4" },
         { "command": "3dview.clearRecents", "when": "view == 3dview.welcome", "group": "1_recents@1" }
       ],
       "view/item/context": [
@@ -98,7 +104,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "lint": "tsc --noEmit -p ./",
+    "lint": "tsc --noEmit -p ./tsconfig.test.json",
     "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {

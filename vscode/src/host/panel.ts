@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { HostToWebview, WebviewToHost, ModelData } from "@3dview/core";
+import type { AddItem, HostToWebview, WebviewToHost, ModelData } from "@3dview/core";
+import { sharedFolderName } from "@3dview/core";
 import { buildModelData } from "./modelData";
 
 // What the user asked to open. Also persisted as the Recents schema
@@ -20,6 +21,10 @@ export function pathOf(t: OpenTarget): string {
 interface Item {
   id: string;
   target: OpenTarget;
+  /** Set when the item was opened together with others in one action; the webview
+   *  may fold the whole group into a single temporal item under this id. Not part of
+   *  OpenTarget: it describes the action, not the thing on disk, and is never persisted. */
+  group?: string;
 }
 
 let idCounter = 0;
@@ -44,20 +49,32 @@ export class ViewerPanel {
 
   /** Open the viewer, optionally adding `target`. Preserves existing content. */
   public static open(context: vscode.ExtensionContext, target?: OpenTarget) {
+    ViewerPanel.add(context, target ? [target] : []);
+  }
+
+  /**
+   * Open the viewer adding several items from ONE user action — "all N models", a
+   * multi-file asset pick. They reach the webview as a single `addGroup`, which asks
+   * whether they are a capture's timesteps; the group id is what the temporal item
+   * would be called, and what `removed` reports when it goes.
+   */
+  public static openMany(context: vscode.ExtensionContext, targets: OpenTarget[]) {
+    ViewerPanel.add(context, targets, targets.length > 1 ? nextId("group") : undefined);
+  }
+
+  private static add(context: vscode.ExtensionContext, targets: OpenTarget[], group?: string) {
     const column = vscode.window.activeTextEditor?.viewColumn;
     const current = ViewerPanel.current;
 
-    const content: Item[] = current ? [...current.content] : [];
-    if (target) {
-      content.push({ id: nextId(target.kind), target });
-    }
+    const added: Item[] = targets.map((target) => ({ id: nextId(target.kind), target, group }));
+    const content: Item[] = [...(current ? current.content : []), ...added];
     const roots = rootsFor(content);
 
     if (current && roots.every((r) => current.allowedRoots.includes(r))) {
       current.content = content;
       current.panel.reveal(column);
-      if (content.length > 0 && target) {
-        current.applyItem(content[content.length - 1]);
+      if (added.length > 0) {
+        current.applyItems(added);
       }
       return;
     }
@@ -105,11 +122,20 @@ export class ViewerPanel {
     );
   }
 
-  /** Re-send all tracked items to a freshly created webview. */
+  /** Re-send all tracked items to a freshly created webview. Items opened together
+   *  are replayed together, so a group is offered as a group again rather than
+   *  silently splitting into N separate items. */
   private replay() {
+    const batches: Item[][] = [];
     for (const item of this.content) {
-      this.applyItem(item);
+      const last = batches[batches.length - 1];
+      if (item.group !== undefined && last?.[0].group === item.group) {
+        last.push(item);
+      } else {
+        batches.push([item]);
+      }
     }
+    batches.forEach((batch) => this.applyItems(batch));
   }
 
   private onMessage(msg: WebviewToHost) {
@@ -120,15 +146,22 @@ export class ViewerPanel {
           action();
         }
         break;
-      case "requestAdd":
+      case "requestAdd": {
         // Reuse the same pickers as the commands; they call back into open(). Asset
         // kinds ride along so the dialog opens filtered to what was asked for.
-        void (msg.kind === "colmap"
-          ? vscode.commands.executeCommand("3dview.openReconstruction")
-          : vscode.commands.executeCommand("3dview.openAsset", msg.kind));
+        const command =
+          msg.kind === "colmap"
+            ? "3dview.openReconstruction"
+            : msg.kind === "assetFolder"
+              ? "3dview.openAssetFolder"
+              : "3dview.openAsset";
+        void vscode.commands.executeCommand(command, msg.kind);
         break;
+      }
       case "removed":
-        this.content = this.content.filter((i) => i.id !== msg.id);
+        // Either one item's id, or a group's — the id a temporal item took, which
+        // stands for every member the webview folded into it.
+        this.content = this.content.filter((i) => i.id !== msg.id && i.group !== msg.id);
         break;
       case "saveImage":
         void this.saveImage(msg.png, msg.suggestedName);
@@ -151,23 +184,44 @@ export class ViewerPanel {
     void vscode.window.showInformationMessage(`3DView: saved ${path.basename(uri.fsPath)}`);
   }
 
-  /** Run an item now if the webview is up, else queue it until "ready". */
-  private applyItem(item: Item) {
-    const action = () => {
-      if (item.target.kind === "colmap") {
-        void this.loadColmap(item.id, item.target.modelDir, item.target.imagesDir);
-      } else {
-        this.postAsset(item.id, item.target.file);
+  /** Send items now if the webview is up, else queue them until "ready". Items
+   *  opened together travel as one message, so the webview can ask what they are. */
+  private applyItems(items: Item[]) {
+    const action = async () => {
+      // Sequentially: a model is parsed into memory here, and several at once is a
+      // spike for no gain (the webview can't show any of them until all have landed).
+      const members: AddItem[] = [];
+      for (const item of items) {
+        const member = await this.member(item);
+        if (member) {
+          members.push(member);
+        }
+      }
+      if (members.length === 1) {
+        this.post(members[0]);
+      } else if (members.length > 1) {
+        const id = items[0].group ?? nextId("group");
+        const label = sharedFolderName(items.map((i) => pathOf(i.target)));
+        this.post({ type: "addGroup", id, label: label ?? `${members.length} items`, members });
       }
     };
     if (this.webviewReady) {
-      action();
+      void action();
     } else {
-      this.pending.push(action);
+      this.pending.push(() => void action());
     }
   }
 
-  private async loadColmap(id: string, modelDir: string, imagesDir?: string) {
+  /** The message that carries one item, or undefined if it could not be built (the
+   *  item is dropped from the tracked list, so a recreate won't replay it). */
+  private async member(item: Item): Promise<AddItem | undefined> {
+    if (item.target.kind === "asset") {
+      const file = item.target.file;
+      const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
+      const name = path.basename(file);
+      return { type: "addAsset", id: item.id, label: name, asset: { uri, name } };
+    }
+    const { modelDir, imagesDir } = item.target;
     try {
       const data = await vscode.window.withProgress(
         {
@@ -179,17 +233,18 @@ export class ViewerPanel {
       if (imagesDir) {
         this.attachImageUris(data, imagesDir);
       }
-      this.post({ type: "addReconstruction", id, label: labelFor(modelDir), data, source: modelDir });
+      return {
+        type: "addReconstruction",
+        id: item.id,
+        label: labelFor(modelDir),
+        data,
+        source: modelDir,
+      };
     } catch (err) {
-      this.content = this.content.filter((i) => i.id !== id);
+      this.content = this.content.filter((i) => i.id !== item.id);
       this.reportError(err);
+      return undefined;
     }
-  }
-
-  private postAsset(id: string, file: string) {
-    const uri = this.panel.webview.asWebviewUri(vscode.Uri.file(file)).toString();
-    const name = path.basename(file);
-    this.post({ type: "addAsset", id, label: name, asset: { uri, name } });
   }
 
   /**

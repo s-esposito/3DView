@@ -221,6 +221,86 @@ export function diagonalOf(b: Bounds): number {
   );
 }
 
+// How far a frustum reaches toward the nearest thing its camera sees. A pure
+// matter of taste — big enough to read the camera's orientation at a glance,
+// short enough to stay clear of the geometry it points at. Exported so the tests
+// pin the measurement rather than this number.
+export const NEAR_FRACTION = 0.25;
+// The near depth is read off a low quantile, at both levels of frustumScaleFromDepth
+// and for the same reason at each: within one camera it stops a single stray point
+// in the foreground setting the depth, and across cameras it degrades to (near-)the
+// minimum at any realistic camera count, which is the camera that matters.
+const NEAR_QUANTILE = 0.05;
+// Every point is projected into every camera, so the cost is a product and a big
+// model (10^6 points × 10^3 cameras) would stall the load. A strided sample of the
+// cloud caps it; the quantile of a few thousand depths lands in the same place.
+const MAX_PROJECTIONS = 2_000_000;
+
+/** `sorted[q]` by fraction, clamped — a percentile without the interpolation. */
+function quantile(sorted: ArrayLike<number>, q: number): number {
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+/**
+ * How deep to draw the camera frustums, in world units; 0 when the model gives
+ * nothing to measure (no cloud, or cameras pointed away from it).
+ *
+ * Sized from what the cameras SEE rather than from the scene's overall extent: a
+ * frustum should take up a fixed fraction of the free space in front of its
+ * camera, so it stays legible on a tabletop capture and an outdoor one alike and
+ * never pokes through the geometry it is looking at. A scene-diagonal rule gets
+ * this wrong in both directions — one far background point shrinks every frustum,
+ * and a camera standing close to the subject gets one that buries it.
+ *
+ * Per camera: project the cloud in, keep the points that are in front of it and
+ * inside the image, and take the near depth of those. Then take the near depth
+ * again ACROSS cameras, because one scale is drawn for all of them and the
+ * tightest camera is the one that would intersect.
+ */
+export function frustumScaleFromDepth(data: ModelData): number {
+  if (data.count === 0 || data.cameras.length === 0) {
+    return 0;
+  }
+  const stride = Math.max(
+    1,
+    Math.ceil((data.count * data.cameras.length) / MAX_PROJECTIONS)
+  );
+  // Refilled per camera, so the depths sort natively (no comparator) in one buffer.
+  const depths = new Float64Array(Math.ceil(data.count / stride));
+  const nears: number[] = [];
+  for (const cam of data.cameras) {
+    // Row-major camera->world (see frustumCorners); its transpose takes a world
+    // offset back into the camera frame, so row i of the transpose is column i here.
+    const m = cam.worldFromCamera;
+    let seen = 0;
+    for (let i = 0; i < data.count; i += stride) {
+      const dx = data.positions[i * 3] - cam.center[0];
+      const dy = data.positions[i * 3 + 1] - cam.center[1];
+      const dz = data.positions[i * 3 + 2] - cam.center[2];
+      const z = m[2] * dx + m[5] * dy + m[8] * dz;
+      if (z <= 0) {
+        continue; // behind the camera
+      }
+      const u = (cam.fx * (m[0] * dx + m[3] * dy + m[6] * dz)) / z + cam.cx;
+      const v = (cam.fy * (m[1] * dx + m[4] * dy + m[7] * dz)) / z + cam.cy;
+      if (u < 0 || u > cam.width || v < 0 || v > cam.height) {
+        continue; // outside the image
+      }
+      depths[seen++] = z;
+    }
+    if (seen > 0) {
+      const imaged = depths.subarray(0, seen);
+      imaged.sort();
+      nears.push(quantile(imaged, NEAR_QUANTILE));
+    }
+  }
+  if (nears.length === 0) {
+    return 0;
+  }
+  nears.sort((a, b) => a - b);
+  return NEAR_FRACTION * quantile(nears, NEAR_QUANTILE);
+}
+
 /**
  * The AABB of `b`'s eight corners after `matrix` — how a layer's local bounds read
  * once its own placement (or the root's upright flip) is applied. Axis-aligned in,

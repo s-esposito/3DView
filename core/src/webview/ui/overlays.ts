@@ -1,7 +1,7 @@
 // Transient overlays: the per-camera info popup (point-of-view mode) and the
 // modal model chooser (multiple COLMAP models in one drop / picked folder).
 import type { CameraView } from "../../shared/messages";
-import { keyValue } from "./components";
+import { hint, keyValue } from "./components";
 
 /** Build the shared popup/modal header (title + ✕ close button); the caller wires
  *  the close click. Returns the header element and its close button. */
@@ -170,4 +170,77 @@ export function showColmapChooser(
   backdrop.append(box);
   document.body.append(backdrop);
   refreshLoad();
+}
+
+/**
+ * Ask whether several items that arrived together are one temporal item (a
+ * capture's timesteps) or that many separate scene items. The single place this
+ * question is asked, for every host — see CLAUDE.md.
+ *
+ * Resolves "cancel" on ✕ / Esc / backdrop click, so the caller can free the blob:
+ * URLs of content it will now never load. Promise-based, unlike the callback-style
+ * chooser above, because callers chain it between a pick and an awaited load.
+ */
+export function askTemporalGrouping(
+  count: number,
+  label: string
+): Promise<"temporal" | "separate" | "cancel"> {
+  return new Promise((resolve) => {
+    document.getElementById("viewer-modal")?.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "viewer-modal";
+    backdrop.className = "viewer-modal-backdrop";
+    const box = document.createElement("div");
+    box.className = "viewer-modal";
+
+    const { head, close } = popupHead(`${count} items — ${label}`, "Cancel");
+
+    const body = document.createElement("div");
+    body.className = "viewer-modal-list";
+    body.append(
+      hint(
+        "They arrived together. Load them as frames of one item you can scrub through, or as separate items?"
+      )
+    );
+
+    const foot = document.createElement("div");
+    foot.className = "viewer-modal-foot";
+    const temporal = document.createElement("button");
+    temporal.className = "viewer-btn";
+    temporal.textContent = "One temporal item";
+    const separate = document.createElement("button");
+    separate.className = "viewer-btn";
+    separate.textContent = `${count} separate items`;
+    foot.append(temporal, separate);
+
+    const dismiss = (answer: "temporal" | "separate" | "cancel") => {
+      document.removeEventListener("keydown", onKey);
+      backdrop.remove();
+      resolve(answer);
+    };
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismiss("cancel");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        dismiss("temporal");
+      }
+    }
+
+    temporal.addEventListener("click", () => dismiss("temporal"));
+    separate.addEventListener("click", () => dismiss("separate"));
+    close.addEventListener("click", () => dismiss("cancel"));
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        dismiss("cancel");
+      }
+    });
+    document.addEventListener("keydown", onKey);
+
+    box.append(head, body, foot);
+    backdrop.append(box);
+    document.body.append(backdrop);
+  });
 }

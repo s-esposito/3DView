@@ -1,6 +1,6 @@
 {
   "name": "3dview-demo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "GitHub Pages demo for 3DView — drag-drop COLMAP reconstructions and mesh files to render them in the browser.",
   "license": "MIT",
   "private": true,
