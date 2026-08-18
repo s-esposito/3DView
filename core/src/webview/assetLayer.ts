@@ -129,10 +129,10 @@ export class AssetLayer implements FrameSource {
   }
 
   /**
-   * Draw frame `index` of the adopted sequence. In the splatting mode this repoints
-   * the existing Spark mesh at that frame's buffer rather than building a new one,
-   * which is what makes playback keep up (see `swapSplatCloud`). The other modes
-   * own their geometry, so they rebuild — as they already do on a mode switch.
+   * Draw frame `index` of the adopted sequence. In the splatting mode the frame is
+   * written into the existing Spark mesh rather than built into a new one, which is
+   * what makes playback keep up (see `swapSplatCloud`). The other modes own their
+   * geometry, so they rebuild — as they already do on a mode switch.
    */
   showFrame(index: number): void {
     const cloud = this.clouds?.[index];

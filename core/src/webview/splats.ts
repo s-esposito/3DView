@@ -132,7 +132,7 @@ function trim<T extends Float32Array | Uint8Array>(array: T, length: number): T 
 /** Build the renderable object for a decoded cloud in the requested mode. */
 export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THREE.Object3D {
   if (mode === "splatting") {
-    return buildSplatMesh(cloud);
+    return buildSplatMeshFrom(cloud.packed, cloud.packedCount);
   }
   return mode === "ellipsoids" ? buildSplatEllipsoids(cloud) : buildSplatPoints(cloud);
 }
@@ -141,19 +141,17 @@ export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THRE
  * The real thing: a Spark `SplatMesh`, drawn by the scene's `SparkRenderer` with a
  * per-viewpoint sort, spherical harmonics and proper alpha falloff.
  *
- * It adopts our already-decoded packed buffer (`PackedSplats` takes `packedArray`
+ * It adopts an already-decoded packed buffer (`PackedSplats` takes `packedArray`
  * directly and initializes synchronously), so switching into this mode neither
  * re-fetches nor re-parses the file. Nothing is built here per-Gaussian: Spark
  * gathers every visible SplatMesh in the scene each frame, honouring `.visible`
  * and world matrices — so the Scene list's show/hide and the per-item transform
  * apply to splats like anything else.
+ *
+ * The buffer is taken by reference, not copied: a lone asset passes its cloud's own
+ * array, while a sequence passes a buffer of its own that it writes each frame into
+ * (see `swapSplatCloud`).
  */
-function buildSplatMesh(cloud: SplatCloud): THREE.Object3D {
-  return buildSplatMeshFrom(cloud.packed, cloud.packedCount);
-}
-
-/** As above, over a caller-owned buffer — how a sequence gets a mesh it may write
- *  new frames into (see `swapSplatCloud`) without touching a frame's decoded data. */
 export function buildSplatMeshFrom(packed: Uint32Array, count: number): THREE.Object3D {
   const mesh = new SplatMesh({
     packedSplats: new PackedSplats({ packedArray: packed, numSplats: count }),

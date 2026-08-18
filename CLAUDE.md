@@ -38,7 +38,9 @@ First time: `npm install` at the root (links the workspaces).
 ```bash
 npm run build    # core → out/webview.js (+ check-boundaries); vscode → extension.js; demo → dist/demo.js + copies webview.js
 npm run watch    # build core once, then watch-rebuild the extension
-npm run lint     # tsc --noEmit in each package — MUST be clean (esbuild does not type-check)
+npm run lint     # tsc --noEmit in each package, sources AND tests (tsconfig.test.json,
+                 # since tsconfig.json scopes the build to src) — MUST be clean:
+                 # esbuild type-checks nothing, here or in the test bundle
 npm run check    # boundary guard (host-agnostic core); also runs inside core's build
 npm test         # esbuild --test per package, then node --test
 ./vscode_build.sh     # build monorepo + vsce package → vscode/*.vsix (then code --install-extension)

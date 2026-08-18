@@ -395,11 +395,6 @@ export class Viewer {
     // frame without first re-sorting it (see AssetLayer.showFrame).
     const clouds = await this.decodeSplatFrames(label, frames);
     if (clouds) {
-      for (const frame of frames) {
-        if (frame.kind === "asset") {
-          URL.revokeObjectURL(frame.uri); // decoded above; a dropped blob can go
-        }
-      }
       this.attachSplatSequence(id, label, source, frames, clouds);
       return;
     }
@@ -436,11 +431,11 @@ export class Viewer {
   }
 
   /**
-   * Decode every frame of a would-be 3DGS sequence, or undefined when this isn't
-   * one. Attempted only when each frame is a splat-shaped file; a `.ply` that turns
-   * out to be a mesh, or any decode failure, gives up and leaves the caller to load
-   * each frame as its own layer (re-fetching, which is why the check is cheap and
-   * up front rather than speculative).
+   * Decode every frame of a would-be 3DGS sequence, and take ownership of their
+   * bytes; undefined when this isn't one, leaving the files untouched for the
+   * caller to load a frame at a time. Attempted only when every frame is a
+   * splat-shaped file, so the give-up cases — a `.ply` that turns out to be a mesh,
+   * a decode failure — cost at most the one download that revealed it.
    */
   private async decodeSplatFrames(
     label: string,
@@ -448,24 +443,26 @@ export class Viewer {
   ): Promise<SplatCloud[] | undefined> {
     const splatFile = (name: string) =>
       ASSET_KIND_EXTS.splat.includes(name.split(".").pop()?.toLowerCase() ?? "");
-    if (!frames.every((f) => f.kind === "asset" && splatFile(f.name))) {
+    // flatMap, not filter: it narrows the frames to the asset shape as it goes.
+    const assets = frames.flatMap((f) => (f.kind === "asset" && splatFile(f.name) ? [f] : []));
+    if (assets.length !== frames.length) {
       return undefined;
     }
     const clouds: SplatCloud[] = [];
-    for (const [at, frame] of frames.entries()) {
-      if (frame.kind !== "asset") {
-        return undefined;
-      }
+    for (const [at, asset] of assets.entries()) {
       try {
         clouds.push(
-          await loadSplatCloud(frame.uri, frame.name, (phase) =>
-            this.onProgress?.(`${label} — frame ${at + 1}/${frames.length} — ${phase}`)
+          await loadSplatCloud(asset.uri, asset.name, (phase) =>
+            this.onProgress?.(`${label} — frame ${at + 1}/${assets.length} — ${phase}`)
           )
         );
       } catch {
         return undefined; // not 3DGS after all, or unreadable — fall back
       }
     }
+    // The bytes are ours now: free a dropped / demo blob so it isn't pinned for the
+    // session, as every other loading path does once it has fetched.
+    assets.forEach((asset) => URL.revokeObjectURL(asset.uri));
     return clouds;
   }
 

@@ -1,0 +1,6 @@
+{
+  "_comment": "What `npm run lint` checks: the sources plus the tests. tsconfig.json covers only src (it is the build's view, and out/ mirrors it), which left test files type-unchecked — esbuild bundles them without checking, so a fixture could drift from the type it claimed.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": "." },
+  "include": ["src", "test"]
+}
