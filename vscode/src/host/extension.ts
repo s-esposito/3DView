@@ -89,12 +89,15 @@ async function openReconstructionFromRoot(
     selected = choice.dir ? [choice.dir] : dirs;
   }
 
-  for (const modelDir of selected) {
-    const imagesDir = findImagesDir(root, modelDir);
-    const target: OpenTarget = { kind: "colmap", modelDir, imagesDir };
-    ViewerPanel.open(context, target);
-    recents.add(target);
-  }
+  // Opened as one action: the webview asks whether several models are one
+  // capture's timesteps. Each still gets its own Recents entry.
+  const targets: OpenTarget[] = selected.map((modelDir) => ({
+    kind: "colmap",
+    modelDir,
+    imagesDir: findImagesDir(root, modelDir),
+  }));
+  targets.forEach((target) => recents.add(target));
+  ViewerPanel.openMany(context, targets);
 }
 
 async function openAsset(
@@ -117,23 +120,25 @@ async function openAsset(
   const picked = await vscode.window.showOpenDialog({
     canSelectFolders: false,
     canSelectFiles: true,
-    canSelectMany: false,
+    // Several at once: a dynamic capture is a folder of per-frame meshes or splats,
+    // and the webview offers to load such a pick as one temporal item.
+    canSelectMany: true,
     openLabel: "Open Asset",
     title: kind
-      ? `Select a file — ${ASSET_KIND_LABELS[kind]} (${ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(" / ")})`
-      : "Select an asset — mesh, 3DGS splat, or 3D point tracks",
+      ? `Select file(s) — ${ASSET_KIND_LABELS[kind]} (${ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(" / ")})`
+      : "Select asset file(s) — mesh, 3DGS splat, or 3D point tracks",
     filters,
   });
   if (!picked || picked.length === 0) {
     return;
   }
-  openAssetFromFile(context, recents, picked[0].fsPath);
+  openAssetFiles(context, recents, picked.map((p) => p.fsPath));
 }
 
-function openAssetFromFile(context: vscode.ExtensionContext, recents: RecentsProvider, file: string) {
-  const target: OpenTarget = { kind: "asset", file };
-  ViewerPanel.open(context, target);
-  recents.add(target);
+function openAssetFiles(context: vscode.ExtensionContext, recents: RecentsProvider, files: string[]) {
+  const targets: OpenTarget[] = files.map((file) => ({ kind: "asset", file }));
+  targets.forEach((target) => recents.add(target));
+  ViewerPanel.openMany(context, targets);
 }
 
 /** Open dropped resources: a folder → reconstruction, an asset file → asset. */
@@ -155,7 +160,7 @@ async function openDropped(
     if (stat.type & vscode.FileType.Directory) {
       await openReconstructionFromRoot(context, recents, uri.fsPath);
     } else if (ASSET_EXTS.includes(path.extname(uri.fsPath).slice(1).toLowerCase())) {
-      openAssetFromFile(context, recents, uri.fsPath);
+      openAssetFiles(context, recents, [uri.fsPath]);
     } else {
       void vscode.window.showErrorMessage(
         `3DView: drop a folder (a COLMAP reconstruction) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`

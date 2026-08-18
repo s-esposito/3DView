@@ -128,7 +128,8 @@ vscode/                3dview — VS Code extension (Node + vscode) → out/exte
     extension.ts         activate(): commands (openReconstruction/openAsset/openViewer), pickers, quick-pick
     colmapLoad.ts        fs discovery + load: detectFormat/findModelDirs/findImagesDir/loadModel (Node fs)
     panel.ts             ViewerPanel singleton: webview lifecycle, CSP, image URIs, scene-item
-                         tracking (ids) + replay; injects the VS Code __viewerHost adapter
+                         tracking (ids, + a group id for items opened in one action)
+                         + replay; injects the VS Code __viewerHost adapter
     modelData.ts         parsed model → render-ready ModelData DTO
   test/colmapLoad.test.ts   fs discovery/load round-trip
   esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · media/
@@ -208,7 +209,12 @@ therefore go through *that layer's* matrix, never the `root`'s: scene bounds
 a stable `id` and tracks the list in `panel.ts`. The Scene "+" menu posts
 `requestAdd` → host runs the matching command's picker → posts `addReconstruction`/
 `addAsset` with the id. Removing an item (Scene list ✕) removes it webview-side and
-posts `removed` so the host forgets it (won't replay it). Per-item controls are
+posts `removed` so the host forgets it (won't replay it). Items opened by one action
+(`ViewerPanel.openMany` — "all N models", a multi-file pick) also carry a **group
+id**, travel as one `addGroup`, and are replayed together; `removed` matches an
+item's id *or* its group's, so dropping a temporal item makes the host forget every
+member. The group id lives on the panel's in-memory `Item`, never on `OpenTarget`,
+which is the persisted Recents schema. Per-item controls are
 visibility + remove; appearance (point/frustum size, images, grid, axes, orientation)
 is global across the scene.
 
