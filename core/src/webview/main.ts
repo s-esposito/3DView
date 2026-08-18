@@ -157,7 +157,11 @@ function handleHostMessage(msg: HostToWebview) {
       showColmapChooser(
         msg.models, // ColmapModelRef has the label/source ChooserModel reads
         (selected) => {
-          msg.models.forEach((m, i) => selected.includes(i) || revokeColmapTrio(m.urls));
+          msg.models.forEach((m, i) => {
+            if (!selected.includes(i)) {
+              revokeColmapTrio(m.urls);
+            }
+          });
           const picked = msg.models.filter((_, i) => selected.includes(i));
           // Picking several chains into the same grouping question every other
           // multi-item path asks — one question per modal, one code path.
@@ -198,9 +202,16 @@ async function addItems(groupId: string, label: string, members: AddItem[]) {
   const frames: TemporalFrame[] = [];
   for (const m of ordered) {
     if (m.type === "addAsset") {
-      frames.push({ kind: "asset", id: m.id, label: m.label, uri: m.asset.uri, name: m.asset.name });
+      const { uri, name } = m.asset;
+      frames.push({ kind: "asset", id: m.id, label: m.label, uri, name });
     } else if (m.type === "addReconstruction") {
-      frames.push({ kind: "reconstruction", id: m.id, label: m.label, data: m.data, source: m.source });
+      frames.push({
+        kind: "reconstruction",
+        id: m.id,
+        label: m.label,
+        data: m.data,
+        source: m.source,
+      });
     } else {
       showStatus(`Loading ${m.label}…`, true);
       try {
@@ -228,19 +239,19 @@ function release(m: AddItem) {
   }
 }
 
-/** A name for a set of models: the folder they share, else the first one's label
- *  (sparse/0, sparse/1, … share "sparse", which reads better than "0"). */
+/** A name for a set of models: the deepest folder they all sit under, else the
+ *  first one's label. Whole segments only, and never a model's own folder — sparse/0
+ *  and sparse/1 share "sparse", which reads better than "0". */
 function groupLabel(models: ColmapModelRef[]): string {
-  const shared = models
-    .map((m) => m.source ?? m.label)
-    .reduce((a, b) => {
-      let i = 0;
-      while (i < a.length && i < b.length && a[i] === b[i]) {
-        i++;
-      }
-      return a.slice(0, i);
-    });
-  return shared.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || models[0].label;
+  const dirs = models.map((m) => (m.source ?? m.label).split(/[/\\]/).slice(0, -1));
+  const shared: string[] = [];
+  for (let at = 0; at < dirs[0].length; at++) {
+    if (!dirs.every((d) => d[at] === dirs[0][at])) {
+      break;
+    }
+    shared.push(dirs[0][at]);
+  }
+  return shared[shared.length - 1] || models[0].label;
 }
 
 /** A discovered model as the message that would have carried it on its own. */
