@@ -205,10 +205,14 @@ until a full re-sort has landed (GPU→CPU depth readback + worker sort). One me
 frame therefore caps playback at one frame per sort: a slideshow. So when every frame
 of a temporal item is 3DGS **and they share a packed layout** (same splat count, same
 bytes per splat), the item is built as a single `AssetLayer` holding all the decoded
-clouds (`adoptSplatFrames`) and scrubbing repoints that one mesh's `PackedSplats` at
-the next frame's buffer (`splats.ts swapSplatCloud`): the mapping never changes, the
-frame shows at once, and the re-sort follows behind it. Two rules come with it:
-assign the **same** `PackedSplats` a new `packedArray` — handing the mesh a *different*
+clouds (`adoptSplatFrames`) and scrubbing writes the next frame into that one mesh's
+buffer (`splats.ts swapSplatCloud`): the mapping never changes, the frame shows at
+once, and the re-sort follows behind it. Three rules come with it. Write the frame **into** the mesh's existing `packedArray` (`packedArray.set`), never
+repoint it at the frame's own array — Spark then swaps the texture's data for a
+`new Uint8Array(buffer)`, and this texture is RGBA32UI, so WebGL2 rejects the upload
+and every frame silently renders as the first. The mesh therefore needs a buffer of
+its own (`buildSplatMeshFrom`), or swapping would overwrite a frame's decoded data.
+Keep the same `PackedSplats` object too — handing the mesh a *different*
 `PackedSplats` rebuilds its generator, and Spark keys the compiled splat program on
 generator identity, so that costs a shader compile per frame; and the layout check is
 count **and** array length, since a differing SH degree changes the packed layout.

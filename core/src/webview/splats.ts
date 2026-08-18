@@ -149,8 +149,14 @@ export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THRE
  * apply to splats like anything else.
  */
 function buildSplatMesh(cloud: SplatCloud): THREE.Object3D {
+  return buildSplatMeshFrom(cloud.packed, cloud.packedCount);
+}
+
+/** As above, over a caller-owned buffer — how a sequence gets a mesh it may write
+ *  new frames into (see `swapSplatCloud`) without touching a frame's decoded data. */
+export function buildSplatMeshFrom(packed: Uint32Array, count: number): THREE.Object3D {
   const mesh = new SplatMesh({
-    packedSplats: new PackedSplats({ packedArray: cloud.packed, numSplats: cloud.packedCount }),
+    packedSplats: new PackedSplats({ packedArray: packed, numSplats: count }),
   });
   mesh.initialized.catch((err: unknown) =>
     console.error("3DView: Spark could not prepare the splat mesh", err)
@@ -182,15 +188,25 @@ export function swapSplatCloud(object: THREE.Object3D | undefined, cloud: SplatC
     return false;
   }
   const packed = object.packedSplats;
+  // The frame must fit the mesh exactly: same buffer size, and the same splat count
+  // once Spark's own clamp is applied (it rounds capacity down to whole rows of its
+  // splat texture, so comparing against the raw count would refuse valid frames).
+  const packedArray = packed?.packedArray;
   if (
-    !packed ||
-    packed.numSplats !== cloud.packedCount ||
-    packed.packedArray?.length !== cloud.packed.length
+    !packedArray ||
+    packedArray.length !== cloud.packed.length ||
+    packed.numSplats !== Math.min(packed.maxSplats, cloud.packedCount)
   ) {
     return false;
   }
-  packed.packedArray = cloud.packed;
-  packed.needsUpdate = true; // re-points the data texture at the new buffer, re-uploads
+  // Written INTO the mesh's own buffer rather than repointing it at the frame's.
+  // Repointing looks cheaper but does not work: Spark then swaps the texture's data
+  // for `new Uint8Array(buffer)`, and this texture is RGBA32UI — WebGL2 rejects a
+  // byte view for UNSIGNED_INT, so the upload is dropped and the mesh keeps showing
+  // whatever it was built with. Keeping one buffer also leaves each frame's decoded
+  // array untouched, which is why the mesh must own it (`buildSplatMeshFrom`).
+  packedArray.set(cloud.packed);
+  packed.needsUpdate = true; // three re-uploads the texture on the next generate
   object.updateVersion(); // tells Spark the splats changed, so it regenerates
   return true;
 }

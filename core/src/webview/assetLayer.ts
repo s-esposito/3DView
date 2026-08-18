@@ -16,7 +16,13 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
 import { buildBox, disposeObject, eachMaterial, unionBounds } from "./builders";
-import { decodeSplats, buildSplatObject, disposeSplatMesh, swapSplatCloud } from "./splats";
+import {
+  decodeSplats,
+  buildSplatObject,
+  buildSplatMeshFrom,
+  disposeSplatMesh,
+  swapSplatCloud,
+} from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { readNpy, readNpz } from "./npz";
 import { decodeTracks, buildTrackLines, setTrackTrail, setTrackOpacity, trackSteps } from "./tracks";
@@ -40,6 +46,9 @@ export class AssetLayer implements FrameSource {
   private cloud?: SplatCloud;
   /** Every frame of an adopted splat sequence; `cloud` is the one on screen. */
   private clouds?: SplatCloud[];
+  /** The buffer a sequence's splat mesh renders from — one frame wide, written by
+   *  each swap. The mesh must not share a frame's decoded array: swapping writes. */
+  private frameBuffer?: Uint32Array;
   private tracks?: TrackSet;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
@@ -114,7 +123,7 @@ export class AssetLayer implements FrameSource {
     this.cloud = clouds[0];
     // The union across frames, so the box and fit-to-view hold still while playing.
     this.currentBounds = unionBounds(clouds.map((c) => c.bounds));
-    this.attachCurrent(buildSplatObject(clouds[0], opts.splatMode));
+    this.attachCurrent(this.buildFrameObject(clouds[0]));
     this.box = buildBox(this.currentBounds);
     this.object.add(this.box);
   }
@@ -132,8 +141,23 @@ export class AssetLayer implements FrameSource {
     }
     this.cloud = cloud;
     if (!swapSplatCloud(this.current, cloud)) {
-      this.rebuild(buildSplatObject(cloud, this.opts.splatMode));
+      this.rebuild(this.buildFrameObject(cloud));
     }
+  }
+
+  /**
+   * The object for `cloud` in the current mode. A sequence's splatting mesh is built
+   * over a buffer of this layer's own, because swapping frames writes into it —
+   * building it over a frame's decoded array would corrupt that frame the first time
+   * another one was shown. The other modes rebuild per frame and share nothing.
+   */
+  private buildFrameObject(cloud: SplatCloud): THREE.Object3D {
+    if (!this.clouds || this.opts.splatMode !== "splatting") {
+      return buildSplatObject(cloud, this.opts.splatMode);
+    }
+    this.frameBuffer ??= new Uint32Array(cloud.packed.length);
+    this.frameBuffer.set(cloud.packed);
+    return buildSplatMeshFrom(this.frameBuffer, cloud.packedCount);
   }
 
   /** Time steps in this asset's point tracks, or 0 if it holds none. */
@@ -152,7 +176,7 @@ export class AssetLayer implements FrameSource {
     const previous = this.opts;
     this.opts = { ...opts };
     if (this.cloud && opts.splatMode !== previous.splatMode) {
-      this.rebuild(buildSplatObject(this.cloud, opts.splatMode));
+      this.rebuild(this.buildFrameObject(this.cloud));
       return; // attachCurrent re-applies the rest
     }
     if (this.tracks && opts.trackDensity !== previous.trackDensity) {
@@ -195,6 +219,7 @@ export class AssetLayer implements FrameSource {
     this.box = undefined;
     this.cloud = undefined;
     this.clouds = undefined;
+    this.frameBuffer = undefined;
     this.tracks = undefined;
   }
 
