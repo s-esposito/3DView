@@ -1,5 +1,5 @@
 import type { HostToWebview, WebviewToHost, ColmapModelRef, ColmapModelPaths, AddKind } from "@3dview/core";
-import { groupColmapModels, isImagePath, ASSET_KIND_EXTS } from "@3dview/core";
+import { groupColmapModels, isImagePath, ASSET_EXTS, ASSET_KIND_EXTS } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
@@ -10,10 +10,11 @@ function showFilePicker(kind: AddKind): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    if (kind === "colmap") {
-      // A COLMAP model is a folder (e.g. sparse/0) of cameras/images/points3D.
-      // `webkitdirectory` switches the dialog to folder selection; the FileList
-      // then holds every file under the chosen folder (each with a
+    if (kind === "colmap" || kind === "assetFolder") {
+      // Both pick a folder: a COLMAP model is a folder (e.g. sparse/0) of
+      // cameras/images/points3D, and an "assetFolder" is a folder of per-frame
+      // asset files. `webkitdirectory` switches the dialog to folder selection; the
+      // FileList then holds every file under the chosen folder (each with a
       // `webkitRelativePath`), and it overrides `accept`, so we set none.
       input.webkitdirectory = true;
     } else {
@@ -58,6 +59,7 @@ async function handleAdd(kind: AddKind): Promise<void> {
   const files = await showFilePicker(kind);
   if (!files || files.length === 0) return; // cancelled / empty
   if (kind === "colmap") sendColmap(files);
+  else if (kind === "assetFolder") sendAssetFolder(files);
   else sendAssets(files);
 }
 
@@ -124,10 +126,26 @@ function toColmapRef(
   };
 }
 
+/** Post every asset file in a picked folder, in natural order (frame_9 before
+ *  frame_10) — a per-frame capture, which the webview offers to load as one
+ *  temporal item. The folder's other files (a README, images) are ignored. */
+function sendAssetFolder(files: FileList): void {
+  const assets = Array.from(files).filter((f) =>
+    ASSET_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
+  );
+  if (assets.length === 0) {
+    throw new Error(
+      `No asset files in the selected folder — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`
+    );
+  }
+  assets.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  sendAssets(assets);
+}
+
 /** Post the picked asset files (meshes / splats / tracks) to the webview as blob
  *  URLs — one `addAsset`, or an `addGroup` when several were picked, which the
  *  webview offers to load as a single temporal item. */
-function sendAssets(files: FileList): void {
+function sendAssets(files: FileList | File[]): void {
   const picked = Array.from(files);
   const stamp = Date.now();
   const members = picked.map((file, i) => ({

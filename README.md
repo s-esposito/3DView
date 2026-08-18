@@ -72,13 +72,17 @@ git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ## Usage
 
 Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
-Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** — or
+Reconstruction* / *Open Asset* / *Open Asset Folder* / *Open Viewer*, then the Scene
+panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
 single mesh, splat, or point-track file. When a project holds several models under `sparse/`
 (`0`, `1`, …) you're prompted to load one specific model or all of them — and anything
 you open several of at once can be loaded as one temporal item you scrub through
-instead of as separate items.
+instead of as separate items. **Open Asset Folder** loads every mesh / splat / track
+file in a folder in one go — the way to load a per-frame capture, and the way to load
+several files at once over a remote connection, where VS Code's file dialog can only
+select one.
 
 | Action | Input |
 |--------|-------|

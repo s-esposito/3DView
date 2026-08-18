@@ -125,7 +125,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
-    extension.ts         activate(): commands (openReconstruction/openAsset/openViewer), pickers, quick-pick
+    extension.ts         activate(): commands (openReconstruction/openAsset/
+                         openAssetFolder/openViewer), pickers, quick-pick
     colmapLoad.ts        fs discovery + load: detectFormat/findModelDirs/findImagesDir/loadModel (Node fs)
     panel.ts             ViewerPanel singleton: webview lifecycle, CSP, image URIs, scene-item
                          tracking (ids, + a group id for items opened in one action)
@@ -368,6 +369,15 @@ carries `dense/fused.ply` and friends.
 - **Precision caveat:** point positions are downcast float64→float32 in
   `points3d.ts` (~7 sig digits). Fine for normalized scenes; revisit for
   geo-referenced coordinates (would need an origin offset).
+- **Multi-file picking isn't available in every host.** VS Code substitutes its own
+  file dialog over a **remote connection** (Remote-SSH / WSL / Codespaces), and that
+  dialog ignores `canSelectMany` — only one file can be picked. Hence the
+  `"assetFolder"` `AddKind`: it picks a *folder* and opens every asset file directly
+  inside it (natural order) as one action, which is the only way into a per-frame
+  capture in a remote window. Don't "simplify" it by letting the asset dialog accept
+  folders too — a **native** dialog on Windows/Linux cannot offer files and folders
+  at once (Electron falls back to a directory-only selector), which would break
+  single-file picking for local users.
 - **Disposal:** removing scene objects must free GPU resources — use
   `builders.disposeObject` (geometry + materials + maps). Rebuilding cameras
   bumps a generation so stale async texture loads are discarded.

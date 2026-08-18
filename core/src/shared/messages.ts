@@ -60,11 +60,14 @@ export interface AssetRef {
 /** The asset families a host offers separately in its "add" menu and file picker. */
 export type AssetKind = "mesh" | "splat" | "tracks";
 
-/** What kind of content the "+" add action should pick — a COLMAP *folder*, or an
- *  asset *file* of one family. The kind only chooses the picker's filter: what an
- *  asset actually is comes from the file itself (a `.ply` is a mesh or a splat by
- *  header), so picking the "wrong" menu entry still loads the file correctly. */
-export type AddKind = "colmap" | AssetKind;
+/** What kind of content the "+" add action should pick — a COLMAP *folder*, an
+ *  asset *file* of one family, or a *folder of asset files* (`"assetFolder"`: every
+ *  asset in it, offered as one temporal item — the way to load a per-frame capture
+ *  where a host's dialog cannot select several files, as VS Code's cannot over a
+ *  remote connection). The kind only chooses the picker's filter: what an asset
+ *  actually is comes from the file itself (a `.ply` is a mesh or a splat by header),
+ *  so picking the "wrong" menu entry still loads the file correctly. */
+export type AddKind = "colmap" | AssetKind | "assetFolder";
 
 /**
  * File extensions per asset family — the single source every host filters by.

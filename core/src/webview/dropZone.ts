@@ -87,7 +87,18 @@ async function handleDrop(
 ): Promise<void> {
   try {
     const files = await gatherFiles(dt);
-    if (files.length === 0) return; // not a file drop (e.g. dragged text) — ignore
+    if (files.length === 0) {
+      // A drag with no readable bytes. Silence here reads as "the viewer is broken",
+      // and the usual cause has a workaround worth naming: a drag out of the VS Code
+      // Explorer never reaches a webview at all (microsoft/vscode#182449), and over a
+      // remote connection those files aren't on this machine to read anyway.
+      if (Array.from(dt.types).includes("Files")) {
+        throw new Error(
+          "Couldn't read that drop. Dragging from the editor's file explorer doesn't reach the viewer — drag from your desktop file manager instead, or use + in the Scene panel."
+        );
+      }
+      return; // not a file drag at all (e.g. dragged text) — ignore
+    }
     onContent(buildContent(files));
   } catch (err) {
     onContent({ type: "error", message: err instanceof Error ? err.message : String(err) });

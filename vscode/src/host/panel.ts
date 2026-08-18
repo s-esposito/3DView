@@ -145,13 +145,18 @@ export class ViewerPanel {
           action();
         }
         break;
-      case "requestAdd":
+      case "requestAdd": {
         // Reuse the same pickers as the commands; they call back into open(). Asset
         // kinds ride along so the dialog opens filtered to what was asked for.
-        void (msg.kind === "colmap"
-          ? vscode.commands.executeCommand("3dview.openReconstruction")
-          : vscode.commands.executeCommand("3dview.openAsset", msg.kind));
+        const command =
+          msg.kind === "colmap"
+            ? "3dview.openReconstruction"
+            : msg.kind === "assetFolder"
+              ? "3dview.openAssetFolder"
+              : "3dview.openAsset";
+        void vscode.commands.executeCommand(command, msg.kind);
         break;
+      }
       case "removed":
         // Either one item's id, or a group's — the id a temporal item took, which
         // stands for every member the webview folded into it.

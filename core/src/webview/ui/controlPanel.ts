@@ -338,6 +338,9 @@ export class ControlPanel {
       { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
       { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
       { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
+      // Every asset in a folder, as one temporal item — a per-frame capture, and the
+      // way in where a host's file dialog can't select several files at once.
+      { label: "Asset folder…", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
 
     panel.append(
