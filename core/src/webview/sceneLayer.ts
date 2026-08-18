@@ -84,6 +84,10 @@ export class ReconstructionLayer implements SceneLayer {
   private points?: THREE.Points;
   private box?: THREE.Box3Helper;
   private readonly localBounds: Bounds;
+  // What the frustums currently on screen were built from, so a rebuild that would
+  // change nothing can be skipped (NaN: nothing built yet).
+  private builtScale = NaN;
+  private builtImages = false;
 
   constructor(
     readonly id: string,
@@ -103,7 +107,7 @@ export class ReconstructionLayer implements SceneLayer {
       this.box = buildBox(data.bounds);
       this.object.add(this.box);
     }
-    this.cameras.build(data, opts.frustumScale, opts.images, opts.frustumLineWidth, opts.frustumColor);
+    this.rebuildCameras(opts);
     this.applyOptions(opts);
   }
 
@@ -152,9 +156,19 @@ export class ReconstructionLayer implements SceneLayer {
     this.cameras.setColor(opts.frustumColor);
   }
 
-  /** Rebuild frustums (needed when frustum scale or the images toggle changes). */
+  /**
+   * Rebuild frustums (needed when frustum scale or the images toggle changes).
+   * Skipped when neither did: a rebuild re-creates every frustum's geometry and
+   * drops the textures loaded so far, so it must not happen for a call that would
+   * produce the same thing — which is what lets the Viewer re-apply the whole scene
+   * state to any layer, at any time, without thinking about cost.
+   */
   rebuildCameras(opts: DisplayOptions): void {
-    this.cameras.build(this.data, opts.frustumScale, opts.images, opts.frustumLineWidth, opts.frustumColor);
+    if (this.builtScale !== opts.frustumScale || this.builtImages !== opts.images) {
+      this.builtScale = opts.frustumScale;
+      this.builtImages = opts.images;
+      this.cameras.build(this.data, opts.frustumScale, opts.images, opts.frustumLineWidth, opts.frustumColor);
+    }
     this.cameras.setVisible(opts.frustums);
   }
 

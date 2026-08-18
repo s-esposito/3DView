@@ -286,6 +286,21 @@ export class Viewer {
   }
 
   addReconstruction(id: string, label: string, data: ModelData, source?: string): void {
+    this.attach(this.buildReconstruction(id, label, data, source));
+  }
+
+  /**
+   * Build a reconstruction layer, sizing the scene's frustums from the first model
+   * to arrive (see CLAUDE.md, "Frustum size is measured, not guessed"). Separate
+   * from `addReconstruction` because a temporal item builds its frames itself and
+   * must trip the same latch.
+   */
+  private buildReconstruction(
+    id: string,
+    label: string,
+    data: ModelData,
+    source?: string
+  ): ReconstructionLayer {
     if (!this.frustumInitialized) {
       const b = computeLocalBounds(data);
       this.frustumScaleMax = diagonalOf(b) * 0.16;
@@ -299,7 +314,7 @@ export class Viewer {
       );
       this.frustumInitialized = true;
     }
-    this.attach(new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source));
+    return new ReconstructionLayer(id, label, data, this.opts, this.requestRender, source);
   }
 
   addAsset(id: string, label: string, uri: string, name: string): void {
@@ -311,11 +326,8 @@ export class Viewer {
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
-        layer.setBoxVisible(this.opts.box);
-        layer.setWireframe(this.wireframe);
-        layer.setShaded(this.shaded);
-        // The options may have changed while this was loading; a no-op otherwise.
-        layer.applyAssetOptions(this.assetOpts);
+        // The scene state may have changed while this was loading; a no-op otherwise.
+        this.syncLayerState(layer);
         this.syncSpark(); // this asset may be the scene's first splat
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
@@ -584,6 +596,24 @@ export class Viewer {
     this.byId.set(layer.id, layer);
     this.root.add(layer.object);
     this.refreshScene(first);
+  }
+
+  /**
+   * Bring one layer up to the scene's current display + asset state — the single
+   * owner of "what the scene state is". Needed wherever a layer joins the scene
+   * later than the state it must obey: an asset whose load finished after a toggle
+   * moved, or a temporal frame that was hidden while one did. Idempotent, and cheap
+   * to repeat: both layer kinds rebuild only what actually changed.
+   */
+  private syncLayerState(layer: SceneLayer): void {
+    layer.setBoxVisible(this.opts.box);
+    layer.setWireframe(this.wireframe);
+    layer.setShaded(this.shaded);
+    layer.applyAssetOptions(this.assetOpts);
+    if (layer instanceof ReconstructionLayer) {
+      layer.rebuildCameras(this.opts);
+      layer.applyOptions(this.opts);
+    }
   }
 
   /** Recompute bounds/helpers after a content change; only re-fit when asked
