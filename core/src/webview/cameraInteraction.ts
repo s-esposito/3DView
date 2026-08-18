@@ -100,7 +100,7 @@ export class CameraInteraction {
   private pick(clientX: number, clientY: number): CameraHit | null {
     const objects = this.deps
       .reconstructions()
-      .filter((l) => l.object.visible && l.cameras.object.visible)
+      .filter((l) => isShown(l.cameras.object))
       .map((l) => l.cameras.object);
     if (objects.length === 0) {
       return null;
@@ -198,6 +198,18 @@ export class CameraInteraction {
     camera.updateProjectionMatrix();
     controls.update();
   }
+}
+
+/** Visible all the way up the graph. Three's raycaster ignores `.visible`, so this
+ *  filter is what keeps hidden frustums unpickable — and it must walk the ancestors:
+ *  a temporal item's frame is itself visible while the sequence around it is not. */
+function isShown(object: THREE.Object3D | null): boolean {
+  for (let o = object; o; o = o.parent) {
+    if (!o.visible) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function sameHit(a: CameraHit | null, b: CameraHit | undefined): boolean {

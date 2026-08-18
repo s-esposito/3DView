@@ -86,6 +86,10 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          Each mesh keeps its loaded (lit PBR, incl. GLB textures)
                          material + a derived unlit-albedo twin; "Shaded" swaps
                          between them (shaded is the default), "Wireframe" sets both
+    temporalLayer.ts     TemporalLayer (SceneLayer): N frames — timesteps of one
+                         capture — under one container, drawing one at a time, so
+                         the Scene list holds one row with a timeline. Frames are
+                         ordinary Reconstruction/Asset layers, unchanged
     splats.ts            3DGS: decodeSplats() (Spark, WASM in a worker) → SplatCloud,
                          then buildSplatObject() in one of three render modes —
                          "splatting" (default; a Spark SplatMesh adopting our packed
@@ -158,12 +162,29 @@ tracks) under a single
 `renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
 `setFrustumColor`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
-`setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`, +
-`onSelect`/`onChange`/`onError`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
+`setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`,
+`addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
+`onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
+
+**A temporal item is one layer holding many** (`temporalLayer.ts`): N frames under
+one container, one drawn at a time, so a capture's timesteps are a single Scene row
+with a timeline instead of N rows drawn on top of each other. Its frames are
+ordinary layers, so two rules follow. **`Viewer.drawnLayers()` is what the kind
+filters read** — the top-level layers with a temporal item replaced by its drawn
+frame — so nested frames stay reachable for picking, the texture budget and the
+derived `hasX` flags, while the off-screen ones stay out of all three; `this.layers`
+remains the source for the Scene list, bounds and the state fan-outs the container
+forwards. And **a frame is re-synced when it becomes the drawn one**
+(`syncLayerState` in `setItemFrame`): scene-wide state is pushed to layers when it
+changes, and a hidden frame was not there to receive it. That is safe to do on every
+switch, playback included, because both layer kinds rebuild only what actually
+changed (`AssetLayer.applyAssetOptions` and `ReconstructionLayer.rebuildCameras` both
+diff). Playback rides `animate()` rather than a timer of its own — see the
+on-demand-rendering invariant.
 
 **Spark's renderer is the Viewer's, not a layer's.** "splatting" mode needs one
 `SparkRenderer` in the scene — it gathers every visible `SplatMesh` each frame and
