@@ -115,7 +115,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          sizing, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
-    ui/                  styles.ts, components.ts, controlPanel.ts (Scene list), overlays.ts (InfoPopup + model chooser)
+    ui/                  styles.ts, components.ts, controlPanel.ts (Scene list +
+                         per-item timeline), overlays.ts (InfoPopup, model chooser,
+                         temporal-grouping prompt)
   test/                  pure unit tests, run under `node --test`: colmap.test.ts
                          (parsers/poses), builders.test.ts (bounds + scene math),
                          splats.test.ts (3DGS render-mode geometry),
