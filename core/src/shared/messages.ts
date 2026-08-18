@@ -109,25 +109,65 @@ export interface ColmapModelRef {
 }
 
 /**
+ * The host ships a parsed model (the VS Code host, which reads the files itself).
+ * `source` is an optional file-system path/location for the Scene-list hover
+ * tooltip (the host knows it; the webview only has parsed data). Falls back to
+ * `label` when absent.
+ */
+export interface AddReconstructionMsg {
+  type: "addReconstruction";
+  id: string;
+  label: string;
+  data: ModelData;
+  source?: string;
+}
+
+/**
+ * Like addReconstruction, but the webview fetches + parses the model itself from
+ * URLs the host serves (so the host need not parse or ship a big ModelData). The
+ * PyCharm/JCEF host + drag-drop use this.
+ */
+export type LoadColmapMsg = { type: "loadColmap" } & ColmapModelRef;
+
+/** A mesh / 3DGS splat / point-track file for the webview to load. */
+export interface AddAssetMsg {
+  type: "addAsset";
+  id: string;
+  label: string;
+  asset: AssetRef;
+}
+
+/** One item of a multi-item add — literally the message that would have carried it
+ *  alone, so a group member and a lone item take the same path in the webview. */
+export type AddItem = AddReconstructionMsg | LoadColmapMsg | AddAssetMsg;
+
+/**
+ * Several items added by ONE user action: "load all N models", a multi-file asset
+ * pick, a drop of several assets. The webview asks — once, in one modal, for every
+ * host — whether they are N scene items or one temporal item; `id` is the scene id
+ * that temporal item takes (members keep their own ids when loaded separately), and
+ * is what `removed` reports so the host can forget the whole group.
+ */
+export interface AddGroupMsg {
+  type: "addGroup";
+  id: string;
+  label: string;
+  members: AddItem[];
+}
+
+/**
  * Extension host -> webview. A scene holds any number of reconstructions and
  * assets (meshes / splats), each identified by a host-assigned `id` (stable
  * across panel recreations) so the webview can list, toggle, and remove them.
  */
 export type HostToWebview =
   | { type: "loading"; message: string }
-  // `source` is an optional file-system path/location for the Scene-list hover
-  // tooltip (the host knows it; the webview only has parsed data). Falls back to
-  // `label` when absent.
-  | { type: "addReconstruction"; id: string; label: string; data: ModelData; source?: string }
-  // Like addReconstruction, but the webview fetches + parses the model itself from
-  // URLs the host serves (so the host need not parse or ship a big ModelData). The
-  // VS Code host uses addReconstruction; the PyCharm/JCEF host + drag-drop use this.
-  | ({ type: "loadColmap" } & ColmapModelRef)
+  | AddItem
   // Several discovered models — the webview shows a chooser so the user loads one,
   // some, or all. Used by the browser hosts (web demo + drag-drop), which lack a
   // native picker; the native hosts (VS Code, PyCharm) choose host-side instead.
   | { type: "chooseColmap"; models: ColmapModelRef[] }
-  | { type: "addAsset"; id: string; label: string; asset: AssetRef }
+  | AddGroupMsg
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */
