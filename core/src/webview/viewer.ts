@@ -439,9 +439,18 @@ export class Viewer {
    *  destroy it mid-drag. */
   setItemFrame(id: string, frame: number): void {
     const layer = this.byId.get(id);
-    if (!(layer instanceof TemporalLayer)) {
-      return;
+    if (layer instanceof TemporalLayer) {
+      this.showFrame(layer, frame, true);
     }
+  }
+
+  /**
+   * Draw one frame of a temporal item. `withTextures` is false while playing: each
+   * frame carries its own frustum thumbnails, and re-running the nearest-N budget
+   * ten times a second would keep the loader thrashing for images nobody can see at
+   * that rate. A scrub, and the pause that ends playback, refresh them.
+   */
+  private showFrame(layer: TemporalLayer, frame: number, withTextures: boolean): void {
     const outgoing = layer.drawnFrame;
     layer.setFrame(frame);
     if (layer.drawnFrame === outgoing) {
@@ -455,7 +464,9 @@ export class Viewer {
       // It may have been hidden while the scene's state moved under it.
       this.syncLayerState(layer.drawnFrame);
     }
-    this.refreshTextures();
+    if (withTextures) {
+      this.refreshTextures();
+    }
     this.requestRender();
   }
 
@@ -470,6 +481,7 @@ export class Viewer {
       this.playingLayers.add(layer);
     } else {
       this.playingLayers.delete(layer);
+      this.refreshTextures(); // the frame it stopped on is worth its thumbnails
     }
     this.requestRender();
   }
@@ -912,7 +924,7 @@ export class Viewer {
     }
     this.lastStep = now;
     for (const layer of this.playingLayers) {
-      this.setItemFrame(layer.id, (layer.frame + 1) % layer.frameCount);
+      this.showFrame(layer, (layer.frame + 1) % layer.frameCount, false);
       this.onFrame?.(layer.id, layer.frame);
     }
   }
