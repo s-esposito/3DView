@@ -30,6 +30,11 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   are what keep a few thousand overlapping trails readable.
   Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
   `(steps, tracks)` visibility mask.
+- **Temporal items (4D)** — load several reconstructions, meshes or splats as the
+  **timesteps of one capture** instead of that many scene items: when a folder holds
+  more than one model, or you pick / drop several asset files at once, 3DView asks
+  which you meant. A temporal item is one Scene row marked **⏱ N**, with its own
+  **timeline** — scrub through the frames or play them back (shared **Playback fps**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
   **position / rotation** fields (the ⤧ button on its row), so sources that don't
@@ -71,7 +76,9 @@ Reconstruction* / *Open Asset* / *Open Viewer*, then the Scene panel's **+** —
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
 single mesh, splat, or point-track file. When a project holds several models under `sparse/`
-(`0`, `1`, …) you're prompted to load one specific model or all of them.
+(`0`, `1`, …) you're prompted to load one specific model or all of them — and anything
+you open several of at once can be loaded as one temporal item you scrub through
+instead of as separate items.
 
 | Action | Input |
 |--------|-------|
