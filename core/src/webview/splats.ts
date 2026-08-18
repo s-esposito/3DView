@@ -158,6 +158,50 @@ function buildSplatMesh(cloud: SplatCloud): THREE.Object3D {
   return mesh;
 }
 
+/**
+ * Redraw an existing Spark mesh from another frame of the same capture, in place.
+ * True when it took; false when the object isn't a Spark mesh (the ellipsoid and
+ * point modes build their own geometry) or the frame's layout differs, and the
+ * caller must rebuild instead.
+ *
+ * The point is what it avoids. A fresh `SplatMesh` per frame changes the set of
+ * meshes the SparkRenderer collects, and on such a change Spark withholds the new
+ * frame until a full re-sort has landed — a GPU→CPU depth readback plus a worker
+ * sort, per frame, which is what turns playback into a slideshow. Repointing the
+ * SAME `PackedSplats` at the next frame's buffer keeps the mesh, the splat count
+ * and therefore Spark's mapping identical, so the frame is displayed immediately
+ * and the re-sort follows behind it (one frame of slightly stale ordering, which
+ * is imperceptible when consecutive frames are the same Gaussians in motion).
+ *
+ * Assigning a *different* `PackedSplats` would not do: Spark keys its compiled
+ * splat program on the generator object it rebuilds whenever the source object
+ * changes, so that path pays a shader compile per frame instead.
+ */
+export function swapSplatCloud(object: THREE.Object3D | undefined, cloud: SplatCloud): boolean {
+  if (!(object instanceof SplatMesh)) {
+    return false;
+  }
+  const packed = object.packedSplats;
+  if (
+    !packed ||
+    packed.numSplats !== cloud.packedCount ||
+    packed.packedArray?.length !== cloud.packed.length
+  ) {
+    return false;
+  }
+  packed.packedArray = cloud.packed;
+  packed.needsUpdate = true; // re-points the data texture at the new buffer, re-uploads
+  object.updateVersion(); // tells Spark the splats changed, so it regenerates
+  return true;
+}
+
+/** Whether two decoded frames can be swapped for one another on the same mesh:
+ *  same splat count, and the same bytes per splat (a differing spherical-harmonic
+ *  degree changes the packed layout, and with it Spark's program). */
+export function sameSplatLayout(a: SplatCloud, b: SplatCloud): boolean {
+  return a.packedCount === b.packedCount && a.packed.length === b.packed.length;
+}
+
 /** Free a splat object's GPU resources. A no-op unless it is a Spark `SplatMesh`,
  *  whose buffers only its own `dispose()` releases. */
 export function disposeSplatMesh(object: THREE.Object3D | undefined): void {

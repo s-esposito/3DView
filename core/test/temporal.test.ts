@@ -147,6 +147,39 @@ test("hiding the item hides the sequence without changing which frame is drawn",
   assert.deepEqual(shown(frames), ["a"], "frame visibility is a separate axis");
 });
 
+// --- the sequence shape: ONE layer holding every frame ----------------------
+// What a 3DGS sequence with a stable layout uses, so the splat renderer's mapping
+// never changes and a frame can be shown before it has been re-sorted.
+class FakeSequence extends FakeFrame {
+  shown: number[] = [];
+  constructor(readonly frameCount: number) {
+    super("seq", "capture");
+  }
+  showFrame(index: number): void {
+    this.shown.push(index);
+  }
+}
+
+test("a sequence layer is the item's only frame, however many it holds", () => {
+  const held = new FakeSequence(40);
+  const layer = new TemporalLayer("seq-1", "capture", "asset", undefined, held);
+  assert.equal(layer.frameCount, 40, "the count comes from the sequence, not the child list");
+  assert.equal(layer.drawnFrame, held);
+  assert.equal(layer.object.children.length, 1, "attached once, and stays attached");
+});
+
+test("scrubbing a sequence swaps its data instead of swapping layers", () => {
+  const held = new FakeSequence(40);
+  const layer = new TemporalLayer("seq-1", "capture", "asset", undefined, held);
+  layer.setFrame(7);
+  layer.setFrame(39);
+  layer.setFrame(120); // clamped
+  assert.deepEqual(held.shown, [7, 39, 39]);
+  assert.equal(layer.frame, 39);
+  assert.equal(layer.object.children.length, 1, "no attach/detach churn while playing");
+  assert.equal(held.visible, true, "the one layer is never hidden");
+});
+
 test("dispose frees every frame, not just the drawn one", () => {
   const [layer, frames] = sequence(["a", "b", "c"]);
   layer.dispose();

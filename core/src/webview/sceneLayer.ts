@@ -75,6 +75,20 @@ export interface SceneLayer {
 }
 
 /** A COLMAP reconstruction: colored points, camera frustums, and a bounding box. */
+/**
+ * A layer that already holds every frame of a sequence and can redraw itself as any
+ * of them. This is what lets a temporal item swap the data under ONE layer instead
+ * of attaching a layer per frame — `AssetLayer` implements it for 3DGS sequences,
+ * where a fresh mesh per frame would make Spark withhold the frame until a full
+ * re-sort landed (see `swapSplatCloud`).
+ */
+export interface FrameSource extends SceneLayer {
+  /** Frames held; 0 when this layer holds a lone asset. */
+  readonly frameCount: number;
+  /** Redraw as frame `index` of the sequence. */
+  showFrame(index: number): void;
+}
+
 export class ReconstructionLayer implements SceneLayer {
   readonly kind = "reconstruction" as const;
   readonly object = new THREE.Group();

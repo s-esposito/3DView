@@ -24,11 +24,12 @@ import {
   AssetOptions,
   DEFAULT_ASSET_OPTIONS,
 } from "./sceneLayer";
-import { AssetLayer } from "./assetLayer";
+import { AssetLayer, loadSplatCloud } from "./assetLayer";
 import { TemporalLayer } from "./temporalLayer";
 import { SparkRenderer } from "@sparkjsdev/spark";
-import { SPLAT_RENDER_MODES } from "./splats";
-import type { SplatRenderMode } from "./splats";
+import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
+import type { SplatCloud, SplatRenderMode } from "./splats";
+import { ASSET_KIND_EXTS } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
@@ -388,6 +389,21 @@ export class Viewer {
     // Re-fit once the rest have landed, so the first thing opened is framed by all
     // of its content and not by a prefix of it.
     const fitWhenLoaded = this.layers.length === 0;
+
+    // A 3DGS sequence whose frames share a layout is taken in as ONE layer that
+    // swaps between them, which is the only way the splat renderer shows a new
+    // frame without first re-sorting it (see AssetLayer.showFrame).
+    const clouds = await this.decodeSplatFrames(label, frames);
+    if (clouds) {
+      for (const frame of frames) {
+        if (frame.kind === "asset") {
+          URL.revokeObjectURL(frame.uri); // decoded above; a dropped blob can go
+        }
+      }
+      this.attachSplatSequence(id, label, source, frames, clouds);
+      return;
+    }
+
     const layer = new TemporalLayer(id, label, first.kind, source);
     for (const [at, frame] of frames.entries()) {
       const progress = (phase: string) =>
@@ -417,6 +433,76 @@ export class Viewer {
     layer.frames.forEach((f) => this.syncLayerState(f));
     this.syncSpark(); // the sequence may hold the scene's first splat
     this.refreshScene(fitWhenLoaded);
+  }
+
+  /**
+   * Decode every frame of a would-be 3DGS sequence, or undefined when this isn't
+   * one. Attempted only when each frame is a splat-shaped file; a `.ply` that turns
+   * out to be a mesh, or any decode failure, gives up and leaves the caller to load
+   * each frame as its own layer (re-fetching, which is why the check is cheap and
+   * up front rather than speculative).
+   */
+  private async decodeSplatFrames(
+    label: string,
+    frames: TemporalFrame[]
+  ): Promise<SplatCloud[] | undefined> {
+    const splatFile = (name: string) =>
+      ASSET_KIND_EXTS.splat.includes(name.split(".").pop()?.toLowerCase() ?? "");
+    if (!frames.every((f) => f.kind === "asset" && splatFile(f.name))) {
+      return undefined;
+    }
+    const clouds: SplatCloud[] = [];
+    for (const [at, frame] of frames.entries()) {
+      if (frame.kind !== "asset") {
+        return undefined;
+      }
+      try {
+        clouds.push(
+          await loadSplatCloud(frame.uri, frame.name, (phase) =>
+            this.onProgress?.(`${label} — frame ${at + 1}/${frames.length} — ${phase}`)
+          )
+        );
+      } catch {
+        return undefined; // not 3DGS after all, or unreadable — fall back
+      }
+    }
+    return clouds;
+  }
+
+  /**
+   * Add decoded splat frames as one scene item. Frames that share a packed layout
+   * live in a single layer that swaps between them — the fast path, where a frame
+   * shows immediately and the re-sort follows. Frames that don't get a layer each,
+   * built from the clouds already decoded so nothing is fetched twice.
+   */
+  private attachSplatSequence(
+    id: string,
+    label: string,
+    source: string | undefined,
+    frames: TemporalFrame[],
+    clouds: SplatCloud[]
+  ): void {
+    // One layer holding every frame, or one layer per frame — the same timeline
+    // either way; only who owns the frames differs.
+    const swappable = clouds.every((cloud) => sameSplatLayout(cloud, clouds[0]));
+    const build = (held: SplatCloud[], at: number) => {
+      const layer = new AssetLayer(frames[at].id, frames[at].label, source ?? label);
+      layer.adoptSplatFrames(held, this.assetOpts);
+      this.syncLayerState(layer);
+      return layer;
+    };
+    const temporal = new TemporalLayer(
+      id,
+      label,
+      "asset",
+      source,
+      swappable ? build(clouds, 0) : undefined
+    );
+    if (!swappable) {
+      clouds.forEach((cloud, at) => temporal.addFrame(build([cloud], at)));
+    }
+    this.attach(temporal); // fits the view when this is the scene's first item
+    this.syncSpark(); // the sequence may hold the scene's first splat
   }
 
   /** One frame of a temporal item, built the same way a lone item of its kind is. */
@@ -455,13 +541,15 @@ export class Viewer {
    * that rate. A scrub, and the pause that ends playback, refresh them.
    */
   private showFrame(layer: TemporalLayer, frame: number, withTextures: boolean): void {
+    const before = layer.frame;
     const outgoing = layer.drawnFrame;
     layer.setFrame(frame);
-    if (layer.drawnFrame === outgoing) {
-      return;
+    if (layer.frame === before) {
+      return; // clamped to the frame already drawn
     }
-    if (outgoing) {
-      // The frame left the scene as far as hover/selection is concerned.
+    if (outgoing && outgoing !== layer.drawnFrame) {
+      // That frame's layer left the scene, as far as hover/selection is concerned.
+      // A sequence layer stays and swaps its data, so there is nothing to drop.
       this.interaction.handleRemoved(outgoing.id);
     }
     if (layer.drawnFrame) {

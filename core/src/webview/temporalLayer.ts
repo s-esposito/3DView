@@ -15,7 +15,7 @@ import * as THREE from "three";
 import type { Bounds } from "../shared/messages";
 import { compareNatural } from "../shared/naming";
 import { unionBounds, disposeObject } from "./builders";
-import type { AssetOptions, SceneLayer } from "./sceneLayer";
+import type { AssetOptions, FrameSource, SceneLayer } from "./sceneLayer";
 
 export class TemporalLayer implements SceneLayer {
   readonly object = new THREE.Group();
@@ -32,11 +32,25 @@ export class TemporalLayer implements SceneLayer {
      *  exactly as they would the frames loaded separately. Frames are homogeneous
      *  by construction — no intake path mixes reconstructions and assets. */
     readonly kind: "reconstruction" | "asset",
-    readonly source?: string
-  ) {}
+    readonly source?: string,
+    /**
+     * One layer that already holds every frame, instead of a layer per frame. Used
+     * for a 3DGS sequence whose frames share a packed layout: swapping the data
+     * under one mesh keeps the splat renderer's mapping intact, and only then does
+     * it show a new frame without waiting for a re-sort (see `swapSplatCloud`).
+     * Everything else here — bounds, state fan-out, disposal — treats it as the
+     * sequence's single frame, so both shapes share one timeline.
+     */
+    private readonly sequence?: FrameSource
+  ) {
+    if (sequence) {
+      this.frames.push(sequence);
+      this.object.add(sequence.object);
+    }
+  }
 
   get frameCount(): number {
-    return this.frames.length;
+    return this.sequence ? this.sequence.frameCount : this.frames.length;
   }
 
   get frame(): number {
@@ -48,22 +62,27 @@ export class TemporalLayer implements SceneLayer {
    *  so picking, the texture budget and the derived state flags see only what is
    *  actually on screen. */
   get drawnFrame(): SceneLayer | undefined {
-    return this.frames[this.index];
+    return this.sequence ?? this.frames[this.index];
   }
 
   /** Add a loaded frame, keeping the sequence in natural label order (frames finish
-   *  loading in whatever order their bytes arrive). Only the drawn frame is shown. */
+   *  loading in whatever order their bytes arrive). Only the drawn frame is shown.
+   *  For the layer-per-frame shape only — a sequence layer arrives whole. */
   addFrame(layer: SceneLayer): void {
     const before = this.frames.findIndex((f) => compareNatural(layer.label, f.label) < 0);
     this.frames.splice(before === -1 ? this.frames.length : before, 0, layer);
     this.cachedBounds = undefined;
-    this.drawOnlyCurrent(); // also clamps the index, and attaches the newcomer if it is it
+    this.setFrame(this.index); // clamp, and attach the newcomer if it is the drawn one
   }
 
   /** Draw frame `i`, clamped to the sequence. The Viewer re-syncs the newcomer to
    *  the scene's state afterwards (it may have changed while the frame was hidden). */
   setFrame(i: number): void {
-    this.index = Math.round(i);
+    this.index = Math.min(Math.max(Math.round(i), 0), Math.max(this.frameCount - 1, 0));
+    if (this.sequence) {
+      this.sequence.showFrame(this.index);
+      return;
+    }
     this.drawOnlyCurrent();
   }
 
@@ -80,7 +99,6 @@ export class TemporalLayer implements SceneLayer {
    * set that decides whether a re-sort is needed.
    */
   private drawOnlyCurrent(): void {
-    this.index = Math.min(Math.max(this.index, 0), Math.max(this.frames.length - 1, 0));
     this.frames.forEach((frame, at) => {
       const drawn = at === this.index;
       frame.setVisible(drawn);

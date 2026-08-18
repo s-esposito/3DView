@@ -91,7 +91,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     temporalLayer.ts     TemporalLayer (SceneLayer): N frames — timesteps of one
                          capture — under one container, drawing one at a time, so
                          the Scene list holds one row with a timeline. Frames are
-                         ordinary Reconstruction/Asset layers, unchanged
+                         ordinary Reconstruction/Asset layers, unchanged — except a
+                         3DGS sequence with a stable layout, which is ONE layer
+                         swapping its buffer (a FrameSource; see below)
     splats.ts            3DGS: decodeSplats() (Spark, WASM in a worker) → SplatCloud,
                          then buildSplatObject() in one of three render modes —
                          "splatting" (default; a Spark SplatMesh adopting our packed
@@ -195,6 +197,24 @@ switch, playback included, because both layer kinds rebuild only what actually
 changed (`AssetLayer.applyAssetOptions` and `ReconstructionLayer.rebuildCameras` both
 diff). Playback rides `animate()` rather than a timer of its own — see the
 on-demand-rendering invariant.
+
+**A 3DGS sequence plays back only if the mesh never changes.** Spark rebuilds its
+splat collection from the scene each update and, whenever that collection's *mapping*
+changes — a different mesh, or a different splat count — it withholds the new frame
+until a full re-sort has landed (GPU→CPU depth readback + worker sort). One mesh per
+frame therefore caps playback at one frame per sort: a slideshow. So when every frame
+of a temporal item is 3DGS **and they share a packed layout** (same splat count, same
+bytes per splat), the item is built as a single `AssetLayer` holding all the decoded
+clouds (`adoptSplatFrames`) and scrubbing repoints that one mesh's `PackedSplats` at
+the next frame's buffer (`splats.ts swapSplatCloud`): the mapping never changes, the
+frame shows at once, and the re-sort follows behind it. Two rules come with it:
+assign the **same** `PackedSplats` a new `packedArray` — handing the mesh a *different*
+`PackedSplats` rebuilds its generator, and Spark keys the compiled splat program on
+generator identity, so that costs a shader compile per frame; and the layout check is
+count **and** array length, since a differing SH degree changes the packed layout.
+Anything else (mixed layouts, meshes, tracks, reconstructions) keeps the layer-per-frame
+shape. The stale ordering is only invisible while consecutive frames are the same
+Gaussians in motion; equal counts is evidence of that, not proof.
 
 **Spark's renderer is the Viewer's, not a layer's.** "splatting" mode needs one
 `SparkRenderer` in the scene — it gathers every visible `SplatMesh` each frame and
