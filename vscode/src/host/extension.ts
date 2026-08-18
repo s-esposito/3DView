@@ -172,8 +172,9 @@ async function openAssetFolder(context: vscode.ExtensionContext, recents: Recent
   openAssetFiles(context, recents, files);
 }
 
-/** The asset files directly inside `dir`, in natural order (frame_9 before
- *  frame_10). Not recursive: the folder you pick is the sequence. */
+/** The asset files directly inside `dir`. Not recursive: the folder you pick is the
+ *  sequence. Left unsorted — the webview orders frames naturally when it builds the
+ *  item, so sorting here would only be a second opinion. */
 function assetFilesIn(dir: string): string[] {
   let entries: fs.Dirent[];
   try {
@@ -183,8 +184,7 @@ function assetFilesIn(dir: string): string[] {
   }
   return entries
     .filter((e) => e.isFile() && ASSET_EXTS.includes(path.extname(e.name).slice(1).toLowerCase()))
-    .map((e) => path.join(dir, e.name))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    .map((e) => path.join(dir, e.name));
 }
 
 function openAssetFiles(context: vscode.ExtensionContext, recents: RecentsProvider, files: string[]) {

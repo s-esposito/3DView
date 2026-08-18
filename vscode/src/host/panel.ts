@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AddItem, HostToWebview, WebviewToHost, ModelData } from "@3dview/core";
+import { sharedFolderName } from "@3dview/core";
 import { buildModelData } from "./modelData";
 
 // What the user asked to open. Also persisted as the Recents schema
@@ -200,7 +201,8 @@ export class ViewerPanel {
         this.post(members[0]);
       } else if (members.length > 1) {
         const id = items[0].group ?? nextId("group");
-        this.post({ type: "addGroup", id, label: groupLabel(items), members });
+        const label = sharedFolderName(items.map((i) => pathOf(i.target)));
+        this.post({ type: "addGroup", id, label: label ?? `${members.length} items`, members });
       }
     };
     if (this.webviewReady) {
@@ -364,20 +366,6 @@ function rootsFor(content: Item[]): string[] {
 export function labelFor(modelDir: string): string {
   const base = path.basename(modelDir);
   return /^\d+$/.test(base) ? `${path.basename(path.dirname(modelDir))}/${base}` : base;
-}
-
-/** A name for items opened together: the deepest folder all of them sit under
- *  (sparse/0, sparse/1, … give "sparse", which reads better than "0"). */
-function groupLabel(items: Item[]): string {
-  const dirs = items.map((i) => path.dirname(pathOf(i.target)).split(path.sep));
-  const shared: string[] = [];
-  for (let at = 0; at < dirs[0].length; at++) {
-    if (!dirs.every((d) => d[at] === dirs[0][at])) {
-      break;
-    }
-    shared.push(dirs[0][at]);
-  }
-  return shared[shared.length - 1] || `${items.length} items`;
 }
 
 function getNonce(): string {

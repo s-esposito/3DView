@@ -6,7 +6,7 @@ import type { AddItem, HostToWebview, ColmapModelRef } from "../shared/messages"
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import type { TemporalFrame } from "./viewer";
-import { compareNatural } from "./temporalLayer";
+import { compareNatural, sharedFolderName } from "../shared/naming";
 import { ControlPanel } from "./ui/controlPanel";
 import { InfoPopup, showColmapChooser, askTemporalGrouping } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
@@ -165,7 +165,9 @@ function handleHostMessage(msg: HostToWebview) {
           const picked = msg.models.filter((_, i) => selected.includes(i));
           // Picking several chains into the same grouping question every other
           // multi-item path asks — one question per modal, one code path.
-          void addItems(nextGroupId(), groupLabel(picked), picked.map(toAddItem));
+          const label = sharedFolderName(picked.map((m) => m.source ?? m.label));
+          const members: AddItem[] = picked.map((m) => ({ type: "loadColmap", ...m }));
+          void addItems(nextGroupId(), label ?? picked[0].label, members);
         },
         () => msg.models.forEach((m) => revokeColmapTrio(m.urls))
       );
@@ -201,33 +203,32 @@ async function addItems(groupId: string, label: string, members: AddItem[]) {
   }
   const frames: TemporalFrame[] = [];
   for (const m of ordered) {
-    if (m.type === "addAsset") {
-      const { uri, name } = m.asset;
-      frames.push({ kind: "asset", id: m.id, label: m.label, uri, name });
-    } else if (m.type === "addReconstruction") {
-      frames.push({
-        kind: "reconstruction",
-        id: m.id,
-        label: m.label,
-        data: m.data,
-        source: m.source,
-      });
-    } else {
-      showStatus(`Loading ${m.label}…`, true);
-      try {
-        frames.push({
-          kind: "reconstruction",
-          id: m.id,
-          label: m.label,
-          data: await loadColmapData(m),
-          source: m.source,
-        });
-      } catch (err) {
-        showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    const frame = await toFrame(m);
+    if (frame) {
+      frames.push(frame);
     }
   }
   await viewer.addTemporal(groupId, label, frames);
+}
+
+/** One group member as a frame the Viewer can build, fetching the model first for
+ *  the URL-served kind. Undefined when that fetch failed — the sequence goes on
+ *  without it, as it does for a frame the Viewer itself can't build. */
+async function toFrame(m: AddItem): Promise<TemporalFrame | undefined> {
+  const { id, label } = m;
+  if (m.type === "addAsset") {
+    return { kind: "asset", id, label, uri: m.asset.uri, name: m.asset.name };
+  }
+  if (m.type === "addReconstruction") {
+    return { kind: "reconstruction", id, label, data: m.data, source: m.source };
+  }
+  showStatus(`Loading ${label}…`, true);
+  try {
+    return { kind: "reconstruction", id, label, data: await loadColmapData(m), source: m.source };
+  } catch (err) {
+    showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 /** Free the bytes behind an item the user decided not to load. */
@@ -237,26 +238,6 @@ function release(m: AddItem) {
   } else if (m.type === "loadColmap") {
     revokeColmapTrio(m.urls);
   }
-}
-
-/** A name for a set of models: the deepest folder they all sit under, else the
- *  first one's label. Whole segments only, and never a model's own folder — sparse/0
- *  and sparse/1 share "sparse", which reads better than "0". */
-function groupLabel(models: ColmapModelRef[]): string {
-  const dirs = models.map((m) => (m.source ?? m.label).split(/[/\\]/).slice(0, -1));
-  const shared: string[] = [];
-  for (let at = 0; at < dirs[0].length; at++) {
-    if (!dirs.every((d) => d[at] === dirs[0][at])) {
-      break;
-    }
-    shared.push(dirs[0][at]);
-  }
-  return shared[shared.length - 1] || models[0].label;
-}
-
-/** A discovered model as the message that would have carried it on its own. */
-function toAddItem(m: ColmapModelRef): AddItem {
-  return { type: "loadColmap", ...m };
 }
 
 /** Group ids for content the webview groups itself (a chooser pick), mirroring the

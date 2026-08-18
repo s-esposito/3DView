@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
-import { TemporalLayer, compareNatural } from "../src/webview/temporalLayer";
+import { TemporalLayer } from "../src/webview/temporalLayer";
 import type { AssetOptions, SceneLayer } from "../src/webview/sceneLayer";
 import type { Bounds } from "../src/shared/messages";
 
@@ -59,14 +59,6 @@ function sequence(labels: string[], extents: Bounds[] = []): [TemporalLayer, Fak
 /** The labels of the frames, in the order the timeline scrubs through them. */
 const order = (layer: TemporalLayer) => layer.frames.map((f) => f.label);
 const shown = (frames: FakeFrame[]) => frames.filter((f) => f.visible).map((f) => f.label);
-
-test("compareNatural orders labels the way a person reads them", () => {
-  assert.deepEqual(
-    ["frame_10", "frame_2", "frame_1"].sort(compareNatural),
-    ["frame_1", "frame_2", "frame_10"]
-  );
-  assert.deepEqual(["sparse/10", "sparse/9"].sort(compareNatural), ["sparse/9", "sparse/10"]);
-});
 
 test("frames are kept in natural order however they arrive", () => {
   // Loads finish in whatever order their bytes do — frame 10 before frame 2.

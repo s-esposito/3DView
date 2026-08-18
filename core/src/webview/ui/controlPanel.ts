@@ -52,11 +52,6 @@ export class ControlPanel {
    *  render, so playback updates the live slider instead of rebuilding the panel. */
   private readonly playheads = new Map<string, (frame: number) => void>();
 
-  /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
-  setPlayhead(id: string, frame: number): void {
-    this.playheads.get(id)?.(frame);
-  }
-
   constructor(private readonly viewer: Viewer) {}
 
   /** Render (or re-render) the UI from current Viewer state. */
@@ -69,6 +64,11 @@ export class ControlPanel {
     ui.className = "viewer-ui";
     ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
     document.body.appendChild(ui);
+  }
+
+  /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
+  setPlayhead(id: string, frame: number): void {
+    this.playheads.get(id)?.(frame);
   }
 
   /** A collapsible panel header: chevron + title (+ optional subtitle + action). */

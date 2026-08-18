@@ -13,21 +13,15 @@
 import * as THREE from "three";
 
 import type { Bounds } from "../shared/messages";
+import { compareNatural } from "../shared/naming";
 import { unionBounds, disposeObject } from "./builders";
 import type { AssetOptions, SceneLayer } from "./sceneLayer";
-
-/** Compare labels the way a person reads them, so "frame_9" precedes "frame_10". */
-export function compareNatural(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-}
 
 export class TemporalLayer implements SceneLayer {
   readonly object = new THREE.Group();
   /** Every frame, in the order the timeline scrubs through them. */
   readonly frames: SceneLayer[] = [];
   visible = true;
-  /** Whether the Viewer's playback clock is advancing this item. */
-  playing = false;
   private index = 0;
   private cachedBounds?: Bounds;
 

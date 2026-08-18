@@ -17,6 +17,7 @@
 // demo host's folder picker via `colmap/grouping.ts` (groupColmapModels).
 import type { AddAssetMsg, HostToWebview, ColmapModelRef } from "../shared/messages";
 import { ASSET_EXTS } from "../shared/messages";
+import { sharedFolderName } from "../shared/naming";
 import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
 
 // A dropped file with its path relative to the drop (folders recursed); the path's
@@ -52,18 +53,18 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
   };
 
   window.addEventListener("dragenter", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault();
     depth++;
     overlay.classList.add("active");
   });
   window.addEventListener("dragover", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault(); // required, or the browser navigates to the file instead of firing `drop`
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   });
   window.addEventListener("dragleave", (e) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault();
     if (--depth <= 0) hide();
   });
@@ -77,8 +78,8 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
 
 /** A drag carries files when its types list includes "Files" (DataTransfer.files is
  *  empty mid-drag — it's only populated on `drop` — so we can't test that here). */
-function hasFiles(e: DragEvent): boolean {
-  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+function hasFiles(dt: DataTransfer | null): boolean {
+  return !!dt && Array.from(dt.types).includes("Files");
 }
 
 async function handleDrop(
@@ -88,13 +89,13 @@ async function handleDrop(
   try {
     const files = await gatherFiles(dt);
     if (files.length === 0) {
-      // A drag with no readable bytes. Silence here reads as "the viewer is broken",
-      // and the usual cause has a workaround worth naming: a drag out of the VS Code
-      // Explorer never reaches a webview at all (microsoft/vscode#182449), and over a
-      // remote connection those files aren't on this machine to read anyway.
-      if (Array.from(dt.types).includes("Files")) {
+      // A file drag whose bytes we can't read. Staying silent here reads as a broken
+      // viewer, and the usual cause has a workaround worth naming: a drag out of the
+      // editor's own file explorer never reaches a webview (microsoft/vscode#182449),
+      // and over a remote connection those files aren't on this machine anyway.
+      if (hasFiles(dt)) {
         throw new Error(
-          "Couldn't read that drop. Dragging from the editor's file explorer doesn't reach the viewer — drag from your desktop file manager instead, or use + in the Scene panel."
+          "Couldn't read that drop — a drag from the editor's file explorer doesn't reach the viewer. Drag from your file manager instead, or use + in the Scene panel."
         );
       }
       return; // not a file drag at all (e.g. dragged text) — ignore
@@ -188,25 +189,13 @@ function buildContent(files: DroppedFile[]): HostToWebview {
     return {
       type: "addGroup",
       id: nextId("group"),
-      label: commonFolder(assets.map((a) => a.path)),
+      label: sharedFolderName(assets.map((a) => a.path)) ?? "Dropped files",
       members: assets.map((a) => buildAsset(a.file)),
     };
   }
   throw new Error(
     `Unrecognised drop — expected a COLMAP folder (cameras/images/points3D) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
   );
-}
-
-/** The folder the dropped files share, as a name for the group they form. */
-function commonFolder(paths: string[]): string {
-  const dir = paths[0].split("/").slice(0, -1);
-  for (const path of paths) {
-    const parts = path.split("/").slice(0, -1);
-    while (dir.length > 0 && parts.slice(0, dir.length).join("/") !== dir.join("/")) {
-      dir.pop();
-    }
-  }
-  return dir.pop() || "Dropped files";
 }
 
 /** Map every image-like file to a blob: URL keyed by basename (the loader matches a

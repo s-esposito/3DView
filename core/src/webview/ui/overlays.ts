@@ -1,7 +1,7 @@
 // Transient overlays: the per-camera info popup (point-of-view mode) and the
 // modal model chooser (multiple COLMAP models in one drop / picked folder).
 import type { CameraView } from "../../shared/messages";
-import { keyValue } from "./components";
+import { hint, keyValue } from "./components";
 
 /** Build the shared popup/modal header (title + ✕ close button); the caller wires
  *  the close click. Returns the header element and its close button. */
@@ -198,12 +198,11 @@ export function askTemporalGrouping(
 
     const body = document.createElement("div");
     body.className = "viewer-modal-list";
-    const sub = document.createElement("span");
-    sub.className = "viewer-modal-sub";
-    sub.style.whiteSpace = "normal";
-    sub.textContent =
-      "They arrived together. Load them as frames of one item you can scrub through, or as separate items?";
-    body.append(sub);
+    body.append(
+      hint(
+        "They arrived together. Load them as frames of one item you can scrub through, or as separate items?"
+      )
+    );
 
     const foot = document.createElement("div");
     foot.className = "viewer-modal-foot";

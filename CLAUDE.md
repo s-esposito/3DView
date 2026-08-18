@@ -61,6 +61,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   src/shared/
     messages.ts          host↔webview message contract + DTOs (HostToWebview/WebviewToHost)
     hostBridge.ts        getHostBridge(): the neutral window.__viewerHost channel
+    naming.ts            compareNatural + sharedFolderName: how items opened together
+                         are ordered and named, shared by the hosts and the webview
   src/colmap/            Pure COLMAP library: parsing + pose + bounds (byte buffers/strings)
     reader.ts            little-endian binary cursor
     cameras.ts/images.ts/points3d.ts   .bin + .txt parsers

@@ -126,9 +126,9 @@ function toColmapRef(
   };
 }
 
-/** Post every asset file in a picked folder, in natural order (frame_9 before
- *  frame_10) — a per-frame capture, which the webview offers to load as one
- *  temporal item. The folder's other files (a README, images) are ignored. */
+/** Post every asset file in a picked folder — a per-frame capture, which the webview
+ *  offers to load as one temporal item (it orders the frames). The folder's other
+ *  files (a README, images) are ignored. */
 function sendAssetFolder(files: FileList): void {
   const assets = Array.from(files).filter((f) =>
     ASSET_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
@@ -138,7 +138,6 @@ function sendAssetFolder(files: FileList): void {
       `No asset files in the selected folder — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`
     );
   }
-  assets.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   sendAssets(assets);
 }
 

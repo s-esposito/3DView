@@ -308,7 +308,7 @@ export class Viewer {
         transform: readTransform(l.object),
         frameCount: l instanceof TemporalLayer ? l.frameCount : 0,
         frame: l instanceof TemporalLayer ? l.frame : 0,
-        playing: l instanceof TemporalLayer ? l.playing : false,
+        playing: l instanceof TemporalLayer && this.playingLayers.has(l),
       })),
     };
   }
@@ -480,8 +480,7 @@ export class Viewer {
     if (!(layer instanceof TemporalLayer)) {
       return;
     }
-    layer.playing = playing && layer.frameCount > 1;
-    if (layer.playing) {
+    if (playing && layer.frameCount > 1) {
       this.playingLayers.add(layer);
     } else {
       this.playingLayers.delete(layer);
