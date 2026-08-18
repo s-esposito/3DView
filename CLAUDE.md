@@ -177,7 +177,11 @@ Scene list + global toggles adapt automatically. (3DGS arrived as a format insid
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
 
 **A temporal item is one layer holding many** (`temporalLayer.ts`): N frames under
-one container, one drawn at a time, so a capture's timesteps are a single Scene row
+one container, **only the drawn one attached to it** (`.visible = false` is not
+enough — Spark rebuilds its splat collection by walking the whole scene each update,
+hidden meshes included, and runs per-mesh bookkeeping on every `SplatMesh` it finds,
+so an undrawn frame it can still reach costs work on every rendered frame; detaching
+costs Spark nothing, as it discovers meshes by traversal alone), so a capture's timesteps are a single Scene row
 with a timeline instead of N rows drawn on top of each other. Its frames are
 ordinary layers, so two rules follow. **`Viewer.drawnLayers()` is what the kind
 filters read** — the top-level layers with a temporal item replaced by its drawn

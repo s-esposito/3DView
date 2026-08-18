@@ -56,17 +56,40 @@ export class TemporalLayer implements SceneLayer {
   addFrame(layer: SceneLayer): void {
     const before = this.frames.findIndex((f) => compareNatural(layer.label, f.label) < 0);
     this.frames.splice(before === -1 ? this.frames.length : before, 0, layer);
-    this.object.add(layer.object);
     this.cachedBounds = undefined;
-    this.setFrame(this.index); // clamp + re-apply visibility
+    this.drawOnlyCurrent(); // also clamps the index, and attaches the newcomer if it is it
   }
 
   /** Draw frame `i`, clamped to the sequence. The Viewer re-syncs the newcomer to
    *  the scene's state afterwards (it may have changed while the frame was hidden). */
   setFrame(i: number): void {
-    const last = Math.max(this.frames.length - 1, 0);
-    this.index = Math.min(Math.max(Math.round(i), 0), last);
-    this.frames.forEach((f, at) => f.setVisible(at === this.index));
+    this.index = Math.round(i);
+    this.drawOnlyCurrent();
+  }
+
+  /**
+   * Leave exactly one frame in the scene graph: the drawn one. Clearing `.visible`
+   * would be enough for three.js, but not for the splat renderer — Spark rebuilds
+   * its splat collection by walking the WHOLE scene each update, visible or not, and
+   * runs per-mesh bookkeeping on every SplatMesh it finds. A fifty-frame sequence
+   * would pay that fifty times per rendered frame, for forty-nine frames nobody can
+   * see. A frame that isn't drawn isn't in the scene.
+   *
+   * Detaching costs Spark nothing extra: it discovers meshes by traversal alone (no
+   * add/remove hooks), and an off-screen frame was already absent from the visible
+   * set that decides whether a re-sort is needed.
+   */
+  private drawOnlyCurrent(): void {
+    this.index = Math.min(Math.max(this.index, 0), Math.max(this.frames.length - 1, 0));
+    this.frames.forEach((frame, at) => {
+      const drawn = at === this.index;
+      frame.setVisible(drawn);
+      if (drawn) {
+        this.object.add(frame.object);
+      } else {
+        frame.object.removeFromParent();
+      }
+    });
   }
 
   /** The union across EVERY frame, not just the drawn one, so fit-to-view, the grid

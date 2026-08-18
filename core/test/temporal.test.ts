@@ -59,6 +59,9 @@ function sequence(labels: string[], extents: Bounds[] = []): [TemporalLayer, Fak
 /** The labels of the frames, in the order the timeline scrubs through them. */
 const order = (layer: TemporalLayer) => layer.frames.map((f) => f.label);
 const shown = (frames: FakeFrame[]) => frames.filter((f) => f.visible).map((f) => f.label);
+/** The labels of the frames actually in the scene graph under the container. */
+const inScene = (layer: TemporalLayer, frames: FakeFrame[]) =>
+  frames.filter((f) => layer.object.children.includes(f.object)).map((f) => f.label);
 
 test("frames are kept in natural order however they arrive", () => {
   // Loads finish in whatever order their bytes do — frame 10 before frame 2.
@@ -72,6 +75,17 @@ test("exactly one frame is drawn, and it is the first by default", () => {
   assert.deepEqual(shown(frames), ["a"]);
   assert.equal(layer.frame, 0);
   assert.equal(layer.drawnFrame?.label, "a");
+});
+
+test("only the drawn frame is in the scene graph at all", () => {
+  // Not merely `.visible = false`: the splat renderer rebuilds its collection by
+  // walking the whole scene, hidden meshes included, so an undrawn frame it can
+  // still find costs per-mesh work every rendered frame.
+  const [layer, frames] = sequence(["a", "b", "c"]);
+  assert.deepEqual(inScene(layer, frames), ["a"]);
+  layer.setFrame(2);
+  assert.deepEqual(inScene(layer, frames), ["c"]);
+  assert.equal(layer.object.children.length, 1, "the outgoing frame was detached");
 });
 
 test("setFrame draws one frame and clamps to the sequence", () => {
