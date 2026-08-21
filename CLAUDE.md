@@ -246,7 +246,11 @@ posts `removed` so the host forgets it (won't replay it). Items opened by one ac
 (`ViewerPanel.openMany` — "all N models", a multi-file pick) also carry a **group
 id**, travel as one `addGroup`, and are replayed together; `removed` matches an
 item's id *or* its group's, so dropping a temporal item makes the host forget every
-member. The group id lives on the panel's in-memory `Item`, never on `OpenTarget`,
+member. `addGroup` normally asks the user whether the members are one temporal item
+or N separate ones; a host that **discovered** them itself (walking a per-frame
+capture directory, so it already knows they are timesteps) answers in advance with
+`grouping: "temporal" | "separate"`, and the modal is skipped. Omitted still asks, so
+every host that does not set it behaves exactly as before. The group id lives on the panel's in-memory `Item`, never on `OpenTarget`,
 which is the persisted Recents schema. Per-item controls are
 visibility + remove; appearance (point/frustum size, images, grid, axes, orientation)
 is global across the scene.

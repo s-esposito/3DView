@@ -156,7 +156,18 @@ export interface AddGroupMsg {
   id: string;
   label: string;
   members: AddItem[];
+  /** Answer the grouping question in advance, when the host already knows — a host
+   *  that discovered the members itself (a per-frame capture directory it walked)
+   *  knows they are timesteps, and asking would be a modal in front of content the
+   *  user did not choose to assemble. Omitted (the default) still asks, so every
+   *  existing host is unchanged. `"cancel"` is deliberately not offerable: it is an
+   *  answer to a question, not a way to add nothing. */
+  grouping?: GroupingChoice;
 }
+
+/** The two ways a multi-item add can resolve. Named as the modal's own answers, so
+ *  a host-supplied hint and a user's click are the same value downstream. */
+export type GroupingChoice = "temporal" | "separate";
 
 /**
  * Extension host -> webview. A scene holds any number of reconstructions and

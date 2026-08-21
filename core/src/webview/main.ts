@@ -2,7 +2,12 @@
 // status text to the Viewer and its UI. All real work lives in the modules. This
 // bundle is host-agnostic: it talks to the embedding IDE only through the
 // `window.__viewerHost` bridge (see shared/hostBridge), never a host-specific API.
-import type { AddItem, HostToWebview, ColmapModelRef } from "../shared/messages";
+import type {
+  AddItem,
+  HostToWebview,
+  ColmapModelRef,
+  GroupingChoice,
+} from "../shared/messages";
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import type { TemporalFrame } from "./viewer";
@@ -148,7 +153,7 @@ function handleHostMessage(msg: HostToWebview) {
       break;
     case "addGroup":
       // Several items from one user action — ask once what they are.
-      void addItems(msg.id, msg.label, msg.members);
+      void addItems(msg.id, msg.label, msg.members, msg.grouping);
       break;
     case "chooseColmap":
       // Several models found (e.g. sparse/0, sparse/1); let the user pick which to
@@ -184,7 +189,12 @@ function handleHostMessage(msg: HostToWebview) {
  * through the very handler it would have taken alone — so nothing about the
  * single-item paths changes, in any host.
  */
-async function addItems(groupId: string, label: string, members: AddItem[]) {
+async function addItems(
+  groupId: string,
+  label: string,
+  members: AddItem[],
+  grouping?: GroupingChoice
+) {
   if (members.length < 2) {
     members.forEach(handleHostMessage);
     return;
@@ -192,7 +202,7 @@ async function addItems(groupId: string, label: string, members: AddItem[]) {
   // Loads finish out of order and pickers return their own order; the timeline
   // reads labels the way a person does.
   const ordered = [...members].sort((a, b) => compareNatural(a.label, b.label));
-  const answer = await askTemporalGrouping(ordered.length, label);
+  const answer = grouping ?? (await askTemporalGrouping(ordered.length, label));
   if (answer === "separate") {
     ordered.forEach(handleHostMessage);
     return;
