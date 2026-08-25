@@ -15,14 +15,17 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   textured onto its frustum. Click a frustum to fly to that camera's viewpoint.
 - **Assets** — meshes (`.glb` / `.gltf` / `.obj` / `.ply`, **shaded** with their
   glTF/GLB materials and textures by default, with optional unlit-albedo and
-  wireframe modes) and **3D Gaussian Splatting** files
+  wireframe modes), **point clouds** (`.ply`), and **3D Gaussian Splatting** files
   (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
-  A `.ply` is auto-detected as a mesh or a splat, including the PlayCanvas /
-  SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
+  A `.ply` is auto-detected as a mesh, a point cloud or a splat, including the
+  PlayCanvas / SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
   of the 3DView panel: **Splats** (default) — true Gaussian splatting through Spark's
   renderer, sorted per viewpoint with spherical harmonics; **Ellipsoids** — each
   Gaussian as a solid oriented ellipsoid, to see the primitives as data; and
   **Points** — bare centers, the cheap fallback for huge scenes.
+  A point cloud that carries no colors of its own is drawn in a color from a shared
+  palette — a different one per scene item, so several clouds stay tellable apart —
+  and the **Point size** slider sizes every cloud in the scene, COLMAP's included.
 - **3D point tracks** (`.npz` / `.npy`) — trajectories a tracker followed over time,
   drawn as one colored polyline per point, with the trail breaking wherever a point
   is occluded. Sliders control the **trail** (how many time steps are drawn),
@@ -30,7 +33,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   are what keep a few thousand overlapping trails readable.
   Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
   `(steps, tracks)` visibility mask.
-- **Temporal items (4D)** — load several reconstructions, meshes or splats as the
+- **Temporal items (4D)** — load several reconstructions, meshes, clouds or splats as the
   **timesteps of one capture** instead of that many scene items: when a folder holds
   more than one model, or you pick / drop several asset files at once, 3DView asks
   which you meant. A temporal item is one Scene row marked **⏱ N**, with its own
@@ -53,7 +56,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.0.2.vsix --force
+code --install-extension 3dview-1.0.3.vsix --force
 ```
 
 **From source:**
@@ -76,13 +79,19 @@ Reconstruction* / *Open Asset* / *Open Asset Folder* / *Open Viewer*, then the S
 panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
-single mesh, splat, or point-track file. When a project holds several models under `sparse/`
+single mesh, point cloud, splat, or point-track file. When a project holds several models under `sparse/`
 (`0`, `1`, …) you're prompted to load one specific model or all of them — and anything
 you open several of at once can be loaded as one temporal item you scrub through
-instead of as separate items. **Open Asset Folder** loads every mesh / splat / track
+instead of as separate items. **Open Asset Folder** loads every mesh / cloud / splat / track
 file in a folder in one go — the way to load a per-frame capture, and the way to load
 several files at once over a remote connection, where VS Code's file dialog can only
 select one.
+
+Dragging out of **VS Code's own Explorer** works too, with two things worth knowing:
+hold **Shift** as you drop, or VS Code routes the drop to the editor area instead of
+the viewer — or skip the drag entirely and right-click the file(s) or folder in the
+Explorer → **Open in 3DView**. Either way the extension opens them by path, so they
+land in Recents and their images stream on demand.
 
 | Action | Input |
 |--------|-------|

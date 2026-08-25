@@ -9,6 +9,7 @@ import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages"
 import { themeColor } from "./theme";
 import {
   buildGrid,
+  cloudColor,
   diagonalOf,
   unionBounds,
   transformBounds,
@@ -109,6 +110,9 @@ export interface ViewerState {
   hasCameras: boolean;
   hasAsset: boolean;
   hasSplat: boolean;
+  /** Whether any asset is a bare point cloud, so the "Point size" slider applies
+   *  even in a scene with no reconstruction. */
+  hasPointCloud: boolean;
   /** Longest point-track asset in the scene, in time steps; 0 when there are none. */
   trackSteps: number;
   /** How many of those steps are currently drawn. */
@@ -184,6 +188,9 @@ export class Viewer {
   private themeName: ThemeName = "dark";
   private frustumScaleMax = 1;
   private frustumInitialized = false;
+  // Palette turn for the next scene item's fallback color. Taken per ITEM, not per
+  // layer — see addTemporal, where one turn covers every frame.
+  private colorTurn = 0;
   // Temporal items currently playing, and the clock that steps them (shared, so
   // several sequences advance together). Empty is the common case: the clock in
   // `animate` costs one Set size check per frame.
@@ -294,6 +301,7 @@ export class Viewer {
       hasCameras: recon.some((l) => l.cameraCount > 0),
       hasAsset: this.layers.some((l) => l.kind === "asset"),
       hasSplat: this.assetLayers().some((l) => l.isSplat),
+      hasPointCloud: this.assetLayers().some((l) => l.isPointCloud),
       trackSteps,
       trackFrames: Math.min(this.assetOpts.trackFrames, trackSteps),
       trackOpacity: this.assetOpts.trackOpacity,
@@ -347,7 +355,7 @@ export class Viewer {
   }
 
   addAsset(id: string, label: string, uri: string, name: string): void {
-    const layer = new AssetLayer(id, label, uri);
+    const layer = new AssetLayer(id, label, uri, cloudColor(this.colorTurn++));
     this.layers.push(layer);
     this.byId.set(id, layer);
     this.root.add(layer.object);
@@ -389,13 +397,16 @@ export class Viewer {
     // Re-fit once the rest have landed, so the first thing opened is framed by all
     // of its content and not by a prefix of it.
     const fitWhenLoaded = this.layers.length === 0;
+    // ONE color for the whole sequence: its frames are timesteps of one capture, so
+    // uncolored ones must not change color as the item is scrubbed or played.
+    const color = cloudColor(this.colorTurn++);
 
     // A 3DGS sequence whose frames share a layout is taken in as ONE layer that
     // swaps between them, which is the only way the splat renderer shows a new
     // frame without first re-sorting it (see AssetLayer.showFrame).
     const clouds = await this.decodeSplatFrames(label, frames);
     if (clouds) {
-      this.attachSplatSequence(id, label, source, frames, clouds);
+      this.attachSplatSequence(id, label, source, frames, clouds, color);
       return;
     }
 
@@ -405,7 +416,7 @@ export class Viewer {
         this.onProgress?.(`${label} — frame ${at + 1}/${frames.length} — ${phase}`);
       let built: SceneLayer;
       try {
-        built = await this.buildFrame(frame, progress);
+        built = await this.buildFrame(frame, progress, color);
       } catch (err) {
         this.onError?.(`${frame.label}: ${err instanceof Error ? err.message : String(err)}`);
         continue;
@@ -477,13 +488,14 @@ export class Viewer {
     label: string,
     source: string | undefined,
     frames: TemporalFrame[],
-    clouds: SplatCloud[]
+    clouds: SplatCloud[],
+    fallbackColor: number
   ): void {
     // One layer holding every frame, or one layer per frame — the same timeline
     // either way; only who owns the frames differs.
     const swappable = clouds.every((cloud) => sameSplatLayout(cloud, clouds[0]));
     const build = (held: SplatCloud[], at: number) => {
-      const layer = new AssetLayer(frames[at].id, frames[at].label, source ?? label);
+      const layer = new AssetLayer(frames[at].id, frames[at].label, source ?? label, fallbackColor);
       layer.adoptSplatFrames(held, this.assetOpts);
       this.syncLayerState(layer);
       return layer;
@@ -505,12 +517,13 @@ export class Viewer {
   /** One frame of a temporal item, built the same way a lone item of its kind is. */
   private async buildFrame(
     frame: TemporalFrame,
-    onProgress: (phase: string) => void
+    onProgress: (phase: string) => void,
+    fallbackColor: number
   ): Promise<SceneLayer> {
     if (frame.kind === "reconstruction") {
       return this.buildReconstruction(frame.id, frame.label, frame.data, frame.source);
     }
-    const layer = new AssetLayer(frame.id, frame.label, frame.uri);
+    const layer = new AssetLayer(frame.id, frame.label, frame.uri, fallbackColor);
     try {
       await layer.load(frame.uri, frame.name, this.assetOpts, onProgress);
     } finally {
@@ -747,10 +760,12 @@ export class Viewer {
     }
   }
 
+  /** One slider, two option bags: reconstructions read `opts.pointSize`, assets read
+   *  the asset options (a bare PLY cloud, or a 3DGS asset in "points" mode). */
   setPointSize(size: number): void {
     this.opts.pointSize = size;
     this.reconstructionLayers().forEach((l) => l.applyOptions(this.opts));
-    this.requestRender();
+    this.setAssetOptions({ pointSize: size }); // also requests a render
   }
 
   setFrustumScale(scale: number): void {

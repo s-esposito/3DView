@@ -8,6 +8,11 @@ import type { WebviewToHost } from "./messages";
 /** Minimal channel the webview needs: post a message to the embedding host. */
 export interface HostBridge {
   postMessage(msg: WebviewToHost): void;
+  /** Whether this host owns a filesystem and will act on an `openUris` message —
+   *  i.e. whether a drag that names files instead of handing over their bytes can
+   *  be opened at all. Absent means no, and the drop zone then declines such a
+   *  drag rather than accepting one it can't complete. */
+  readonly opensUris?: boolean;
 }
 
 /**

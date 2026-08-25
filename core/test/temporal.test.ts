@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 
 import { TemporalLayer } from "../src/webview/temporalLayer";
+import { DEFAULT_ASSET_OPTIONS } from "../src/webview/sceneLayer";
 import type { AssetOptions, SceneLayer } from "../src/webview/sceneLayer";
 import type { Bounds } from "../src/shared/messages";
 
@@ -128,12 +129,7 @@ test("cheap state reaches every frame; a rebuild-capable one reaches only the dr
   );
   // Asset options can rebuild geometry, so hidden frames are left alone — they are
   // re-synced when shown (Viewer.setItemFrame).
-  layer.applyAssetOptions({
-    splatMode: "points",
-    trackFrames: 1,
-    trackOpacity: 1,
-    trackDensity: 1,
-  });
+  layer.applyAssetOptions({ ...DEFAULT_ASSET_OPTIONS, splatMode: "points" });
   assert.deepEqual(
     frames.map((f) => f.assetOptionCalls),
     [1, 0, 0]

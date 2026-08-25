@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { parseUriList, URI_LIST_MIME } from "@3dview/core";
 import { labelFor, pathOf, type OpenTarget } from "./panel";
 
 const KEY = "3dview.recents";
@@ -19,7 +20,7 @@ function labelOf(t: OpenTarget): string {
 export class RecentsProvider
   implements vscode.TreeDataProvider<OpenTarget>, vscode.TreeDragAndDropController<OpenTarget>
 {
-  readonly dropMimeTypes = ["text/uri-list"];
+  readonly dropMimeTypes = [URI_LIST_MIME];
   readonly dragMimeTypes: string[] = [];
 
   private readonly changed = new vscode.EventEmitter<void>();
@@ -75,14 +76,13 @@ export class RecentsProvider
     dataTransfer: vscode.DataTransfer,
     _token: vscode.CancellationToken
   ): Promise<void> {
-    const item = dataTransfer.get("text/uri-list");
+    const item = dataTransfer.get(URI_LIST_MIME);
     if (!item) {
       return;
     }
-    const uris = (await item.asString())
-      .split(/\r?\n/)
-      .filter((line) => line && !line.startsWith("#"))
-      .map((line) => vscode.Uri.parse(line));
+    // Decoded by the same reader the webview's drop zone uses — same payload, same
+    // producer, so they must not drift apart.
+    const uris = parseUriList(await item.asString()).map((line) => vscode.Uri.parse(line));
     if (uris.length > 0) {
       this.onDrop(uris);
     }

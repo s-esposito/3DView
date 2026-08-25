@@ -9,6 +9,10 @@ Reconstruction* / *Open Mesh* / *Open Viewer*, then the Scene panel's **+** — 
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0`).
 
+Dragging from VS Code's own Explorer needs **Shift** held as you drop (VS Code
+otherwise routes the drop to the editor area); or right-click the file(s) or folder
+in the Explorer → **Open in 3DView**, which needs no drag at all.
+
 | Action | Input |
 |--------|-------|
 | Orbit / zoom / pan | drag / scroll / right‑drag |

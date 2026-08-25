@@ -39,6 +39,11 @@ const nextId = (kind: string) => `${kind}-${++idCounter}`;
 export class ViewerPanel {
   public static current: ViewerPanel | undefined;
   private static readonly viewType = "3dview.viewer";
+  /** Open resources the webview could only name by URI (a drag out of the Explorer).
+   *  Injected by activate() the same way RecentsProvider gets its drop handler —
+   *  importing the opener here would be a cycle, since opening reaches back into
+   *  ViewerPanel. */
+  public static onOpenUris: ((uris: string[]) => void) | undefined;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
@@ -158,6 +163,11 @@ export class ViewerPanel {
         void vscode.commands.executeCommand(command, msg.kind);
         break;
       }
+      case "openUris":
+        // A drop the webview could only read as URIs (a drag out of the Explorer).
+        // Paths are the host's business, so it takes over from here.
+        ViewerPanel.onOpenUris?.(msg.uris);
+        break;
       case "removed":
         // Either one item's id, or a group's — the id a temporal item took, which
         // stands for every member the webview folded into it.
@@ -334,7 +344,10 @@ export class ViewerPanel {
   <!-- VS Code host adapter: expose the neutral bridge the host-agnostic bundle
        expects (window.__viewerHost), wrapping VS Code's acquireVsCodeApi(). This
        is the ONLY place acquireVsCodeApi is named; the bundle never references it. -->
-  <script nonce="${nonce}">window.__viewerHost = acquireVsCodeApi();</script>
+  <script nonce="${nonce}">
+    const api = acquireVsCodeApi();
+    window.__viewerHost = { postMessage: (msg) => api.postMessage(msg), opensUris: true };
+  </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

@@ -5,4 +5,5 @@
 export * from "./shared/messages";
 export * from "./shared/hostBridge";
 export * from "./shared/naming";
+export * from "./shared/uriList";
 export * from "./colmap";
