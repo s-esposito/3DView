@@ -290,8 +290,13 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) =>
 );
 
 // Drag-and-drop is host-agnostic: dropped files are read into blob: URLs and fed
-// through the same handler as host messages (see dropZone.ts).
-installDropZone(handleHostMessage);
+// through the same handler as host messages. A drop that carried only URIs (a drag
+// out of the editor's file explorer) goes back to the host, which owns paths — but
+// only where the host says it can open them (see dropZone.ts).
+installDropZone(
+  handleHostMessage,
+  host.opensUris ? (uris) => host.postMessage({ type: "openUris", uris }) : undefined
+);
 
 // Tell the host we are alive and ready to receive content.
 host.postMessage({ type: "ready" });

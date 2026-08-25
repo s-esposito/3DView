@@ -33,6 +33,13 @@ export function activate(context: vscode.ExtensionContext) {
       openAssetFolder(context, recents)
     ),
     vscode.commands.registerCommand("3dview.openViewer", () => ViewerPanel.open(context)),
+    // Explorer right-click. VS Code passes the clicked resource plus the whole
+    // selection, so a multi-select opens as one action.
+    vscode.commands.registerCommand(
+      "3dview.openFromExplorer",
+      (uri: vscode.Uri, uris?: vscode.Uri[]) =>
+        openDropped(context, recents, uris?.length ? uris : [uri])
+    ),
     vscode.commands.registerCommand("3dview.openRecent", (t: OpenTarget) => {
       ViewerPanel.open(context, t);
       recents.add(t); // bump to front
@@ -43,6 +50,16 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(pathOf(t)))
     )
   );
+
+  // A drop the webview could only read as URIs — it hands them here to be opened
+  // by path (the same funnel the Recents-tree drop and the Explorer entry use).
+  ViewerPanel.onOpenUris = (uris) => {
+    void openDropped(
+      context,
+      recents,
+      uris.map((u) => vscode.Uri.parse(u))
+    );
+  };
 }
 
 async function openReconstruction(context: vscode.ExtensionContext, recents: RecentsProvider) {
@@ -197,31 +214,71 @@ function openAssetFiles(context: vscode.ExtensionContext, recents: RecentsProvid
   ViewerPanel.openMany(context, targets);
 }
 
-/** Open dropped resources: a folder → reconstruction, an asset file → asset. */
+/**
+ * The extension host's own view of a dragged/right-clicked resource. In a remote
+ * window the workbench addresses files as `vscode-remote://<authority>/<path>`,
+ * and that is what a webview drop hands us verbatim — but on this side of the
+ * connection the very same file is a plain local path. Anything else (untitled,
+ * a virtual filesystem, an http link) is not ours to open.
+ */
+function localUri(uri: vscode.Uri): vscode.Uri | undefined {
+  if (uri.scheme === "file") {
+    return uri;
+  }
+  return uri.scheme === "vscode-remote" ? vscode.Uri.file(uri.path) : undefined;
+}
+
+/** Open dropped resources: a folder → reconstruction, an asset file → asset. Asset
+ *  files open as ONE action, so a multi-select arrives as a single group and gets
+ *  the temporal question, exactly like a multi-file pick. */
 async function openDropped(
   context: vscode.ExtensionContext,
   recents: RecentsProvider,
   uris: vscode.Uri[]
 ) {
-  for (const uri of uris) {
-    if (uri.scheme !== "file") {
-      continue;
-    }
-    let stat: vscode.FileStat;
-    try {
-      stat = await vscode.workspace.fs.stat(uri);
-    } catch {
-      continue;
+  const locals = uris.map(localUri);
+  // One round-trip each over a remote connection, and an Explorer selection can be
+  // a whole per-frame capture — so ask about them together, not one after another.
+  const stats = await Promise.all(locals.map(statOf));
+  const dirs: string[] = [];
+  const assets: string[] = [];
+  locals.forEach((uri, i) => {
+    const stat = stats[i];
+    if (!uri || !stat) {
+      return;
     }
     if (stat.type & vscode.FileType.Directory) {
-      await openReconstructionFromRoot(context, recents, uri.fsPath);
+      dirs.push(uri.fsPath);
     } else if (ASSET_EXTS.includes(path.extname(uri.fsPath).slice(1).toLowerCase())) {
-      openAssetFiles(context, recents, [uri.fsPath]);
-    } else {
-      void vscode.window.showErrorMessage(
-        `3DView: drop a folder (a COLMAP reconstruction) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
-      );
+      assets.push(uri.fsPath);
     }
+  });
+  if (assets.length === 0 && dirs.length === 0) {
+    // Nothing here was ours: an unreadable path, a resource with no file behind it
+    // (an untitled tab, a diff, a link), or a file of a kind we don't load. The
+    // webview stays quiet about a drop it handed over, so say so here.
+    void vscode.window.showErrorMessage(
+      `3DView: nothing to open there — a folder (a COLMAP reconstruction) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
+    );
+    return;
+  }
+  if (assets.length > 0) {
+    openAssetFiles(context, recents, assets);
+  }
+  for (const dir of dirs) {
+    await openReconstructionFromRoot(context, recents, dir);
+  }
+}
+
+/** `stat` if the resource is there, undefined if it isn't ours to see. */
+async function statOf(uri: vscode.Uri | undefined): Promise<vscode.FileStat | undefined> {
+  if (!uri) {
+    return undefined;
+  }
+  try {
+    return await vscode.workspace.fs.stat(uri);
+  } catch {
+    return undefined;
   }
 }
 

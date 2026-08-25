@@ -63,8 +63,12 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   src/shared/
     messages.ts          host↔webview message contract + DTOs (HostToWebview/WebviewToHost)
     hostBridge.ts        getHostBridge(): the neutral window.__viewerHost channel
+                         (+ opensUris: whether this host can open files by path)
     naming.ts            compareNatural + sharedFolderName: how items opened together
                          are ordered and named, shared by the hosts and the webview
+    uriList.ts           text/uri-list: the payload a drag that names files (rather
+                         than handing over bytes) carries, decoded once for both the
+                         webview's drop zone and a host's own drop targets
   src/colmap/            Pure COLMAP library: parsing + pose + bounds (byte buffers/strings)
     reader.ts            little-endian binary cursor
     cameras.ts/images.ts/points3d.ts   .bin + .txt parsers
@@ -76,7 +80,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     main.ts              entry/glue: host bridge, message channel, keyboard, status
     colmapLoader.ts      loadColmapFromUrls(): fetch model files → pure parsers → ModelData
     dropZone.ts          drag-and-drop intake (all hosts): dropped files/folders → blob:
-                         URLs → host-shaped loadColmap/addAsset, fed to main.ts's handler
+                         URLs → host-shaped loadColmap/addAsset, fed to main.ts's
+                         handler; a drop carrying only URIs (a drag out of the
+                         editor's file explorer) goes back to the host as openUris
     viewer.ts            Viewer: scene graph/camera/layers/global display — THE seam
     sceneLayer.ts        SceneLayer interface + ReconstructionLayer + DisplayOptions
                          (per-reconstruction) + AssetOptions (3DGS mode, track
@@ -269,21 +275,37 @@ also caps the result at the slider's own `0.16 · diagonal` so the initial value
 one the slider can express.
 
 **Drag-and-drop is a third, webview-owned intake path** (`dropZone.ts`), separate
-from the host pickers. A sandboxed webview can read dropped *bytes* but never the
-filesystem *path* (and Explorer→webview drops don't fire — microsoft/vscode#182449),
-so a drop can't route through a host's path-based loader. Instead the webview reads
-the bytes into `blob:` URLs and emits the **same** `loadColmap`/`addAsset`/`addGroup`
-messages a host would (id self-assigned `dnd-*`), converging on the same `main.ts` handler — so
-it works identically in every host with no host code and no CSP change (`blob:` is
-already allowed on `connect-src`). Consequences, by design: dropped items are NOT in
-the host's tracked list, so they get no VS Code Recents entry and aren't replayed if
-the panel is ever recreated, and images load in-memory rather than streamed
-on-demand. Path-based opening (Recents, streaming) stays available via the host
-pickers and the VS Code Recents-tree drop (`recents.ts`), which see real paths. A drop
-holding several assets sends them as one `addGroup` (dropping a folder of per-frame
-splats is how a temporal item is meant to arrive); a drop holding a COLMAP model still
-wins outright over any asset files beside it, since a reconstruction tree routinely
-carries `dense/fused.ply` and friends.
+from the host pickers — and what a drop carries decides which of two routes it takes.
+**Bytes** (an OS file-manager drop): a sandboxed webview can read them but is never
+told the filesystem *path*, so the webview reads them into `blob:` URLs and emits the
+**same** `loadColmap`/`addAsset`/`addGroup` messages a host would (id self-assigned
+`dnd-*`), converging on the same `main.ts` handler — it works identically in every
+host with no host code and no CSP change (`blob:` is already allowed on
+`connect-src`). Its by-design consequences: such items are NOT in the host's tracked
+list, so they get no VS Code Recents entry and aren't replayed if the panel is ever
+recreated, and images load in-memory rather than streamed on-demand. **URIs** (a drag
+out of the editor's own file explorer, or of an editor tab): there are no bytes at
+all, only `text/uri-list` (decoded by `shared/uriList.ts`, the one reader both the
+webview and the hosts use), so the webview hands the URIs back to the host
+(`openUris` → `ViewerPanel.onOpenUris` → `openDropped` in `extension.ts`, the same
+funnel the Recents-tree drop and the Explorer right-click use) and the host opens
+them by path — which is what restores Recents, replay and streamed images, and is
+the *only* route that can work over a remote connection, where the dragged file
+lives on the extension host and not on the machine running the webview. **A host
+opts into that route at the bridge** (`HostBridge.opensUris`): only VS Code sets it,
+so in the demo and PyCharm a URI drag isn't accepted at all and the overlay stays
+dark — the drop zone never lights for a drop nothing can complete. Two VS Code facts
+come with the route: such a drop only reaches a webview while **Shift** is held
+(pointer events on the webview are suppressed mid-drag so the editor group wins the
+drop — microsoft/vscode#182449, fixed in 1.91; the Explorer's right-click **Open in
+3DView** needs no drag at all), and in a remote window the URIs are
+`vscode-remote://…`, which `localUri` maps back to a plain path. Bytes win when a
+drag somehow carries both, since an OS drag names paths on the machine running the
+webview, not the one the host resolves against.
+A drop holding several assets sends them as one `addGroup` (dropping a folder of
+per-frame splats is how a temporal item is meant to arrive); a drop holding a COLMAP
+model still wins outright over any asset files beside it, since a reconstruction tree
+routinely carries `dense/fused.ply` and friends.
 
 ## Invariants & conventions (do not break)
 
@@ -430,7 +452,9 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - **New asset format:** add a loader case in `assetLayer.ts`, the webview drop
   filter `ASSET_EXTS` in `core/src/webview/dropZone.ts` (the drag-and-drop path,
   shared by all hosts), and the picker filter in each host — `ASSET_EXTS` in
-  `vscode/src/host/extension.ts`, `input.accept` in `demo/src/host.ts`, and
+  `vscode/src/host/extension.ts` (plus the `explorer/context` `when` clause in
+  `vscode/package.json`, which spells the same list out for VS Code's expression
+  language), `input.accept` in `demo/src/host.ts`, and
   `ASSET_EXTS` in `jetbrains/.../ColmapViewerService.kt`. Splat formats decode
   through Spark; meshes through three's loaders; NumPy tracks through the local
   `npz.ts` reader. Also add it to `ASSET_KIND_EXTS` in `core/src/shared/messages.ts`

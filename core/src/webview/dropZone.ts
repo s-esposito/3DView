@@ -1,14 +1,20 @@
 // Drag-and-drop intake for the viewer. The webview is the universal drop target:
-// every host embeds this same Chromium-based bundle, and an OS file/folder drop
-// exposes readable File bytes in all of them (VS Code's sandboxed webview, the
-// demo page, PyCharm/JCEF). The filesystem PATH is NOT exposed in a sandboxed
-// webview, and Explorer-to-webview drops don't fire at all (microsoft/vscode#182449),
-// so we can't route a drop through a host's path-based loader. Instead we read the
-// dropped bytes into `blob:` URLs and feed the SAME message pipeline the hosts use
-// (`loadColmap` / `addAsset`), so a drop converges on `viewer.addReconstruction` /
-// `viewer.addAsset` with no host round-trip. (Path-based opening, Recents, and
-// on-demand image streaming remain available via the host pickers and the VS Code
-// Recents tree, which can see real paths.)
+// every host embeds this same Chromium-based bundle. A drop arrives as one of two
+// kinds, and they take different routes:
+//
+//  - BYTES. An OS file/folder drop (from a file manager) exposes readable File
+//    bytes in every host, but never a filesystem PATH — a sandboxed webview isn't
+//    told one. So we read the bytes into `blob:` URLs and feed the SAME message
+//    pipeline the hosts use (`loadColmap` / `addAsset`), converging on
+//    `viewer.addReconstruction` / `viewer.addAsset` with no host round-trip.
+//  - URIS. A drag out of the editor's own file explorer (or an editor tab) carries
+//    `text/uri-list` and no bytes at all. Those URIs are the host's to resolve, so
+//    we hand them straight back and it opens them by path (CLAUDE.md has what that
+//    buys, and why a remote connection has no other route). Only a host that says
+//    it can — `HostBridge.opensUris` — is offered such a drag; the rest see the
+//    drag declined, as before. Note for VS Code: such a drop only reaches a webview
+//    while SHIFT is held — pointer events on the webview are suppressed mid-drag so
+//    the editor group wins the drop (microsoft/vscode#182449, fixed in 1.91).
 //
 // A dropped folder is recursed via the Chromium entries API; a complete COLMAP
 // model (a cameras/images/points3D trio, .bin or .txt, at any depth) loads as a
@@ -18,6 +24,7 @@
 import type { AddAssetMsg, HostToWebview, ColmapModelRef } from "../shared/messages";
 import { ASSET_EXTS } from "../shared/messages";
 import { sharedFolderName } from "../shared/naming";
+import { parseUriList, URI_LIST_MIME } from "../shared/uriList";
 import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
 
 // A dropped file with its path relative to the drop (folders recursed); the path's
@@ -35,14 +42,22 @@ const nextId = (kind: string) => `dnd-${kind}-${++counter}`;
 
 /**
  * Install the viewer's drag-and-drop target on `window`. Shows a full-window
- * overlay while a file drag is over the page and, on drop, classifies the content
- * and hands a host-shaped message to `onContent` (the same handler the host
- * message channel uses). Failures (nothing recognised, a read error) are reported
- * as an `error` message through the same channel.
+ * overlay while a droppable drag is over the page and, on drop, either classifies
+ * the dropped bytes and hands a host-shaped message to `onContent` (the same
+ * handler the host message channel uses), or — for a drag that carried only URIs —
+ * passes those to `onUris` for the host to open by path. Failures (nothing
+ * recognised, a read error) are reported as an `error` message through `onContent`.
  */
-export function installDropZone(onContent: (msg: HostToWebview) => void): void {
+export function installDropZone(
+  onContent: (msg: HostToWebview) => void,
+  onUris?: (uris: string[]) => void
+): void {
   const overlay = buildOverlay();
   document.body.appendChild(overlay);
+
+  // A URI drag is worth taking only where the host can act on it — otherwise the
+  // overlay would light for a drop nothing can complete.
+  const droppable = (dt: DataTransfer | null) => hasDroppable(dt, !!onUris);
 
   // dragenter/dragleave fire for every child element the cursor crosses; a depth
   // counter tells us when the drag has truly entered or left the window.
@@ -53,18 +68,18 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
   };
 
   window.addEventListener("dragenter", (e) => {
-    if (!hasFiles(e.dataTransfer)) return;
+    if (!droppable(e.dataTransfer)) return;
     e.preventDefault();
     depth++;
     overlay.classList.add("active");
   });
   window.addEventListener("dragover", (e) => {
-    if (!hasFiles(e.dataTransfer)) return;
+    if (!droppable(e.dataTransfer)) return;
     e.preventDefault(); // required, or the browser navigates to the file instead of firing `drop`
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
   });
   window.addEventListener("dragleave", (e) => {
-    if (!hasFiles(e.dataTransfer)) return;
+    if (!droppable(e.dataTransfer)) return;
     e.preventDefault();
     if (--depth <= 0) hide();
   });
@@ -72,35 +87,45 @@ export function installDropZone(onContent: (msg: HostToWebview) => void): void {
     if (!e.dataTransfer) return;
     e.preventDefault(); // stop the browser from opening the dropped file
     hide();
-    void handleDrop(e.dataTransfer, onContent);
+    void handleDrop(e.dataTransfer, onContent, onUris);
   });
 }
 
-/** A drag carries files when its types list includes "Files" (DataTransfer.files is
- *  empty mid-drag — it's only populated on `drop` — so we can't test that here). */
-function hasFiles(dt: DataTransfer | null): boolean {
-  return !!dt && Array.from(dt.types).includes("Files");
+/** A drag we might be able to open: it carries file bytes ("Files"), or — where the
+ *  host opens paths — the URIs of files it could open for us. Neither payload is
+ *  readable mid-drag, the types list is all a dragover gets, so this is what the
+ *  overlay is gated on. */
+function hasDroppable(dt: DataTransfer | null, acceptsUris: boolean): boolean {
+  return !!dt && (dt.types.includes("Files") || (acceptsUris && dt.types.includes(URI_LIST_MIME)));
 }
 
 async function handleDrop(
   dt: DataTransfer,
-  onContent: (msg: HostToWebview) => void
+  onContent: (msg: HostToWebview) => void,
+  onUris?: (uris: string[]) => void
 ): Promise<void> {
   try {
+    // Read before the first `await`: the DataTransfer is emptied once this handler
+    // returns, the same constraint that forces the entry snapshot in gatherFiles.
+    const uris = parseUriList(dt.getData(URI_LIST_MIME));
+    const types = Array.from(dt.types);
     const files = await gatherFiles(dt);
-    if (files.length === 0) {
-      // A file drag whose bytes we can't read. Staying silent here reads as a broken
-      // viewer, and the usual cause has a workaround worth naming: a drag out of the
-      // editor's own file explorer never reaches a webview (microsoft/vscode#182449),
-      // and over a remote connection those files aren't on this machine anyway.
-      if (hasFiles(dt)) {
-        throw new Error(
-          "Couldn't read that drop — a drag from the editor's file explorer doesn't reach the viewer. Drag from your file manager instead, or use + in the Scene panel."
-        );
-      }
-      return; // not a file drag at all (e.g. dragged text) — ignore
+    if (files.length > 0) {
+      // Bytes win over URIs when a drag carries both: an OS drag names paths on the
+      // machine running this browser, which over a remote connection is not the
+      // machine the host resolves paths against.
+      onContent(buildContent(files));
+    } else if (onUris && uris.length > 0) {
+      // No bytes, but the host owns paths. It reports its own progress and its own
+      // failures, so nothing is shown from here.
+      onUris(uris);
+    } else if (types.includes("Files")) {
+      // A file drag whose bytes we couldn't read at all. Staying silent here reads
+      // as a broken viewer. (Anything else — dragged text, a link — is ignored.)
+      throw new Error(
+        `Couldn't read that drop (${types.join(", ")}). Drag from your file manager, or use + in the Scene panel.`
+      );
     }
-    onContent(buildContent(files));
   } catch (err) {
     onContent({ type: "error", message: err instanceof Error ? err.message : String(err) });
   }

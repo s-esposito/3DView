@@ -188,6 +188,10 @@ export type HostToWebview =
 export type WebviewToHost =
   | { type: "ready" }
   | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
+  // A drop the webview could only read as URIs, not bytes — a drag out of the
+  // editor's own file explorer. The host owns paths, so it opens them; only a host
+  // that advertises `HostBridge.opensUris` is sent this (see dropZone.ts).
+  | { type: "openUris"; uris: string[] }
   | { type: "removed"; id: string } // an item was removed from the scene
   // A PNG render of the current viewpoint to save. `png` is a data URL
   // ("data:image/png;base64,…"); the host writes/downloads it.

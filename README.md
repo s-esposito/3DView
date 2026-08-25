@@ -84,6 +84,12 @@ file in a folder in one go — the way to load a per-frame capture, and the way 
 several files at once over a remote connection, where VS Code's file dialog can only
 select one.
 
+Dragging out of **VS Code's own Explorer** works too, with two things worth knowing:
+hold **Shift** as you drop, or VS Code routes the drop to the editor area instead of
+the viewer — or skip the drag entirely and right-click the file(s) or folder in the
+Explorer → **Open in 3DView**. Either way the extension opens them by path, so they
+land in Recents and their images stream on demand.
+
 | Action | Input |
 |--------|-------|
 | Orbit / zoom / pan | drag / scroll / right‑drag |
