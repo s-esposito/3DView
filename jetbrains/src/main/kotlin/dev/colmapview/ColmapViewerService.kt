@@ -68,7 +68,7 @@ class ColmapViewerService(private val project: Project) : Disposable {
         if (!ensureSupported()) return
         val exts = kind?.let { ASSET_KIND_EXTS[it] } ?: ASSET_EXTS
         val title = kind?.let { ASSET_KIND_TITLES[it] }
-            ?: "Select an asset — mesh, 3DGS splat, or 3D point tracks"
+            ?: "Select an asset — mesh, point cloud, 3DGS splat, or 3D point tracks"
         val descriptor = FileChooserDescriptorFactory.createSingleFileDescriptor()
             .withTitle(title)
             .withFileFilter { vf -> vf.extension?.lowercase() in exts }
@@ -147,16 +147,18 @@ class ColmapViewerService(private val project: Project) : Disposable {
     companion object {
         const val TOOL_WINDOW_ID = "3D Viewer"
         // Asset formats per kind, mirroring core's ASSET_KIND_EXTS (the webview's
-        // Scene "+" sends the kind). A .ply is under both mesh and splat: the two
-        // are told apart by the PLY header, in the webview.
+        // Scene "+" sends the kind). A .ply is under mesh, cloud and splat: the
+        // three are told apart by what the file holds, in the webview.
         private val ASSET_KIND_EXTS = mapOf(
             "mesh" to setOf("glb", "gltf", "obj", "ply"),
+            "cloud" to setOf("ply"),
             "splat" to setOf("ply", "splat", "spz", "ksplat"),
             "tracks" to setOf("npz", "npy"),
         )
         private val ASSET_EXTS = ASSET_KIND_EXTS.values.flatten().toSet()
         private val ASSET_KIND_TITLES = mapOf(
             "mesh" to "Select a mesh (glTF / GLB / OBJ / PLY)",
+            "cloud" to "Select a point cloud (PLY)",
             "splat" to "Select a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT)",
             "tracks" to "Select 3D point tracks (NPZ / NPY)",
         )

@@ -7,7 +7,13 @@ import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
 import type { SplatRenderMode } from "./splats";
 import { ThumbnailLoader } from "./textures";
-import { buildPoints, buildBox, computeLocalBounds, disposeObject } from "./builders";
+import {
+  buildPoints,
+  buildBox,
+  computeLocalBounds,
+  DEFAULT_POINT_SIZE,
+  disposeObject,
+} from "./builders";
 
 /**
  * Scene-wide options for what an asset *draws* (as opposed to how it is lit, which
@@ -17,6 +23,10 @@ import { buildPoints, buildBox, computeLocalBounds, disposeObject } from "./buil
 export interface AssetOptions {
   /** How 3DGS clouds render: solid ellipsoids or bare centers. */
   splatMode: SplatRenderMode;
+  /** Screen-pixel size of any bare point cloud an asset draws — a plain PLY cloud,
+   *  or a 3DGS asset in "points" mode. The same slider as DisplayOptions.pointSize,
+   *  which is the reconstruction side of it. */
+  pointSize: number;
   /** Point-track trail length in time steps; Infinity draws the whole trajectory. */
   trackFrames: number;
   /** Point-track line opacity, 0..1. */
@@ -28,6 +38,7 @@ export interface AssetOptions {
 /** Splats render 3DGS as it was trained to look; tracks start whole, opaque, undecimated. */
 export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
   splatMode: "splatting",
+  pointSize: DEFAULT_POINT_SIZE,
   trackFrames: Number.POSITIVE_INFINITY,
   trackOpacity: 1,
   trackDensity: 1,

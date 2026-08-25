@@ -47,8 +47,9 @@ export interface ModelData {
 
 /**
  * An asset to load in the webview, identified by a webview-resolvable URI. An
- * asset is a mesh (glTF/GLB/OBJ/PLY) or a 3D Gaussian Splatting cloud
- * (.ply / .splat / .spz / .ksplat); the loader is picked by file extension.
+ * asset is a mesh (glTF/GLB/OBJ/PLY), a bare point cloud (PLY), or a 3D Gaussian
+ * Splatting cloud (.ply / .splat / .spz / .ksplat); the loader is picked by file
+ * extension.
  */
 export interface AssetRef {
   /** Webview URI of the asset file (mesh siblings resolve relative to it). */
@@ -58,24 +59,26 @@ export interface AssetRef {
 }
 
 /** The asset families a host offers separately in its "add" menu and file picker. */
-export type AssetKind = "mesh" | "splat" | "tracks";
+export type AssetKind = "mesh" | "cloud" | "splat" | "tracks";
 
 /** What kind of content the "+" add action should pick — a COLMAP *folder*, an
  *  asset *file* of one family, or a *folder of asset files* (`"assetFolder"`: every
  *  asset in it, offered as one temporal item — the way to load a per-frame capture
  *  where a host's dialog cannot select several files, as VS Code's cannot over a
  *  remote connection). The kind only chooses the picker's filter: what an asset
- *  actually is comes from the file itself (a `.ply` is a mesh or a splat by header),
- *  so picking the "wrong" menu entry still loads the file correctly. */
+ *  actually is comes from the file itself (a `.ply` is a mesh, a point cloud or a
+ *  splat, by what is in it), so picking the "wrong" menu entry still loads the file
+ *  correctly. */
 export type AddKind = "colmap" | AssetKind | "assetFolder";
 
 /**
  * File extensions per asset family — the single source every host filters by.
- * `.ply` appears under both mesh and splat on purpose: the two are told apart by
- * the PLY header, not the name.
+ * `.ply` appears under mesh, cloud and splat on purpose: the three are told apart
+ * by what the file holds (a splat header, faces, neither), not by the name.
  */
 export const ASSET_KIND_EXTS: Record<AssetKind, readonly string[]> = {
   mesh: ["glb", "gltf", "obj", "ply"],
+  cloud: ["ply"],
   splat: ["ply", "splat", "spz", "ksplat"],
   tracks: ["npz", "npy"],
 };
@@ -88,6 +91,7 @@ export const ASSET_EXTS: readonly string[] = [
 /** Human-readable name of an asset family, for picker titles and messages. */
 export const ASSET_KIND_LABELS: Record<AssetKind, string> = {
   mesh: "Mesh",
+  cloud: "Point cloud",
   splat: "3DGS splat",
   tracks: "3D point tracks",
 };
@@ -132,7 +136,7 @@ export interface AddReconstructionMsg {
  */
 export type LoadColmapMsg = { type: "loadColmap" } & ColmapModelRef;
 
-/** A mesh / 3DGS splat / point-track file for the webview to load. */
+/** A mesh / point cloud / 3DGS splat / point-track file for the webview to load. */
 export interface AddAssetMsg {
   type: "addAsset";
   id: string;

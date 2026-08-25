@@ -189,7 +189,9 @@ export class ControlPanel {
 
     // Appearance — sliders relevant to present content.
     const appearance: HTMLElement[] = [];
-    if (s.hasPoints) {
+    // One slider for every bare point cloud in the scene: a reconstruction's own
+    // cloud and a point-cloud asset alike.
+    if (s.hasPoints || s.hasPointCloud) {
       appearance.push(slider("Point size", 0.5, 6, 0.5, s.pointSize, (v) => this.viewer.setPointSize(v)));
     }
     if (s.hasCameras) {
@@ -332,10 +334,12 @@ export class ControlPanel {
 
     // One entry per loadable kind. The asset entries differ only in how the host
     // filters its file picker — what a file actually is comes from the file itself
-    // (a .ply is a mesh or a splat by header), so a "wrong" entry still loads it.
+    // (a .ply is a mesh, a point cloud or a splat, by what is in it), so a "wrong"
+    // entry still loads it.
     const add = menuButton("+", "Add to scene", [
       { label: "COLMAP…", onClick: () => this.viewer.requestAdd("colmap") },
       { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "Point cloud…", onClick: () => this.viewer.requestAdd("cloud") },
       { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
       { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
       // Every asset in a folder, as one temporal item — a per-frame capture, and the

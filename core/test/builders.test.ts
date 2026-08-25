@@ -9,6 +9,11 @@ import {
   unionBounds,
   sphereFromBounds,
   frustumScaleFromDepth,
+  buildPlyPoints,
+  setPointsSize,
+  cloudColor,
+  CLOUD_PALETTE,
+  DEFAULT_POINT_SIZE,
   NEAR_FRACTION,
 } from "../src/webview/builders";
 import { computeBounds } from "../src/colmap";
@@ -111,4 +116,49 @@ test("frustumScaleFromDepth reports 0 when there is nothing to measure", () => {
   assert.equal(frustumScaleFromDepth(modelOf([[0, 0, 4]], [])), 0, "no cameras");
   // Cameras that see nothing: the cloud sits behind this one.
   assert.equal(frustumScaleFromDepth(modelOf([[0, 0, -4]], [cameraAtOrigin()])), 0, "out of view");
+});
+
+
+/** A 3-point cloud geometry, optionally carrying its own per-vertex colors. */
+function cloudGeometry(withColor: boolean): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array([0, 0, 0, 2, 0, 0, 0, 4, 0]);
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  if (withColor) {
+    geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(9).fill(0.5), 3));
+  }
+  return geometry;
+}
+
+test("cloudColor cycles the palette, giving neighbours different colors", () => {
+  assert.equal(cloudColor(0), CLOUD_PALETTE[0]);
+  assert.notEqual(cloudColor(0), cloudColor(1));
+  // Wraps rather than running off the end, so item N always gets a color.
+  assert.equal(cloudColor(CLOUD_PALETTE.length), CLOUD_PALETTE[0]);
+  assert.equal(cloudColor(CLOUD_PALETTE.length + 3), CLOUD_PALETTE[3]);
+});
+
+test("buildPlyPoints keeps a cloud's own colors when it has them", () => {
+  const material = buildPlyPoints(cloudGeometry(true), 0xff0000).material as THREE.PointsMaterial;
+  assert.equal(material.vertexColors, true);
+  // White base, so the per-vertex colors come through unmodulated.
+  assert.equal(material.color.getHex(), 0xffffff);
+  assert.equal(material.size, DEFAULT_POINT_SIZE);
+});
+
+test("buildPlyPoints gives an uncolored cloud the fallback color", () => {
+  const material = buildPlyPoints(cloudGeometry(false), 0xa78bfa).material as THREE.PointsMaterial;
+  assert.equal(material.vertexColors, false);
+  assert.equal(material.color.getHex(), 0xa78bfa);
+});
+
+test("setPointsSize resizes point clouds and leaves other objects alone", () => {
+  const group = new THREE.Group();
+  const points = buildPlyPoints(cloudGeometry(false), 0x38bdf8);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  group.add(points, mesh);
+
+  setPointsSize(group, 4);
+  assert.equal((points.material as THREE.PointsMaterial).size, 4);
+  assert.equal((mesh.material as THREE.MeshBasicMaterial & { size?: number }).size, undefined);
 });

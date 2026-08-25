@@ -1,10 +1,11 @@
 // The asset layer: holds at most one loaded asset under a container group,
 // mirroring CameraLayer so the Viewer treats all scene sources uniformly. An
-// asset is a mesh (glTF/GLB/OBJ/PLY), a 3D Gaussian Splatting cloud
-// (.ply / .splat / .spz / .ksplat), or 3D point tracks (.npz / .npy). Mesh asset
-// siblings (.bin, .mtl, textures) resolve relative to the file's webview URI;
-// splats are decoded via Spark (see splats.ts) and drawn as centers or ellipsoids
-// per the current render mode; tracks become trajectory polylines (tracks.ts).
+// asset is a mesh (glTF/GLB/OBJ/PLY), a bare point cloud (PLY), a 3D Gaussian
+// Splatting cloud (.ply / .splat / .spz / .ksplat), or 3D point tracks (.npz /
+// .npy). Mesh asset siblings (.bin, .mtl, textures) resolve relative to the file's
+// webview URI; splats are decoded via Spark (see splats.ts) and drawn as centers or
+// ellipsoids per the current render mode; tracks become trajectory polylines
+// (tracks.ts).
 //
 // Mesh shading: each mesh keeps its loaded material (lit PBR, incl. GLB
 // textures) plus a derived unlit "albedo" material (base-color texture + color,
@@ -15,7 +16,14 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
-import { buildBox, disposeObject, eachMaterial, unionBounds } from "./builders";
+import {
+  buildBox,
+  buildPlyPoints,
+  disposeObject,
+  eachMaterial,
+  setPointsSize,
+  unionBounds,
+} from "./builders";
 import {
   decodeSplats,
   buildSplatObject,
@@ -50,6 +58,10 @@ export class AssetLayer implements FrameSource {
    *  each swap. The mesh must not share a frame's decoded array: swapping writes. */
   private frameBuffer?: Uint32Array;
   private tracks?: TrackSet;
+  /** Whether the loaded asset is a bare point cloud. Recorded at load time beside
+   *  `cloud`/`tracks` rather than read back off the built object, so the answer does
+   *  not depend on the scene graph's shape or on the current 3DGS render mode. */
+  private isCloud = false;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
   // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
@@ -61,7 +73,11 @@ export class AssetLayer implements FrameSource {
     readonly id: string,
     public label: string,
     /** Asset file URI, surfaced as the Scene-list hover tooltip. */
-    readonly source: string
+    readonly source: string,
+    /** Color for a point cloud that carries none of its own. One palette entry per
+     *  scene item, so a sequence's frames all come up the same color. Required: a
+     *  default here would silently hand two clouds the same color. */
+    private readonly fallbackColor: number
   ) {}
 
   bounds(): Bounds | undefined {
@@ -104,6 +120,13 @@ export class AssetLayer implements FrameSource {
   /** True once loaded, if this asset is a 3DGS cloud (so the render mode applies). */
   get isSplat(): boolean {
     return this.cloud != null;
+  }
+
+  /** True once loaded, if this asset is a bare point cloud (so "Point size" applies).
+   *  A 3DGS asset in the "points" mode follows the same size, but is not this: the
+   *  flag must not turn over as the render mode cycles. */
+  get isPointCloud(): boolean {
+    return this.isCloud;
   }
 
   /** Frames in the splat sequence this layer holds; 0 when it holds a lone asset. */
@@ -170,7 +193,9 @@ export class AssetLayer implements FrameSource {
    * change which primitives exist — the 3DGS render mode and track density — and
    * both rebuild from data this layer already holds, so nothing is re-decoded.
    * Trail length and opacity are applied every time; they are just as cheap to
-   * re-apply as to compare, and a rebuild must restore them anyway.
+   * re-apply as to compare, and a rebuild must restore them anyway. Point size is
+   * not — it walks the object — so it goes through the same changed-only check as
+   * the two above, and `attachCurrent` covers the rebuild case.
    */
   applyAssetOptions(opts: AssetOptions): void {
     const previous = this.opts;
@@ -182,6 +207,9 @@ export class AssetLayer implements FrameSource {
     if (this.tracks && opts.trackDensity !== previous.trackDensity) {
       this.rebuild(buildTrackLines(this.tracks, opts.trackDensity));
       return;
+    }
+    if (opts.pointSize !== previous.pointSize) {
+      setPointsSize(this.current, opts.pointSize);
     }
     setTrackTrail(this.current, opts.trackFrames);
     setTrackOpacity(this.current, opts.trackOpacity);
@@ -202,9 +230,16 @@ export class AssetLayer implements FrameSource {
     opts: AssetOptions,
     onProgress?: Progress
   ): Promise<void> {
-    const { object, bounds, cloud, tracks } = await loadAsset(uri, name, opts, onProgress);
+    const { object, bounds, cloud, tracks, isCloud } = await loadAsset(
+      uri,
+      name,
+      opts,
+      this.fallbackColor,
+      onProgress
+    );
     this.cloud = cloud;
     this.tracks = tracks;
+    this.isCloud = isCloud ?? false;
     this.opts = { ...opts };
     this.currentBounds = bounds;
     this.attachCurrent(object);
@@ -219,6 +254,7 @@ export class AssetLayer implements FrameSource {
     this.box = undefined;
     this.cloud = undefined;
     this.clouds = undefined;
+    this.isCloud = false;
     this.frameBuffer = undefined;
     this.tracks = undefined;
   }
@@ -230,6 +266,7 @@ export class AssetLayer implements FrameSource {
     this.object.add(object);
     this.setWireframe(this.wireframe);
     this.setShaded(this.shaded);
+    setPointsSize(object, this.opts.pointSize);
     setTrackTrail(object, this.opts.trackFrames);
     setTrackOpacity(object, this.opts.trackOpacity);
   }
@@ -302,6 +339,8 @@ interface LoadedAsset {
   cloud?: SplatCloud;
   /** Set only for track files: the decoded trajectories, retained for re-thinning. */
   tracks?: TrackSet;
+  /** Set only for a PLY that turned out to be a bare point cloud rather than a mesh. */
+  isCloud?: boolean;
 }
 
 /** Reports a human-readable loading phase ("Downloading… 45%", "Decoding…"). */
@@ -322,6 +361,7 @@ function loadAsset(
   uri: string,
   name: string,
   opts: AssetOptions,
+  fallbackColor: number,
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -332,7 +372,7 @@ function loadAsset(
     case "obj":
       return load(objLoader, uri, onProgress).then((group) => finalize(group));
     case "ply":
-      return loadPly(uri, name, opts.splatMode, onProgress);
+      return loadPly(uri, name, opts.splatMode, fallbackColor, onProgress);
     case "splat":
     case "spz":
     case "ksplat":
@@ -397,6 +437,7 @@ async function loadPly(
   uri: string,
   name: string,
   splatMode: SplatRenderMode,
+  fallbackColor: number,
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
@@ -405,7 +446,10 @@ async function loadPly(
     onProgress?.("Decoding…");
     return buildSplatLayer(bytes, name, splatMode);
   }
-  return finalize(plyToObject(plyLoader.parse(buffer)));
+  const geometry = plyLoader.parse(buffer);
+  // Faces or not is what tells a mesh from a cloud, and only here is it known.
+  const isCloud = geometry.getIndex() == null || geometry.getIndex()!.count === 0;
+  return { ...finalize(plyToObject(geometry, isCloud, fallbackColor)), isCloud };
 }
 
 /** Load a Spark-supported splat file (.splat/.spz/.ksplat) as a 3DGS cloud. */
@@ -502,31 +546,28 @@ async function fetchBytes(uri: string, onProgress?: Progress): Promise<ArrayBuff
   return out.buffer;
 }
 
-/** PLY can be a mesh (has faces) or a bare point cloud; build the right object. */
-function plyToObject(geometry: THREE.BufferGeometry): THREE.Object3D {
-  const hasColor = geometry.getAttribute("color") != null;
-  const isMesh = geometry.getIndex() != null && geometry.getIndex()!.count > 0;
-  if (isMesh) {
-    if (!geometry.getAttribute("normal")) {
-      geometry.computeVertexNormals();
-    }
-    return new THREE.Mesh(
-      geometry,
-      new THREE.MeshStandardMaterial({
-        vertexColors: hasColor,
-        color: hasColor ? 0xffffff : 0xcccccc,
-        metalness: 0,
-        roughness: 1,
-      })
-    );
+/** Build the right object for a parsed PLY. An uncolored *mesh* keeps the neutral
+ *  grey — it is told apart by its shading, not its tint; an uncolored cloud is the
+ *  case the palette exists for (see `buildPlyPoints`). */
+function plyToObject(
+  geometry: THREE.BufferGeometry,
+  isCloud: boolean,
+  fallbackColor: number
+): THREE.Object3D {
+  if (isCloud) {
+    return buildPlyPoints(geometry, fallbackColor);
   }
-  return new THREE.Points(
+  const hasColor = geometry.getAttribute("color") != null;
+  if (!geometry.getAttribute("normal")) {
+    geometry.computeVertexNormals();
+  }
+  return new THREE.Mesh(
     geometry,
-    new THREE.PointsMaterial({
+    new THREE.MeshStandardMaterial({
       vertexColors: hasColor,
       color: hasColor ? 0xffffff : 0xcccccc,
-      size: 1.5,
-      sizeAttenuation: false,
+      metalness: 0,
+      roughness: 1,
     })
   );
 }

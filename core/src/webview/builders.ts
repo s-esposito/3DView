@@ -10,8 +10,35 @@ import type { ModelData, CameraView, Bounds } from "../shared/messages";
 // Default frustum wireframe color (RGB 0.423, 0.5568, 0.7490 → 8-bit). The Scene
 // panel's "Frustum color" picker overrides it per session via Viewer.setFrustumColor.
 export const FRUSTUM_COLOR = 0x6c8ebf;
+/** Starting screen-pixel size of every bare point cloud — a COLMAP reconstruction's,
+ *  a PLY asset's, a 3DGS asset's centers. One "Point size" slider drives them all, so
+ *  they must start from one constant. */
+export const DEFAULT_POINT_SIZE = 1.5;
 const GRID_PADDING = 1.5;
 const BOX_COLOR = 0x33dd88;
+
+/**
+ * Fallback colors for point clouds that carry none of their own, so several of
+ * them in one scene stay tellable apart (the point of comparing a ground-truth
+ * cloud against a predicted one). Cool-leaning but deliberately categorical, not
+ * a ramp: adjacent entries must read as different colors, not as two shades.
+ * Mid-luminance, so each holds up against the light, dark and dim viewport.
+ */
+export const CLOUD_PALETTE: readonly number[] = [
+  0x38bdf8, // sky
+  0x2ec4b6, // teal
+  0xa78bfa, // violet
+  0xf472b6, // pink
+  0xa3e635, // lime
+  0xfbbf24, // amber
+  0xfb7185, // rose
+  0x818cf8, // indigo
+];
+
+/** The `turn`-th palette color, cycling. The Viewer takes one per scene item. */
+export function cloudColor(turn: number): number {
+  return CLOUD_PALETTE[turn % CLOUD_PALETTE.length];
+}
 
 /** The colored point cloud as a single `THREE.Points`. */
 export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
@@ -39,6 +66,45 @@ export function buildColoredPoints(
     sizeAttenuation: false,
   });
   return new THREE.Points(geometry, material);
+}
+
+/**
+ * A bare point cloud (a PLY with no faces) as `THREE.Points`. Uses the file's own
+ * per-vertex colors when it has them; otherwise the whole cloud takes
+ * `fallbackColor`, which is what keeps two uncolored clouds apart in one scene.
+ * The size is the default: the layer applies the live one when it attaches this.
+ */
+export function buildPlyPoints(
+  geometry: THREE.BufferGeometry,
+  fallbackColor: number
+): THREE.Points {
+  const hasColor = geometry.getAttribute("color") != null;
+  // Note the geometry arrives from PLYLoader, which has already computed a bounding
+  // sphere — a tight one, fitted to the points. Don't overwrite it with a sphere
+  // around the box: same scan, up to sqrt(3) the radius, so strictly looser culling.
+  return new THREE.Points(
+    geometry,
+    new THREE.PointsMaterial({
+      vertexColors: hasColor,
+      color: hasColor ? 0xffffff : fallbackColor,
+      size: DEFAULT_POINT_SIZE,
+      sizeAttenuation: false,
+    })
+  );
+}
+
+/** Resize every bare point cloud under `object` (screen px). A material tweak —
+ *  no geometry is rebuilt — but it does walk the object, so callers apply it on a
+ *  build or on an actual change, not on every state sync. */
+export function setPointsSize(object: THREE.Object3D | undefined, size: number): void {
+  object?.traverse((child) => {
+    const points = child as THREE.Points;
+    if (points.isPoints) {
+      eachMaterial(points.material, (m) => {
+        (m as THREE.PointsMaterial).size = size;
+      });
+    }
+  });
 }
 
 /**

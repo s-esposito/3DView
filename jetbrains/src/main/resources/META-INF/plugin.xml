@@ -35,7 +35,7 @@
         <action id="dev.colmapview.OpenAsset"
                 class="dev.colmapview.actions.OpenAssetAction"
                 text="3DView: Open Asset…"
-                description="Open an asset — a mesh (glTF / GLB / OBJ / PLY) or a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT) — in the 3D viewer">
+                description="Open an asset — a mesh (glTF / GLB / OBJ / PLY), a point cloud (PLY) or a 3DGS splat (PLY / SPLAT / SPZ / KSPLAT) — in the 3D viewer">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         <action id="dev.colmapview.OpenViewer"

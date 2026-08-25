@@ -88,11 +88,14 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          (per-reconstruction) + AssetOptions (3DGS mode, track
                          trail/opacity/density — one object so the layer interface
                          doesn't grow a method per control)
-    assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY), a
-                         3DGS splat (.ply/.splat/.spz/.ksplat; .ply auto-disambiguated
-                         by `f_dc_0` / `packed_position`), or 3D point tracks
+    assetLayer.ts        AssetLayer (SceneLayer): loads a mesh (GLTF/OBJ/PLY), a bare
+                         point cloud (.ply), a
+                         3DGS splat (.ply/.splat/.spz/.ksplat) or 3D point tracks
                          (.npz/.npy) into a group, and rebuilds a
                          splat on a render-mode switch from its retained SplatCloud.
+                         A .ply is one of three things, told apart by what is in it:
+                         `f_dc_0`/`packed_position` in the header → splat, faces →
+                         mesh, neither → point cloud (see the palette invariant).
                          Each mesh keeps its loaded (lit PBR, incl. GLB textures)
                          material + a derived unlit-albedo twin; "Shaded" swaps
                          between them (shaded is the default), "Wireframe" sets both
@@ -363,7 +366,7 @@ routinely carries `dense/fused.ply` and friends.
   the **browser** hosts (web demo + drag-drop), lacking a native dialog, send
   `chooseColmap` (a `ColmapModelRef[]`) and the webview shows a modal chooser
   (`overlays.ts showColmapChooser`), loading each picked model via `loadColmap`'s
-  path and revoking the unpicked models' blob: URLs. Meshes and 3DGS splats both arrive as **`addAsset`**
+  path and revoking the unpicked models' blob: URLs. Meshes, point clouds and 3DGS splats all arrive as **`addAsset`**
   (`{ asset: { uri, name } }`); the webview's `assetLayer.ts` picks the loader by
   extension and `viewer.addAsset` adds the layer.
 - **Host-agnostic bundle / the host bridge.** The webview never calls a
@@ -424,6 +427,34 @@ routinely carries `dense/fused.ply` and friends.
   `customProgramCacheKey` so it never shares a program with a plain textured
   material. The material's `opacity` stays the load/evict show-hide gate (1/0) and
   multiplies the result — don't repurpose it for translucency.
+- **One palette color per scene ITEM, not per layer** (`builders.ts CLOUD_PALETTE`
+  / `cloudColor`). A point cloud with no per-vertex colors of its own is drawn in a
+  palette color, so two uncolored clouds in one scene are tellable apart. The turn
+  is taken by the **Viewer** (`colorTurn`), once per item, and handed to the
+  `AssetLayer` constructor — a temporal item takes ONE and passes it to every frame,
+  because its frames are timesteps of one capture and must not change color as it is
+  scrubbed. Don't move the counter into `AssetLayer` (a sequence would then strobe)
+  and don't key it off the file name (two names can collide; the point is distinctness,
+  not stability). An uncolored *mesh* keeps its neutral grey — it is read by its
+  shading, not its tint.
+- **"Point size" is one slider over two option bags**, all three defaults seeded from
+  `builders.DEFAULT_POINT_SIZE`. Reconstruction clouds read `DisplayOptions.pointSize`;
+  asset clouds read `AssetOptions.pointSize` (a plain PLY cloud, and a 3DGS asset in
+  `points` mode). `Viewer.setPointSize` writes both and fans out. Size is **never** a
+  build parameter — builders seed the default and `AssetLayer` applies the live value
+  in `attachCurrent` (so a rebuild — mode switch, frame swap — comes back right) and
+  in `applyAssetOptions` **only when it changed**, since `setPointsSize` walks the
+  object where the track setters next to it are O(1). Same rule as `trackFrames` /
+  `trackOpacity`: build parameters are what change which primitives exist
+  (`trackDensity`, `splatMode`), material tweaks are re-applied on attach. The slider
+  shows when `hasPoints || hasPointCloud`; `hasPointCloud` comes from a flag recorded
+  at load time (beside `cloud`/`tracks`), not from the built object, so it doesn't
+  flip as E cycles the render mode.
+- **Don't preset a bounding sphere on loader-produced geometry.** `PLYLoader` already
+  calls `computeBoundingSphere()`, and its sphere is fitted to the points; replacing it
+  with one around the AABB costs the same scan for up to √3 the radius, i.e. strictly
+  looser culling. `buildColoredPoints` presetting from `Bounds` is the *correct* use of
+  that pattern — it builds the geometry itself, so there is nothing to overwrite.
 - **Precision caveat:** point positions are downcast float64→float32 in
   `points3d.ts` (~7 sig digits). Fine for normalized scenes; revisit for
   geo-referenced coordinates (would need an origin offset).

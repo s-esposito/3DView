@@ -18,16 +18,12 @@ import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { unpackSplats, unpackSplat, PackedSplats, SplatMesh } from "@sparkjsdev/spark";
 import type { Bounds } from "../shared/messages";
 import { computeBounds } from "../colmap/bounds";
-import { buildColoredPoints, sphereFromBounds } from "./builders";
+import { buildColoredPoints, DEFAULT_POINT_SIZE, sphereFromBounds } from "./builders";
 
 /** How a decoded splat cloud is rendered, in decreasing fidelity — also the order
  *  the E key cycles and the control panel lists. */
 export const SPLAT_RENDER_MODES = ["splatting", "ellipsoids", "points"] as const;
 export type SplatRenderMode = (typeof SPLAT_RENDER_MODES)[number];
-
-/** 3DGS point clouds have no per-point size of their own, so render their centers
- *  at the same constant pixel size the COLMAP/PLY point paths use. */
-const SPLAT_POINT_SIZE = 1.5;
 
 /**
  * Ellipsoid radii, in σ of the Gaussian. A rendered splat fades out well past 1σ,
@@ -224,9 +220,11 @@ export function disposeSplatMesh(object: THREE.Object3D | undefined): void {
   }
 }
 
-/** The cloud's centers as a colored `THREE.Points` — base color only, no covariance. */
+/** The cloud's centers as a colored `THREE.Points` — base color only, no covariance.
+ *  3DGS clouds have no per-point size of their own, so they start at the shared
+ *  default and follow the "Point size" slider from there, like any other cloud. */
 function buildSplatPoints(cloud: SplatCloud): THREE.Points {
-  return buildColoredPoints(cloud.centers, cloud.colors, cloud.bounds, SPLAT_POINT_SIZE);
+  return buildColoredPoints(cloud.centers, cloud.colors, cloud.bounds, DEFAULT_POINT_SIZE);
 }
 
 /**

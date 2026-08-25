@@ -15,7 +15,7 @@ import javax.swing.JComponent
  */
 class JcefViewerPanel(parent: Disposable) {
     /** Called when the webview's Scene "+" requests adding content
-     *  ("colmap" | "mesh" | "splat" | "tracks"). */
+     *  ("colmap" | "mesh" | "cloud" | "splat" | "tracks"). */
     var onRequestAdd: (kind: String) -> Unit = {}
 
     /** Called with a user-facing error message (the canvas status is set too). */
@@ -56,7 +56,7 @@ class JcefViewerPanel(parent: Disposable) {
 
     val component: JComponent get() = browser.component
 
-    /** Add an asset file (mesh or 3DGS splat) to the scene. */
+    /** Add an asset file (mesh, point cloud or 3DGS splat) to the scene. */
     fun openAsset(file: Path) {
         roots.allow(file.parent ?: file)
         val id = "asset-${++idCounter}"
