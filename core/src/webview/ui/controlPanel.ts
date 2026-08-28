@@ -56,6 +56,11 @@ export class ControlPanel {
 
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
+    // This rebuilds the UI wholesale — on every rename, remove and load — so a scrolled
+    // body would jump back to the top. Carry the offsets across, like transformOpen.
+    const scroll = Array.from(document.querySelectorAll<HTMLElement>(".viewer-body")).map(
+      (body) => body.scrollTop
+    );
     document.getElementById("viewer-ui")?.remove();
     const s = this.viewer.getState();
 
@@ -64,6 +69,9 @@ export class ControlPanel {
     ui.className = "viewer-ui";
     ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
     document.body.appendChild(ui);
+    ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
+      body.scrollTop = scroll[i] ?? 0;
+    });
   }
 
   /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
@@ -207,7 +215,9 @@ export class ControlPanel {
     }
     if (s.trackSteps > 1) {
       // Trail length in time steps; at the far right the whole trajectory shows.
-      // Opacity and density are how a few thousand overlapping trails stay readable.
+      // Opacity and density are how a few thousand overlapping trails stay readable;
+      // thickness (screen px, as for frustums) is how a sparse set stops being a
+      // hairline, and smoothing (in time steps) is how a jittery tracker reads.
       appearance.push(
         slider("Track trail", 2, s.trackSteps, 1, s.trackFrames, (v) =>
           this.viewer.setTrackFrames(v)
@@ -217,6 +227,10 @@ export class ControlPanel {
         ),
         slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
           this.viewer.setTrackDensity(v)
+        ),
+        slider("Track thickness", 1, 10, 0.5, s.trackWidth, (v) => this.viewer.setTrackWidth(v)),
+        slider("Track smoothing", 0, 5, 0.25, s.trackSmoothing, (v) =>
+          this.viewer.setTrackSmoothing(v)
         )
       );
     }

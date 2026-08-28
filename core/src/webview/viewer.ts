@@ -121,6 +121,10 @@ export interface ViewerState {
   trackOpacity: number;
   /** Fraction of point tracks drawn, 0..1. */
   trackDensity: number;
+  /** Point-track trail thickness in screen pixels. */
+  trackWidth: number;
+  /** Gaussian smoothing of the trajectories along time, in steps; 0 = raw. */
+  trackSmoothing: number;
   /** Sensible nudge for the position fields, derived from the scene's size. */
   positionStep: number;
   /** How fast temporal items play back, in frames per second (shared by all of them). */
@@ -306,6 +310,8 @@ export class Viewer {
       trackFrames: Math.min(this.assetOpts.trackFrames, trackSteps),
       trackOpacity: this.assetOpts.trackOpacity,
       trackDensity: this.assetOpts.trackDensity,
+      trackWidth: this.assetOpts.trackWidth,
+      trackSmoothing: this.assetOpts.trackSmoothing,
       positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
       playbackFps: this.playbackFps,
       items: this.layers.map((l) => ({
@@ -727,6 +733,18 @@ export class Viewer {
    *  raising this adds tracks back rather than reshuffling the set. */
   setTrackDensity(density: number): void {
     this.setAssetOptions({ trackDensity: density });
+  }
+
+  /** Thicken the point-track trails (screen px). Live: a fat line's width is a
+   *  uniform, so nothing is rebuilt. */
+  setTrackWidth(width: number): void {
+    this.setAssetOptions({ trackWidth: width });
+  }
+
+  /** Smooth each trajectory along time (in steps; 0 = raw). Rebuilds the lines —
+   *  it moves where the points are — but from data already decoded. */
+  setTrackSmoothing(sigma: number): void {
+    this.setAssetOptions({ trackSmoothing: sigma });
   }
 
   /** Merge a change into the scene-wide asset options and push it to every layer. */

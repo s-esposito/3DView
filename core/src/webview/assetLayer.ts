@@ -33,7 +33,14 @@ import {
 } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { readNpy, readNpz } from "./npz";
-import { decodeTracks, buildTrackLines, setTrackTrail, setTrackOpacity, trackSteps } from "./tracks";
+import {
+  decodeTracks,
+  buildTrackLines,
+  setTrackTrail,
+  setTrackOpacity,
+  setTrackWidth,
+  trackSteps,
+} from "./tracks";
 import type { TrackSet } from "./tracks";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
@@ -189,13 +196,13 @@ export class AssetLayer implements FrameSource {
   }
 
   /**
-   * Apply the scene-wide asset options. Geometry is rebuilt only for the two that
-   * change which primitives exist — the 3DGS render mode and track density — and
-   * both rebuild from data this layer already holds, so nothing is re-decoded.
-   * Trail length and opacity are applied every time; they are just as cheap to
-   * re-apply as to compare, and a rebuild must restore them anyway. Point size is
-   * not — it walks the object — so it goes through the same changed-only check as
-   * the two above, and `attachCurrent` covers the rebuild case.
+   * Apply the scene-wide asset options. Geometry is rebuilt only for the three that
+   * change which primitives exist or where they are — the 3DGS render mode, track
+   * density and track smoothing — and each rebuilds from data this layer already
+   * holds, so nothing is re-decoded. Trail length, opacity and thickness are applied
+   * every time; they are just as cheap to re-apply as to compare, and a rebuild must
+   * restore them anyway. Point size is not — it walks the object — so it goes through
+   * the same changed-only check as the rebuilds, and `attachCurrent` covers them.
    */
   applyAssetOptions(opts: AssetOptions): void {
     const previous = this.opts;
@@ -204,8 +211,12 @@ export class AssetLayer implements FrameSource {
       this.rebuild(this.buildFrameObject(this.cloud));
       return; // attachCurrent re-applies the rest
     }
-    if (this.tracks && opts.trackDensity !== previous.trackDensity) {
-      this.rebuild(buildTrackLines(this.tracks, opts.trackDensity));
+    if (
+      this.tracks &&
+      (opts.trackDensity !== previous.trackDensity ||
+        opts.trackSmoothing !== previous.trackSmoothing)
+    ) {
+      this.rebuild(buildTrackLines(this.tracks, opts.trackDensity, opts.trackSmoothing));
       return;
     }
     if (opts.pointSize !== previous.pointSize) {
@@ -213,6 +224,7 @@ export class AssetLayer implements FrameSource {
     }
     setTrackTrail(this.current, opts.trackFrames);
     setTrackOpacity(this.current, opts.trackOpacity);
+    setTrackWidth(this.current, opts.trackWidth);
   }
 
   /** Swap in freshly built content in place of the current object. */
@@ -269,6 +281,7 @@ export class AssetLayer implements FrameSource {
     setPointsSize(object, this.opts.pointSize);
     setTrackTrail(object, this.opts.trackFrames);
     setTrackOpacity(object, this.opts.trackOpacity);
+    setTrackWidth(object, this.opts.trackWidth);
   }
 
   /** Free the current content's GPU resources, leaving the group (and box) in place. */
@@ -379,7 +392,7 @@ function loadAsset(
       return loadSplat(uri, name, opts.splatMode, onProgress);
     case "npz":
     case "npy":
-      return loadTracks(uri, ext === "npy", opts.trackDensity, onProgress);
+      return loadTracks(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext ?? "?"}`));
   }
@@ -487,6 +500,7 @@ async function loadTracks(
   uri: string,
   bare: boolean,
   density: number,
+  smoothing: number,
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
@@ -498,7 +512,7 @@ async function loadTracks(
     `3DView: ${set.count} track(s) over ${set.steps} step(s) from ` +
       set.groups.map((g) => `${g.name} (${g.count})`).join(", ")
   );
-  return { object: buildTrackLines(set, density), bounds: set.bounds, tracks: set };
+  return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };
 }
 
 /** Decode a splat file (Spark, WASM in a worker) and build it in `splatMode`. */

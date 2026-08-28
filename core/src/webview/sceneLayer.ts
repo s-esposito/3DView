@@ -6,6 +6,7 @@ import * as THREE from "three";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
 import type { SplatRenderMode } from "./splats";
+import { DEFAULT_TRACK_SMOOTHING, DEFAULT_TRACK_WIDTH } from "./tracks";
 import { ThumbnailLoader } from "./textures";
 import {
   buildPoints,
@@ -33,15 +34,22 @@ export interface AssetOptions {
   trackOpacity: number;
   /** Fraction of point tracks drawn, 0..1 — a stable random subset. */
   trackDensity: number;
+  /** Point-track trail thickness in screen pixels. */
+  trackWidth: number;
+  /** Gaussian smoothing of each trajectory along time, in steps; 0 = raw. */
+  trackSmoothing: number;
 }
 
-/** Splats render 3DGS as it was trained to look; tracks start whole, opaque, undecimated. */
+/** Splats render 3DGS as it was trained to look; tracks start whole, opaque and
+ *  undecimated, thick enough to read, and lightly smoothed along time. */
 export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
   splatMode: "splatting",
   pointSize: DEFAULT_POINT_SIZE,
   trackFrames: Number.POSITIVE_INFINITY,
   trackOpacity: 1,
   trackDensity: 1,
+  trackWidth: DEFAULT_TRACK_WIDTH,
+  trackSmoothing: DEFAULT_TRACK_SMOOTHING,
 };
 
 /** Scene-wide display options applied to every reconstruction layer. */

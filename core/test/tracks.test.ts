@@ -4,13 +4,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import * as THREE from "three";
+import type { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 
 import { readNpy, readNpz, type NpyArray } from "../src/webview/npz";
 import {
   decodeTracks,
   buildTrackLines,
+  DEFAULT_TRACK_WIDTH,
   setTrackTrail,
   setTrackOpacity,
+  setTrackWidth,
+  smoothTracks,
   trackSteps,
 } from "../src/webview/tracks";
 
@@ -194,11 +198,24 @@ test("decodeTracks explains itself when there are no 3D tracks", () => {
 
 // --- geometry ---------------------------------------------------------------
 
+/** Segments a built track object draws — a fat line is instanced, one per segment. */
+const segments = (lines: LineSegments2) => lines.geometry.attributes.instanceStart.count;
+
+/** One track over five steps along +x, with a sideways spike at step 2. */
+function spikeSet(vis = new Uint8Array(5).fill(1)) {
+  const xyz = new Float32Array(5 * 3);
+  for (let s = 0; s < 5; s++) {
+    xyz[s * 3] = s;
+  }
+  xyz[2 * 3 + 1] = 10;
+  return decodeTracks(arrays({ xyz: f4([5, 1, 3], xyz), vis: b1([5, 1], vis) }));
+}
+
 test("buildTrackLines draws one segment per consecutive visible pair", () => {
   const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], VIS) }));
   const lines = buildTrackLines(set);
-  // 2 steps of motion x 2 tracks = 4 segments = 8 vertices.
-  assert.equal(lines.geometry.getAttribute("position").count, 8);
+  // 2 steps of motion x 2 tracks = 4 segments.
+  assert.equal(segments(lines), 4);
   assert.equal(trackSteps(lines), 3);
   assert.ok(lines.geometry.boundingSphere != null, "bounding sphere is preset");
 });
@@ -207,12 +224,12 @@ test("buildTrackLines breaks the trail where a point is hidden or non-finite", (
   const hidden = new Uint8Array([1, 1, 0, 1, 1, 1]); // track A invisible at step 1
   const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], hidden) }));
   // Track A loses both of its segments (steps 0-1 and 1-2); track B keeps two.
-  assert.equal(buildTrackLines(set).geometry.getAttribute("position").count, 4);
+  assert.equal(segments(buildTrackLines(set)), 2);
 
   const nan = Float32Array.from(XYZ);
   nan[3] = Number.NaN; // track B, step 0
   const withNan = decodeTracks(arrays({ xyz: f4([3, 2, 3], nan), vis: b1([3, 2], VIS) }));
-  assert.equal(buildTrackLines(withNan).geometry.getAttribute("position").count, 6);
+  assert.equal(segments(buildTrackLines(withNan)), 3);
 });
 
 test("density thins to a stable, nested subset of the tracks", () => {
@@ -227,8 +244,7 @@ test("density thins to a stable, nested subset of the tracks", () => {
   const set = decodeTracks(
     arrays({ xyz: f4([2, count, 3], xyz), vis: b1([2, count], new Uint8Array(2 * count).fill(1)) })
   );
-  const segmentsAt = (density: number) =>
-    buildTrackLines(set, density).geometry.getAttribute("position").count / 2;
+  const segmentsAt = (density: number) => segments(buildTrackLines(set, density));
 
   assert.equal(segmentsAt(1), count);
   const half = segmentsAt(0.5);
@@ -237,8 +253,8 @@ test("density thins to a stable, nested subset of the tracks", () => {
 
   // Nested: every track kept at 0.25 is still kept at 0.5 (raising density only adds).
   const drawnX = (density: number) => {
-    const position = buildTrackLines(set, density).geometry.getAttribute("position");
-    return new Set(Array.from({ length: position.count / 2 }, (_, k) => position.getX(k * 2)));
+    const start = buildTrackLines(set, density).geometry.attributes.instanceStart;
+    return new Set(Array.from({ length: start.count }, (_, k) => start.getX(k)));
   };
   const quarter = drawnX(0.25);
   const halfSet = drawnX(0.5);
@@ -250,36 +266,80 @@ test("density thins to a stable, nested subset of the tracks", () => {
 test("setTrackOpacity fades the lines and only then pays for transparency", () => {
   const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], VIS) }));
   const lines = buildTrackLines(set);
-  const material = lines.material as THREE.LineBasicMaterial;
+  const material = lines.material;
 
   setTrackOpacity(lines, 0.4);
   assert.equal(material.opacity, 0.4);
   assert.equal(material.transparent, true);
   assert.equal(material.depthWrite, false);
+  assert.equal(material.alphaToCoverage, false, "blending and coverage must not stack");
 
   setTrackOpacity(lines, 1);
   assert.equal(material.transparent, false, "opaque lines must not take the blended path");
   assert.equal(material.depthWrite, true);
+  assert.equal(material.alphaToCoverage, true, "opaque fat lines keep their smooth edge");
 
   setTrackOpacity(new THREE.Mesh(new THREE.BufferGeometry()), 0.5); // no-op, no throw
 });
 
 test("setTrackTrail reveals the trajectory up to a step, and clamps", () => {
   const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], VIS) }));
-  const lines = buildTrackLines(set) as THREE.LineSegments;
+  const lines = buildTrackLines(set);
 
   setTrackTrail(lines, 1); // one step in: nothing has moved yet
-  assert.equal(lines.geometry.drawRange.count, 0);
+  assert.equal(lines.geometry.instanceCount, 0);
   setTrackTrail(lines, 2); // one step of motion for both tracks
-  assert.equal(lines.geometry.drawRange.count, 4);
+  assert.equal(lines.geometry.instanceCount, 2);
   setTrackTrail(lines, 3);
-  assert.equal(lines.geometry.drawRange.count, 8);
+  assert.equal(lines.geometry.instanceCount, 4);
   setTrackTrail(lines, 99); // beyond the end: the whole trail, not an empty draw
-  assert.equal(lines.geometry.drawRange.count, 8);
+  assert.equal(lines.geometry.instanceCount, 4);
 
   // Non-track objects are left alone.
   const mesh = new THREE.Mesh(new THREE.BufferGeometry());
   setTrackTrail(mesh, 2);
   assert.equal(mesh.geometry.drawRange.count, Infinity);
   assert.equal(trackSteps(mesh), 0);
+});
+
+test("setTrackWidth thickens the trails without rebuilding them", () => {
+  const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], VIS) }));
+  const lines = buildTrackLines(set);
+  const geometry = lines.geometry;
+
+  assert.equal(lines.material.linewidth, DEFAULT_TRACK_WIDTH, "built at the default width");
+  setTrackWidth(lines, 4.5);
+  assert.equal(lines.material.linewidth, 4.5);
+  assert.equal(lines.geometry, geometry, "width is a uniform — the geometry is untouched");
+  // Screen pixels, not world units: a trail keeps its thickness at any zoom.
+  assert.equal(lines.material.worldUnits, false);
+
+  setTrackWidth(new THREE.Mesh(new THREE.BufferGeometry()), 3); // no-op, no throw
+});
+
+test("smoothTracks averages along time over the visible samples only", () => {
+  const set = spikeSet();
+  const steps = set.steps;
+
+  assert.equal(smoothTracks(set, 0), set.positions, "sigma 0 is off — the same buffer");
+  const smoothed = smoothTracks(set, 1);
+  assert.notEqual(smoothed, set.positions, "smoothing never writes in place");
+  assert.ok(smoothed[2 * 3 + 1] < 10 && smoothed[2 * 3 + 1] > 0, "the spike is pulled in");
+  assert.ok(smoothed[1 * 3 + 1] > 0, "and it drags its neighbours a little");
+  // A convex combination of the inputs, so the set's bounds still hold.
+  for (let s = 0; s < steps; s++) {
+    assert.ok(smoothed[s * 3 + 1] <= 10 && smoothed[s * 3 + 1] >= 0);
+  }
+});
+
+test("smoothing ignores hidden samples and never changes what is drawn", () => {
+  const vis = new Uint8Array(5).fill(1);
+  vis[2] = 0; // the spike lands on a step the tracker had lost
+  const set = spikeSet(vis);
+
+  const smoothed = smoothTracks(set, 1);
+  assert.equal(smoothed[1 * 3 + 1], 0, "an occluded sample must not drag its neighbours");
+  assert.equal(smoothed[2 * 3 + 1], 10, "the hidden sample itself is passed through");
+  // The hidden step still breaks the trail in exactly the same place.
+  assert.equal(segments(buildTrackLines(set, 1, 1)), segments(buildTrackLines(set, 1, 0)));
 });

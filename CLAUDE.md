@@ -116,10 +116,12 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     tracks.ts            3D point tracks: decodeTracks() picks (steps, tracks, 3)
                          arrays + their visibility masks out of a NumPy archive,
                          buildTrackLines() draws one polyline per track in a single
-                         LineSegments (time-major, so setTrackTrail() reveals a
-                         prefix of the trail via drawRange — no rebuild). Opacity is
-                         a material tweak; density thins to a stable hashed subset
-                         and does rebuild
+                         LineSegments2 — a fat line, so a screen-px thickness takes
+                         effect (time-major, so setTrackTrail() reveals a prefix of
+                         the trail by capping instanceCount — no rebuild). Opacity
+                         and width are material tweaks; density (a stable hashed
+                         subset) and smoothTracks() (a Gaussian along time, over the
+                         visible samples only) do rebuild
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/LineMaterial,
@@ -180,7 +182,8 @@ tracks) under a single
 `addAsset`, `removeItem`,
 `renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
-`setFrustumColor`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
+`setFrustumColor`, `setTrackFrames`/`setTrackOpacity`/`setTrackDensity`/
+`setTrackWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
 `setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
 `onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
@@ -329,7 +332,7 @@ routinely carries `dense/fused.ply` and friends.
   calls `renderer.render` when `controls.update()` reports motion (incl. damping)
   OR `needsRender` is set. Anything that changes what's on screen *without moving
   the camera* MUST call `requestRender()` — every Viewer mutator
-  (`setGlobal`/`setPointSize`/`setFrustumScale`/`setFrustumLineWidth`/
+  (`setGlobal`/`setPointSize`/`setFrustumScale`/`setFrustumLineWidth`/`setTrack*`/
   `setFrustumColor`/`setFov`/`setRoll`/`setItemVisible`/`fitCamera`/`rebuildHelpers`/
   `onResize`), interaction hover/select/deselect (via
   `InteractionDeps.requestRender`), and async texture load/evict (via
@@ -403,6 +406,13 @@ routinely carries `dense/fused.ply` and friends.
   because the host only ever builds URIs for opened content (mesh files; images
   under a model's dir, path-escape-guarded). Don't narrow `rootsFor` back to exact
   folders — it reintroduces the reload-on-add bug.
+- **A panel scrolls in its body, and nowhere else.** Every host sets
+  `html,body{overflow:hidden}`, so anything a panel pushes past the viewport is
+  unreachable: `.viewer-body` carries the `--viewer-panel-max` cap and the scroller
+  (the rule's own comment in `styles.ts` has why it must be that box, and why the cap
+  is halved-viewport rather than a flat 40vh). `ControlPanel.render()` rebuilds the
+  whole UI, so it carries each body's `scrollTop` across — like `transformOpen` and
+  `playheads`.
 - **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
   camera only when the scene was empty; adding to an existing scene keeps the
   user's current view. `resetView()` (R) is the explicit re-fit.
@@ -445,8 +455,9 @@ routinely carries `dense/fused.ply` and friends.
   in `attachCurrent` (so a rebuild — mode switch, frame swap — comes back right) and
   in `applyAssetOptions` **only when it changed**, since `setPointsSize` walks the
   object where the track setters next to it are O(1). Same rule as `trackFrames` /
-  `trackOpacity`: build parameters are what change which primitives exist
-  (`trackDensity`, `splatMode`), material tweaks are re-applied on attach. The slider
+  `trackOpacity` / `trackWidth`: build parameters are what change which primitives
+  exist or where they are (`trackDensity`, `trackSmoothing`, `splatMode`), material
+  tweaks are re-applied on attach. The slider
   shows when `hasPoints || hasPointCloud`; `hasPointCloud` comes from a flag recorded
   at load time (beside `cloud`/`tracks`), not from the built object, so it doesn't
   flip as E cycles the render mode.
