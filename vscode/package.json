@@ -2,7 +2,7 @@
   "name": "3dview",
   "displayName": "3DView",
   "description": "View COLMAP reconstructions, 3D meshes, point clouds, 3D Gaussian splats and 3D point tracks in the editor.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "3dview",
   "license": "MIT",
   "repository": {

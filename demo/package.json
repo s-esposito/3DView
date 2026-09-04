@@ -1,6 +1,6 @@
 {
   "name": "3dview-demo",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "GitHub Pages demo for 3DView — open COLMAP reconstructions, meshes, point clouds, 3DGS splats and point tracks in the browser, entirely client-side.",
   "license": "MIT",
   "private": true,
