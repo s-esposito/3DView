@@ -1,8 +1,8 @@
 {
   "name": "3dview",
   "displayName": "3DView",
-  "description": "View COLMAP reconstructions in the editor as a colored point cloud with camera poses.",
-  "version": "1.0.4",
+  "description": "View COLMAP reconstructions, 3D meshes, point clouds, 3D Gaussian splats and 3D point tracks in the editor.",
+  "version": "1.0.5",
   "publisher": "3dview",
   "license": "MIT",
   "repository": {
@@ -12,9 +12,28 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "icon": "media/icon.png",
   "categories": [
-    "Visualization"
+    "Visualization",
+    "Data Science",
+    "Other"
   ],
+  "keywords": [
+    "colmap",
+    "photogrammetry",
+    "sfm",
+    "gaussian splatting",
+    "3dgs",
+    "point cloud",
+    "mesh",
+    "ply",
+    "three.js",
+    "3d"
+  ],
+  "homepage": "https://github.com/s-esposito/3DView",
+  "bugs": {
+    "url": "https://github.com/s-esposito/3DView/issues"
+  },
   "main": "./out/extension.js",
   "activationEvents": [],
   "contributes": {
@@ -117,6 +136,7 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "tsc --noEmit -p ./tsconfig.test.json",
+    "clean": "rm -rf out",
     "test": "node esbuild.js --test && node --test \"out/test/*.test.js\""
   },
   "devDependencies": {

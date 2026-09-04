@@ -1,14 +1,16 @@
 {
   "name": "3dview-demo",
-  "version": "1.0.4",
-  "description": "GitHub Pages demo for 3DView — drag-drop COLMAP reconstructions and mesh files to render them in the browser.",
+  "version": "1.0.5",
+  "description": "GitHub Pages demo for 3DView — open COLMAP reconstructions, meshes, point clouds, 3DGS splats and point tracks in the browser, entirely client-side.",
   "license": "MIT",
   "private": true,
   "scripts": {
     "build": "node esbuild.js",
-    "lint": "tsc --noEmit -p ./"
+    "lint": "tsc --noEmit -p ./",
+    "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@3dview/core": "*",
     "esbuild": "^0.20.0",
     "typescript": "^5.4.0"
   }

@@ -29,18 +29,36 @@ my-reconstruction/        ← pick this folder
     └── ...
 ```
 
-The demo finds the first directory holding a complete `cameras`/`images`/`points3D`
-trio (binary or text), so picking a parent that contains several models (e.g.
-`sparse/0`, `sparse/1`) just loads the first. If you pick only the model folder
-(e.g. `sparse/0`) without the sibling `images/`, the point cloud and frustums load
-but the frustums won't be textured.
+The demo finds **every** directory holding a complete `cameras`/`images`/`points3D`
+trio (binary or text), at any depth. Pick a parent that contains several models
+(e.g. `sparse/0`, `sparse/1`) and a chooser appears so you can load one, some or all
+of them — and loading several at once offers to treat them as the timesteps of one
+capture. If you pick only the model folder (e.g. `sparse/0`) without the sibling
+`images/`, the point cloud and frustums load but the frustums won't be textured.
 
-### Mesh…
+### Mesh… / Point cloud… / 3DGS splat… / 3D point tracks…
 
-Picks a single mesh file: `.glb` / `.gltf` (recommended), `.obj`, or `.ply`.
+Each entry picks asset files, filtered to that family:
 
-Add as many reconstructions and meshes as you like; show/hide or remove each from
-the Scene panel.
+| Entry | Extensions |
+|-------|------------|
+| Mesh | `.glb` / `.gltf` (recommended), `.obj`, `.ply` |
+| Point cloud | `.ply` without faces |
+| 3DGS splat | `.ply`, `.splat`, `.spz`, `.ksplat` |
+| 3D point tracks | `.npz`, `.npy` |
+
+The filter only chooses what the dialog shows: what an asset *is* comes from the file
+itself, so a `.ply` loads correctly as a mesh, a point cloud or a splat whichever
+entry you used. You can select **several files at once**, and the viewer then asks
+whether they are separate items or the frames of one temporal (4D) item.
+
+### Asset folder…
+
+Picks a **folder** and loads every asset file directly inside it — the quick way to
+open a per-frame capture as one scrubbable item.
+
+Add as many reconstructions and assets as you like; show/hide, rename or remove each
+from the Scene panel.
 
 ## Viewer controls
 
@@ -51,9 +69,10 @@ the Scene panel.
 | Exit camera view | `Esc` (or ✕ in the info popup) |
 | Reset / fit view | `r` |
 | Toggle points / frustums / images | `p` / `f` / `i` |
-| Toggle wireframe / bounding box | `w` / `b` |
+| Toggle shaded / wireframe / bounding box | `s` / `w` / `b` |
 | Toggle grid / axes | `g` / `a` |
 | Toggle upright (Y-up) orientation | `u` |
+| Cycle Gaussians: splats → ellipsoids → points | `e` |
 
 ## Build & run locally
 
@@ -71,7 +90,7 @@ Then serve the `demo/` directory with any static server (`index.html` references
 cd demo && python3 -m http.server 8000   # → http://localhost:8000
 ```
 
-Deployed to GitHub Pages by `.github/workflows/deploy-demo.yml` on push to `demo`.
+Deployed to GitHub Pages by `.github/workflows/deploy-demo.yml` on push to `main`.
 
 ## Notes & limitations
 

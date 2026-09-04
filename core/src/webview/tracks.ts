@@ -52,7 +52,7 @@ const HUE_STEP = 0.618033988749895;
 /** Trail thickness in screen pixels a freshly built object starts at; the live value
  *  is applied by the layer on attach, exactly as point size is. Thick enough to read
  *  as a trajectory rather than a hairline. */
-export const DEFAULT_TRACK_WIDTH = 3;
+export const DEFAULT_TRACK_LINE_WIDTH = 3;
 
 /** Smoothing a trail gets unless asked otherwise, in time steps. Half a step is a
  *  light touch: it takes the per-step jitter off tracker output while leaving the
@@ -276,7 +276,7 @@ export function buildTrackLines(set: TrackSet, density = 1, smoothing = 0): Line
   geometry.boundingSphere = sphereFromBounds(set.bounds);
   const material = new LineMaterial({
     vertexColors: true,
-    linewidth: DEFAULT_TRACK_WIDTH,
+    linewidth: DEFAULT_TRACK_LINE_WIDTH,
     worldUnits: false, // width in screen px: constant thickness at any zoom
     alphaToCoverage: true, // smooth edges (the renderer is antialiased)
   });
@@ -356,12 +356,12 @@ export function smoothTracks(set: TrackSet, sigma: number): Float32Array {
  * Show the trajectories only up to `frames` time steps (1 = nothing drawn yet, the
  * full step count = the whole trail). A no-op on anything that isn't track lines.
  */
-export function setTrackTrail(object: THREE.Object3D | undefined, frames: number): void {
+export function setTrackTrail(object: THREE.Object3D | undefined, steps: number): void {
   const ends = object?.userData?.trackStepSegmentEnd as Uint32Array | undefined;
   if (!ends || ends.length === 0) {
     return;
   }
-  const step = Math.min(Math.max(Math.round(frames), 1), ends.length) - 1;
+  const step = Math.min(Math.max(Math.round(steps), 1), ends.length) - 1;
   // A fat line draws one instance per segment, so the instance count is its draw range.
   (object as LineSegments2).geometry.instanceCount = ends[step];
 }
@@ -396,7 +396,7 @@ export function setTrackOpacity(object: THREE.Object3D | undefined, opacity: num
  * in screen units, not world ones). Live: a fat line's width is a uniform, so this
  * costs nothing and never rebuilds. A no-op on anything that isn't track lines.
  */
-export function setTrackWidth(object: THREE.Object3D | undefined, width: number): void {
+export function setTrackLineWidth(object: THREE.Object3D | undefined, width: number): void {
   if (trackSteps(object) === 0) {
     return;
   }

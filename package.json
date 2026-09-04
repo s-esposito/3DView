@@ -1,7 +1,7 @@
 {
   "name": "3dview-monorepo",
-  "version": "1.0.4",
-  "description": "3DView — a host-agnostic Three.js viewer for COLMAP reconstructions and 3D meshes, with VS Code and PyCharm hosts over a shared core.",
+  "version": "1.0.5",
+  "description": "3DView — a host-agnostic Three.js viewer for COLMAP reconstructions, meshes, point clouds, 3D Gaussian splats and 3D point tracks, with VS Code, PyCharm and web hosts over a shared core.",
   "license": "MIT",
   "private": true,
   "repository": {
@@ -18,6 +18,10 @@
     "watch": "npm run build -w @3dview/core && npm run watch -w 3dview",
     "lint": "npm run lint -w @3dview/core && npm run lint -w 3dview && npm run lint -w 3dview-demo",
     "check": "npm run check -w @3dview/core",
-    "test": "npm run test -w @3dview/core && npm run test -w 3dview"
+    "test": "npm run test -w @3dview/core && npm run test -w 3dview",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

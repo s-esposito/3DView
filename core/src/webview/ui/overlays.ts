@@ -94,7 +94,8 @@ export function showColmapChooser(
   const box = document.createElement("div");
   box.className = "viewer-modal";
 
-  const { head, close } = popupHead(`${models.length} reconstructions found`, "Cancel");
+  const n = models.length;
+  const { head, close } = popupHead(`${n} reconstruction${n > 1 ? "s" : ""} found`, "Cancel");
 
   const list = document.createElement("div");
   list.className = "viewer-modal-list";

@@ -1,9 +1,11 @@
 # 3DView
 
-A VS Code extension for viewing **COLMAP reconstructions**, **3D meshes**, and
-**3D Gaussian splats** in the editor — a colored point cloud, camera frustums with
-the source images, glTF/OBJ/PLY meshes, and 3DGS splats
-(`.ply`/`.splat`/`.spz`/`.ksplat`), all in one interactive Three.js scene.
+A viewer for **COLMAP reconstructions**, **3D meshes**, **point clouds**, **3D
+Gaussian splats** and **3D point tracks** — a colored point cloud, camera frustums
+with the source images, glTF/OBJ/PLY meshes, 3DGS splats
+(`.ply`/`.splat`/`.spz`/`.ksplat`) and tracked trajectories, all in one interactive
+Three.js scene. It runs as a **VS Code extension**, a **PyCharm / JetBrains plugin**
+and a **browser demo**, over one shared core.
 
 **🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models, meshes, and 3DGS splats in the browser (no install required).
 
@@ -30,7 +32,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   drawn as one colored polyline per point, with the trail breaking wherever a point
   is occluded. Sliders control the **trail** (how many time steps are drawn),
   **opacity**, and **density** (a stable random subset of the tracks) — the last two
-  are what keep a few thousand overlapping trails readable — plus **thickness**
+  are what keep a few thousand overlapping trails readable — plus **line width**
   (in screen pixels, so a sparse set stops being a hairline) and **smoothing**
   (a Gaussian along time, which takes the jitter out of a noisy tracker without
   moving where a trail breaks — lightly on by default; slide it to 0 for the raw
@@ -44,13 +46,15 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   **timeline** — scrub through the frames or play them back (shared **Playback fps**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
-  **position / rotation** fields (the ⤧ button on its row), so sources that don't
+  **position / rotation** fields (the move-arrows button on its row), so sources that don't
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
-- **Adjust & export** — tune point size and frustum scale, rename / hide / remove
-  any scene item, and save a PNG of the current view at **1× / 2× / 4×** from the
-  **3DView** panel.
+- **Adjust & export** — from the **3DView** panel: point size, frustum size / line
+  width / color, camera field of view and roll, and a transparent PNG of the current
+  view at **1× / 2× / 4×** (**Render viewpoint**). Rename, hide and remove scene
+  items from the **Scene** panel.
+- **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
 - **Built for large clouds** — on-demand rendering and lazy, downscaled frustum
   textures keep big reconstructions responsive.
 
@@ -60,7 +64,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.0.4.vsix --force
+code --install-extension 3dview-1.0.5.vsix --force
 ```
 
 **From source:**
@@ -79,7 +83,7 @@ git clone git@github.com:s-esposito/3DView.git && cd 3DView && npm install
 ## Usage
 
 Use the **3DView** icon in the Activity Bar (or the Command Palette) to *Open
-Reconstruction* / *Open Asset* / *Open Asset Folder* / *Open Viewer*, then the Scene
+Reconstruction* / *Open Asset* / *Open Asset Folder* / *Open Empty Viewer*, then the Scene
 panel's **+** — or
 **drag & drop** a file or a COLMAP folder onto the viewer — to add more. A COLMAP
 model is a folder of `cameras`/`images`/`points3D` (e.g. `sparse/0/`); an asset is a
@@ -87,15 +91,17 @@ single mesh, point cloud, splat, or point-track file. When a project holds sever
 (`0`, `1`, …) you're prompted to load one specific model or all of them — and anything
 you open several of at once can be loaded as one temporal item you scrub through
 instead of as separate items. **Open Asset Folder** loads every mesh / cloud / splat / track
-file in a folder in one go — the way to load a per-frame capture, and the way to load
-several files at once over a remote connection, where VS Code's file dialog can only
-select one.
+file directly inside a folder (not recursive) in one go — the way to load a per-frame
+capture, and the way to load several files at once over a remote connection, where VS
+Code's file dialog can only select one.
 
 Dragging out of **VS Code's own Explorer** works too, with two things worth knowing:
 hold **Shift** as you drop, or VS Code routes the drop to the editor area instead of
 the viewer — or skip the drag entirely and right-click the file(s) or folder in the
-Explorer → **Open in 3DView**. Either way the extension opens them by path, so they
-land in Recents and their images stream on demand.
+Explorer → **Open in 3DView**. Either way the extension opens them by path, so a
+reconstruction's images stream on demand and a single pick is recorded in Recents (a
+multi-file selection opens as one group and is deliberately not recorded, so it can't
+flush the ten-entry list).
 
 | Action | Input |
 |--------|-------|
@@ -112,6 +118,10 @@ land in Recents and their images stream on demand.
 ```bash
 npm run lint && npm run build && npm test
 ```
+
+Also: `npm run watch` (rebuild the extension on change), `npm run check` (the
+host-agnostic-core boundary guard) and `npm run clean` (drop every workspace's build
+output).
 
 See [CLAUDE.md](CLAUDE.md) for the architecture. License: MIT.
 

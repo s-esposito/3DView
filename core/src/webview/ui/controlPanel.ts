@@ -170,10 +170,10 @@ export class ControlPanel {
         checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
-    if (s.hasPoints || s.hasAsset) {
+    if (s.hasPoints || s.hasAssets) {
       toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
     }
-    if (s.hasAsset) {
+    if (s.hasAssets) {
       toggles.append(
         checkbox("Shaded (S)", s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
         checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
@@ -207,7 +207,7 @@ export class ControlPanel {
         slider("Frustum size", 0, s.frustumScaleMax, s.frustumScaleMax / 80, s.frustumScale, (v) =>
           this.viewer.setFrustumScale(v)
         ),
-        slider("Frustum line size", 1, 10, 0.5, s.frustumLineWidth, (v) =>
+        slider("Frustum line width", 1, 10, 0.5, s.frustumLineWidth, (v) =>
           this.viewer.setFrustumLineWidth(v)
         ),
         colorRow("Frustum color", s.frustumColor, (v) => this.viewer.setFrustumColor(v))
@@ -219,8 +219,8 @@ export class ControlPanel {
       // thickness (screen px, as for frustums) is how a sparse set stops being a
       // hairline, and smoothing (in time steps) is how a jittery tracker reads.
       appearance.push(
-        slider("Track trail", 2, s.trackSteps, 1, s.trackFrames, (v) =>
-          this.viewer.setTrackFrames(v)
+        slider("Track trail", 2, s.trackSteps, 1, s.trackTrail, (v) =>
+          this.viewer.setTrackTrail(v)
         ),
         slider("Track opacity", 0.05, 1, 0.05, s.trackOpacity, (v) =>
           this.viewer.setTrackOpacity(v)
@@ -228,7 +228,7 @@ export class ControlPanel {
         slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
           this.viewer.setTrackDensity(v)
         ),
-        slider("Track thickness", 1, 10, 0.5, s.trackWidth, (v) => this.viewer.setTrackWidth(v)),
+        slider("Track line width", 1, 10, 0.5, s.trackLineWidth, (v) => this.viewer.setTrackLineWidth(v)),
         slider("Track smoothing", 0, 5, 0.25, s.trackSmoothing, (v) =>
           this.viewer.setTrackSmoothing(v)
         )

@@ -47,9 +47,9 @@ export interface ModelData {
 
 /**
  * An asset to load in the webview, identified by a webview-resolvable URI. An
- * asset is a mesh (glTF/GLB/OBJ/PLY), a bare point cloud (PLY), or a 3D Gaussian
- * Splatting cloud (.ply / .splat / .spz / .ksplat); the loader is picked by file
- * extension.
+ * asset is a mesh (glTF/GLB/OBJ/PLY), a bare point cloud (PLY), a 3D Gaussian
+ * Splatting cloud (.ply / .splat / .spz / .ksplat), or 3D point tracks
+ * (.npz / .npy); the loader is picked by file extension.
  */
 export interface AssetRef {
   /** Webview URI of the asset file (mesh siblings resolve relative to it). */
@@ -87,6 +87,13 @@ export const ASSET_KIND_EXTS: Record<AssetKind, readonly string[]> = {
 export const ASSET_EXTS: readonly string[] = [
   ...new Set(Object.values(ASSET_KIND_EXTS).flat()),
 ];
+
+/** A file name's extension, lower-cased and without the dot ("" when it has none).
+ *  The one reader every asset-kind test goes through, so "MODEL.PLY" and "model.ply"
+ *  are the same file to all of them. */
+export function extOf(name: string): string {
+  return name.split(".").pop()?.toLowerCase() ?? "";
+}
 
 /** Human-readable name of an asset family, for picker titles and messages. */
 export const ASSET_KIND_LABELS: Record<AssetKind, string> = {
@@ -175,7 +182,8 @@ export type GroupingChoice = "temporal" | "separate";
 
 /**
  * Extension host -> webview. A scene holds any number of reconstructions and
- * assets (meshes / splats), each identified by a host-assigned `id` (stable
+ * assets (meshes / point clouds / splats / tracks), each identified by a
+ * host-assigned `id` (stable
  * across panel recreations) so the webview can list, toggle, and remove them.
  */
 export type HostToWebview =

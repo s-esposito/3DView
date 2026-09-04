@@ -9,3 +9,5 @@ tsconfig*.json
 test/**
 TODO.md
 CLAUDE.md
+out/test/**
+scripts/**

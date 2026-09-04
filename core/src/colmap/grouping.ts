@@ -24,6 +24,11 @@ const MODEL_TRIOS = {
 /** Image extensions whose files are mapped to frustum textures by basename. */
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|bmp|gif|webp|tiff?)$/i;
 
+/** The last segment of a `/`-separated path — the file's own name. */
+export function basename(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
 /** True if a path names an image file (by extension) the viewer can texture a frustum with. */
 export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.test(path);

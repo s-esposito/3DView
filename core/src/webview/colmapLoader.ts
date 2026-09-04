@@ -4,6 +4,7 @@
 // plain URLs instead of a parsed model, so the host never re-implements parsing
 // and never serializes large typed arrays across its message bridge.
 import {
+  basename,
   parseCamerasBin,
   parseCamerasText,
   parseImagesBin,
@@ -125,7 +126,7 @@ function resolveImageUri(
   if (imageUrls) {
     const direct = imageUrls[name];
     if (direct) return direct;
-    const base = name.split("/").pop();
+    const base = basename(name);
     if (base && imageUrls[base]) return imageUrls[base];
   }
   return imageBaseUrl ? imageUrl(imageBaseUrl, name) : undefined;

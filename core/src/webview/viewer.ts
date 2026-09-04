@@ -30,7 +30,7 @@ import { TemporalLayer } from "./temporalLayer";
 import { SparkRenderer } from "@sparkjsdev/spark";
 import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
-import { ASSET_KIND_EXTS } from "../shared/messages";
+import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
@@ -108,7 +108,7 @@ export interface ViewerState {
   roll: number;
   hasPoints: boolean;
   hasCameras: boolean;
-  hasAsset: boolean;
+  hasAssets: boolean;
   hasSplat: boolean;
   /** Whether any asset is a bare point cloud, so the "Point size" slider applies
    *  even in a scene with no reconstruction. */
@@ -116,13 +116,13 @@ export interface ViewerState {
   /** Longest point-track asset in the scene, in time steps; 0 when there are none. */
   trackSteps: number;
   /** How many of those steps are currently drawn. */
-  trackFrames: number;
+  trackTrail: number;
   /** Point-track line opacity, 0..1. */
   trackOpacity: number;
   /** Fraction of point tracks drawn, 0..1. */
   trackDensity: number;
   /** Point-track trail thickness in screen pixels. */
-  trackWidth: number;
+  trackLineWidth: number;
   /** Gaussian smoothing of the trajectories along time, in steps; 0 = raw. */
   trackSmoothing: number;
   /** Sensible nudge for the position fields, derived from the scene's size. */
@@ -162,8 +162,8 @@ export class Viewer {
   private readonly byId = new Map<string, SceneLayer>();
   private grid?: THREE.GridHelper;
   private axes?: THREE.AxesHelper;
-  /** Spark's splat rasterizer — one per scene, present only while a splat asset is
-   *  loaded and splatting is in use (see syncSpark). */
+  /** Spark's splat rasterizer — one per scene, created lazily the first time
+   *  splatting is used and removed once no splat asset is left (see syncSpark). */
   private spark?: SparkRenderer;
   private bounds: Bounds = { min: [-1, -1, -1], max: [1, 1, 1] };
 
@@ -303,14 +303,14 @@ export class Viewer {
       roll: this.rollDeg,
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
-      hasAsset: this.layers.some((l) => l.kind === "asset"),
+      hasAssets: this.layers.some((l) => l.kind === "asset"),
       hasSplat: this.assetLayers().some((l) => l.isSplat),
       hasPointCloud: this.assetLayers().some((l) => l.isPointCloud),
       trackSteps,
-      trackFrames: Math.min(this.assetOpts.trackFrames, trackSteps),
+      trackTrail: Math.min(this.assetOpts.trackTrail, trackSteps),
       trackOpacity: this.assetOpts.trackOpacity,
       trackDensity: this.assetOpts.trackDensity,
-      trackWidth: this.assetOpts.trackWidth,
+      trackLineWidth: this.assetOpts.trackLineWidth,
       trackSmoothing: this.assetOpts.trackSmoothing,
       positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
       playbackFps: this.playbackFps,
@@ -458,8 +458,7 @@ export class Viewer {
     label: string,
     frames: TemporalFrame[]
   ): Promise<SplatCloud[] | undefined> {
-    const splatFile = (name: string) =>
-      ASSET_KIND_EXTS.splat.includes(name.split(".").pop()?.toLowerCase() ?? "");
+    const splatFile = (name: string) => ASSET_KIND_EXTS.splat.includes(extOf(name));
     // flatMap, not filter: it narrows the frames to the asset shape as it goes.
     const assets = frames.flatMap((f) => (f.kind === "asset" && splatFile(f.name) ? [f] : []));
     if (assets.length !== frames.length) {
@@ -718,9 +717,9 @@ export class Viewer {
 
   /** Draw point-track trajectories up to `frames` time steps. At the maximum this
    *  reverts to "all steps", so a longer track asset added later still shows whole. */
-  setTrackFrames(frames: number): void {
+  setTrackTrail(frames: number): void {
     this.setAssetOptions({
-      trackFrames: frames >= this.trackSteps() ? Number.POSITIVE_INFINITY : frames,
+      trackTrail: frames >= this.trackSteps() ? Number.POSITIVE_INFINITY : frames,
     });
   }
 
@@ -737,8 +736,8 @@ export class Viewer {
 
   /** Thicken the point-track trails (screen px). Live: a fat line's width is a
    *  uniform, so nothing is rebuilt. */
-  setTrackWidth(width: number): void {
-    this.setAssetOptions({ trackWidth: width });
+  setTrackLineWidth(width: number): void {
+    this.setAssetOptions({ trackLineWidth: width });
   }
 
   /** Smooth each trajectory along time (in steps; 0 = raw). Rebuilds the lines —

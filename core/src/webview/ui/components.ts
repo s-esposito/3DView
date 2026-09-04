@@ -2,7 +2,7 @@
 // produce elements with class names; all styling lives in styles.ts.
 
 /** Adaptive number formatting for slider readouts. */
-export function fmtNum(v: number): string {
+function fmtNum(v: number): string {
   if (v === 0) {
     return "0";
   }

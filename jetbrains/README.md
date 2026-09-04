@@ -10,12 +10,12 @@ IntelliJ-based IDEs. For what the viewer does and its controls, see the
 ## How it works
 
 - The webview bundle talks to its host only through `window.__viewerHost` (see
-  `core/src/shared/hostBridge.ts`) and fetches images, assets (meshes / splats),
-  and the COLMAP `.bin`/`.txt` files from plain URLs.
+  `core/src/shared/hostBridge.ts`) and fetches images, assets (meshes, point clouds,
+  3DGS splats, point tracks), and the COLMAP `.bin`/`.txt` files from plain URLs.
 - The plugin provides that bridge with a `JBCefJSQuery` and serves all content
   from a single in-process origin (`http://colmapview/…`) via a CEF resource
   handler, guarded to allowed roots.
-- COLMAP is parsed **in the webview** (`webview/colmapLoader.ts`); the plugin only
+- COLMAP is parsed **in the webview** (`core/src/webview/colmapLoader.ts`); the plugin only
   discovers the model directory and serves bytes. Kotlin never parses COLMAP.
 
 ## Build & install
@@ -42,6 +42,16 @@ IDE build 2024.3 and newer.)
 
 For development, `./gradlew runIde` launches a sandbox IDE with the plugin loaded —
 no install needed; `./gradlew verifyPlugin` runs the JetBrains plugin verifier.
+
+## Not available in this host yet
+
+**Temporal (4D) items** — several files loaded as one capture's timesteps — and the
+Scene "+" menu's **asset folder** entry both need the `addGroup` message, which this
+host does not emit (`Messages.kt` says so where the mirror would carry it); picking
+"asset folder" here opens a single-file dialog instead. Drag-and-drop of files named
+by URI is likewise VS Code-only, since this host does not advertise
+`HostBridge.opensUris`. Everything else — every asset format, every viewer control —
+is the same bundle as the other hosts.
 
 No `gradlew` and no system Gradle? Download one and call it by full path:
 

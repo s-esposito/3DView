@@ -11,10 +11,21 @@ package dev.colmapview
  * simple regexes instead of taking a JSON-library dependency.
  */
 
-/** Inbound: webview -> host. */
+/**
+ * Inbound: webview -> host.
+ *
+ * Two variants of the TS union are deliberately absent, and `parse` returning null
+ * for them is the intended behaviour:
+ *  - `openUris` — only a host that advertises `HostBridge.opensUris` is sent it, and
+ *    this host does not (see the drag-and-drop section of CLAUDE.md).
+ *  - `addGroup` is the outbound counterpart this host never emits, so temporal items
+ *    (and the `"assetFolder"` add kind) are not reachable in PyCharm yet.
+ */
 sealed interface WebviewToHost {
     object Ready : WebviewToHost
-    data class RequestAdd(val kind: String) : WebviewToHost // "colmap" | "mesh" | "cloud" | "splat" | "tracks"
+    // "colmap" | "mesh" | "cloud" | "splat" | "tracks" | "assetFolder" — this host
+    // treats the last as a plain asset pick; see the note above.
+    data class RequestAdd(val kind: String) : WebviewToHost
     data class Removed(val id: String) : WebviewToHost
 
     /** A PNG render of the current viewpoint to save; `png` is a data URL. */
