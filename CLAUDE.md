@@ -47,7 +47,6 @@ npm test         # esbuild --test per package, then node --test
 ./jetbrains_build.sh  # build webview bundle + gradle buildPlugin → jetbrains/build/distributions/*.zip
 ```
 
-The demo is deployed to GitHub Pages via `.github/workflows/deploy-demo.yml` on pushes to `main`.
 
 ## Architecture — runtime domains
 
@@ -74,6 +73,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     cameras.ts/images.ts/points3d.ts   .bin + .txt parsers
     pose.ts              qvec/tvec → camera center (-R^T t) + worldFromCamera (R^T)
     bounds.ts            computeBounds(positions) → axis-aligned Bounds
+    grouping.ts          pure path classification: basename/isImagePath +
+                         groupColmapModels (a flat file list → the model trios in
+                         it), shared by drag-drop and the demo's folder picker
     types.ts             Camera/Image/PointCloud + model→params, modelName()
     index.ts             pure public surface
   src/webview/           Browser UI (DOM + three) → out/webview.js
@@ -132,13 +134,15 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          sizing, dispose)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
+    globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
     ui/                  styles.ts, components.ts, controlPanel.ts (Scene list +
                          per-item timeline), overlays.ts (InfoPopup, model chooser,
                          temporal-grouping prompt)
   test/                  pure unit tests, run under `node --test`: colmap.test.ts
-                         (parsers/poses), builders.test.ts (bounds + scene math),
-                         splats.test.ts (3DGS render-mode geometry),
-                         tracks.test.ts (NumPy reader + track polylines)
+                         (parsers/poses/grouping), builders.test.ts (bounds + scene
+                         math), splats.test.ts (3DGS render-mode geometry),
+                         tracks.test.ts (NumPy reader + track polylines),
+                         naming.test.ts, uriList.test.ts, temporal.test.ts
   scripts/check-boundaries.mjs   boundary guard (run by core's build)
 vscode/                3dview — VS Code extension (Node + vscode) → out/extension.js
   src/host/
@@ -149,6 +153,8 @@ vscode/                3dview — VS Code extension (Node + vscode) → out/exte
                          tracking (ids, + a group id for items opened in one action)
                          + replay; injects the VS Code __viewerHost adapter
     modelData.ts         parsed model → render-ready ModelData DTO
+    recents.ts           the Activity Bar view: a recents launcher (workspaceState)
+                         + the TreeView drop target that opens dropped URIs
   test/colmapLoad.test.ts   fs discovery/load round-trip
   esbuild.js (extension + copies core's webview.js) · tsconfig · .vscodeignore · media/
 demo/                  3dview-demo — GitHub Pages web host → dist/
@@ -182,8 +188,8 @@ tracks) under a single
 `addAsset`, `removeItem`,
 `renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
-`setFrustumColor`, `setTrackFrames`/`setTrackOpacity`/`setTrackDensity`/
-`setTrackWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
+`setFrustumColor`, `setTrackTrail`/`setTrackOpacity`/`setTrackDensity`/
+`setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
 `setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
 `onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
@@ -454,8 +460,8 @@ routinely carries `dense/fused.ply` and friends.
   build parameter — builders seed the default and `AssetLayer` applies the live value
   in `attachCurrent` (so a rebuild — mode switch, frame swap — comes back right) and
   in `applyAssetOptions` **only when it changed**, since `setPointsSize` walks the
-  object where the track setters next to it are O(1). Same rule as `trackFrames` /
-  `trackOpacity` / `trackWidth`: build parameters are what change which primitives
+  object where the track setters next to it are O(1). Same rule as `trackTrail` /
+  `trackOpacity` / `trackLineWidth`: build parameters are what change which primitives
   exist or where they are (`trackDensity`, `trackSmoothing`, `splatMode`), material
   tweaks are re-applied on attach. The slider
   shows when `hasPoints || hasPointCloud`; `hasPointCloud` comes from a flag recorded
@@ -524,6 +530,8 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
   real bundler; needed for three's ESM example loaders). Hosts resolve
   `@3dview/core` via the workspace symlink (its `types: src/index.ts`).
 - Packaging (`vsce`, run in `vscode/`): `.vscodeignore` excludes `src/`, `test/`,
+  **`out/test/`** (the test bundle `npm test` leaves behind — `test/**` alone matches
+  only the source dir, and the built tests shipped in the .vsix until it was added),
   maps, `*.vsix`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
   README ship. `@3dview/core` is a devDependency (esbuild bundles it in), so it is
   not packaged. `vscode_build.sh` passes `vsce --no-dependencies`: because this is a

@@ -58,9 +58,13 @@ viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
 // regex parser matches the short field without scanning the whole base64 payload.
 viewer.onSaveImage = (png, suggestedName) => host.postMessage({ type: "saveImage", suggestedName, png });
 
+/** What an empty scene says, in the status overlay — the one wording for "there is
+ *  nothing here yet", matching the Scene list's own empty row. */
+const EMPTY_HINT = "Open a reconstruction or asset — drag & drop, or use + in the Scene panel.";
+
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
-showStatus("Open a reconstruction or asset — drag & drop, or use + in the Scene panel.");
+showStatus(EMPTY_HINT);
 
 // Keyboard shortcuts map to the same Viewer API the panel uses.
 const TOGGLE_KEYS: Record<string, GlobalToggle> = {
@@ -127,7 +131,7 @@ function updateStatus() {
   if (viewer.getState().items.length > 0) {
     status.style.display = "none";
   } else {
-    showStatus("Open a reconstruction or asset — drag & drop, or use + in the Scene panel.");
+    showStatus(EMPTY_HINT);
   }
 }
 

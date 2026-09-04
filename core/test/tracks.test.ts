@@ -10,10 +10,10 @@ import { readNpy, readNpz, type NpyArray } from "../src/webview/npz";
 import {
   decodeTracks,
   buildTrackLines,
-  DEFAULT_TRACK_WIDTH,
+  DEFAULT_TRACK_LINE_WIDTH,
   setTrackTrail,
   setTrackOpacity,
-  setTrackWidth,
+  setTrackLineWidth,
   smoothTracks,
   trackSteps,
 } from "../src/webview/tracks";
@@ -302,19 +302,19 @@ test("setTrackTrail reveals the trajectory up to a step, and clamps", () => {
   assert.equal(trackSteps(mesh), 0);
 });
 
-test("setTrackWidth thickens the trails without rebuilding them", () => {
+test("setTrackLineWidth thickens the trails without rebuilding them", () => {
   const set = decodeTracks(arrays({ xyz: f4([3, 2, 3], XYZ), vis: b1([3, 2], VIS) }));
   const lines = buildTrackLines(set);
   const geometry = lines.geometry;
 
-  assert.equal(lines.material.linewidth, DEFAULT_TRACK_WIDTH, "built at the default width");
-  setTrackWidth(lines, 4.5);
+  assert.equal(lines.material.linewidth, DEFAULT_TRACK_LINE_WIDTH, "built at the default width");
+  setTrackLineWidth(lines, 4.5);
   assert.equal(lines.material.linewidth, 4.5);
   assert.equal(lines.geometry, geometry, "width is a uniform — the geometry is untouched");
   // Screen pixels, not world units: a trail keeps its thickness at any zoom.
   assert.equal(lines.material.worldUnits, false);
 
-  setTrackWidth(new THREE.Mesh(new THREE.BufferGeometry()), 3); // no-op, no throw
+  setTrackLineWidth(new THREE.Mesh(new THREE.BufferGeometry()), 3); // no-op, no throw
 });
 
 test("smoothTracks averages along time over the visible samples only", () => {

@@ -18,6 +18,10 @@
     "watch": "npm run build -w @3dview/core && npm run watch -w 3dview",
     "lint": "npm run lint -w @3dview/core && npm run lint -w 3dview && npm run lint -w 3dview-demo",
     "check": "npm run check -w @3dview/core",
-    "test": "npm run test -w @3dview/core && npm run test -w 3dview"
+    "test": "npm run test -w @3dview/core && npm run test -w 3dview",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

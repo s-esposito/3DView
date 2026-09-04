@@ -1,12 +1,13 @@
 // The scene-source abstraction. A scene is a list of SceneLayers; each is either
-// a COLMAP reconstruction (points + cameras + box) or an asset (a mesh or a 3DGS
-// splat cloud). The Viewer owns the list and treats every layer uniformly for
+// a COLMAP reconstruction (points + cameras + box) or an asset (a mesh, a bare
+// point cloud, a 3DGS splat cloud, or 3D point tracks). The Viewer owns the list
+// and treats every layer uniformly for
 // visibility, bounds, and disposal.
 import * as THREE from "three";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 import { CameraLayer } from "./cameraLayer";
 import type { SplatRenderMode } from "./splats";
-import { DEFAULT_TRACK_SMOOTHING, DEFAULT_TRACK_WIDTH } from "./tracks";
+import { DEFAULT_TRACK_SMOOTHING, DEFAULT_TRACK_LINE_WIDTH } from "./tracks";
 import { ThumbnailLoader } from "./textures";
 import {
   buildPoints,
@@ -22,20 +23,20 @@ import {
  * method per control, mirroring `DisplayOptions` for reconstructions.
  */
 export interface AssetOptions {
-  /** How 3DGS clouds render: solid ellipsoids or bare centers. */
+  /** How 3DGS clouds render: real splatting, solid ellipsoids, or bare centers. */
   splatMode: SplatRenderMode;
   /** Screen-pixel size of any bare point cloud an asset draws — a plain PLY cloud,
    *  or a 3DGS asset in "points" mode. The same slider as DisplayOptions.pointSize,
    *  which is the reconstruction side of it. */
   pointSize: number;
   /** Point-track trail length in time steps; Infinity draws the whole trajectory. */
-  trackFrames: number;
+  trackTrail: number;
   /** Point-track line opacity, 0..1. */
   trackOpacity: number;
   /** Fraction of point tracks drawn, 0..1 — a stable random subset. */
   trackDensity: number;
   /** Point-track trail thickness in screen pixels. */
-  trackWidth: number;
+  trackLineWidth: number;
   /** Gaussian smoothing of each trajectory along time, in steps; 0 = raw. */
   trackSmoothing: number;
 }
@@ -45,10 +46,10 @@ export interface AssetOptions {
 export const DEFAULT_ASSET_OPTIONS: AssetOptions = {
   splatMode: "splatting",
   pointSize: DEFAULT_POINT_SIZE,
-  trackFrames: Number.POSITIVE_INFINITY,
+  trackTrail: Number.POSITIVE_INFINITY,
   trackOpacity: 1,
   trackDensity: 1,
-  trackWidth: DEFAULT_TRACK_WIDTH,
+  trackLineWidth: DEFAULT_TRACK_LINE_WIDTH,
   trackSmoothing: DEFAULT_TRACK_SMOOTHING,
 };
 
@@ -85,7 +86,7 @@ export interface SceneLayer {
   setWireframe(on: boolean): void;
   /** Light mesh materials (the global "Shaded" option); off = unlit albedo. No-op otherwise. */
   setShaded(on: boolean): void;
-  /** Apply the scene-wide asset options (3DGS mode, track trail/opacity/density).
+  /** Apply the scene-wide asset options (3DGS mode, the track options).
    *  Rebuilds only what actually changed; a no-op for reconstructions. */
   applyAssetOptions(opts: AssetOptions): void;
   /** Local-space bounds for fit-to-view, or undefined if not yet known. */
@@ -93,7 +94,6 @@ export interface SceneLayer {
   dispose(): void;
 }
 
-/** A COLMAP reconstruction: colored points, camera frustums, and a bounding box. */
 /**
  * A layer that already holds every frame of a sequence and can redraw itself as any
  * of them. This is what lets a temporal item swap the data under ONE layer instead
@@ -108,6 +108,7 @@ export interface FrameSource extends SceneLayer {
   showFrame(index: number): void;
 }
 
+/** A COLMAP reconstruction: colored points, camera frustums, and a bounding box. */
 export class ReconstructionLayer implements SceneLayer {
   readonly kind = "reconstruction" as const;
   readonly object = new THREE.Group();

@@ -30,7 +30,7 @@ the source images, glTF/OBJ/PLY meshes, and 3DGS splats
   drawn as one colored polyline per point, with the trail breaking wherever a point
   is occluded. Sliders control the **trail** (how many time steps are drawn),
   **opacity**, and **density** (a stable random subset of the tracks) — the last two
-  are what keep a few thousand overlapping trails readable — plus **thickness**
+  are what keep a few thousand overlapping trails readable — plus **line width**
   (in screen pixels, so a sparse set stops being a hairline) and **smoothing**
   (a Gaussian along time, which takes the jitter out of a noisy tracker without
   moving where a trail breaks — lightly on by default; slide it to 0 for the raw

@@ -1,5 +1,12 @@
-import type { HostToWebview, WebviewToHost, ColmapModelRef, ColmapModelPaths, AddKind } from "@3dview/core";
-import { groupColmapModels, isImagePath, ASSET_EXTS, ASSET_KIND_EXTS } from "@3dview/core";
+import type {
+  HostBridge,
+  HostToWebview,
+  WebviewToHost,
+  ColmapModelRef,
+  ColmapModelPaths,
+  AddKind,
+} from "@3dview/core";
+import { basename, extOf, groupColmapModels, isImagePath, ASSET_EXTS, ASSET_KIND_EXTS } from "@3dview/core";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
@@ -32,7 +39,7 @@ function showFilePicker(kind: AddKind): Promise<FileList | null> {
 
 /** Install the host bridge on the global object before the webview bundle loads. */
 export function installHostBridge() {
-  (globalThis as { __viewerHost?: { postMessage(msg: WebviewToHost): void } }).__viewerHost = {
+  (globalThis as { __viewerHost?: HostBridge }).__viewerHost = {
     postMessage(msg: WebviewToHost) {
       // requestAdd (the Scene "+" menu) and saveImage need host action;
       // `ready`/`removed` need none — the demo tracks no scene state.
@@ -113,7 +120,7 @@ function toColmapRef(
 ): ColmapModelRef {
   return {
     id: `colmap-${Date.now()}-${index}`,
-    label: model.dir.split("/").pop() || "COLMAP Model",
+    label: basename(model.dir) || "COLMAP Model",
     source: model.dir,
     format: model.format,
     urls: {
@@ -130,9 +137,7 @@ function toColmapRef(
  *  offers to load as one temporal item (it orders the frames). The folder's other
  *  files (a README, images) are ignored. */
 function sendAssetFolder(files: FileList): void {
-  const assets = Array.from(files).filter((f) =>
-    ASSET_EXTS.includes(f.name.split(".").pop()?.toLowerCase() ?? "")
-  );
+  const assets = Array.from(files).filter((f) => ASSET_EXTS.includes(extOf(f.name)));
   if (assets.length === 0) {
     throw new Error(
       `No asset files in the selected folder — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`

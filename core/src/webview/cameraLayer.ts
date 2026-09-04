@@ -1,7 +1,7 @@
 // The camera sub-layer of a reconstruction: one Three.js group per registered
 // image, each with a frustum wireframe and (optionally) a textured image plane.
 // Owns hover/selection highlighting and lazy texture loading. Picking is done by
-// the Viewer across all layers; each group is stamped with its owning layer id.
+// `cameraInteraction.ts` across all layers; each group is stamped with its layer id.
 import * as THREE from "three";
 import type { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { ModelData } from "../shared/messages";

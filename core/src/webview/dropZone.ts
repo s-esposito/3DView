@@ -22,10 +22,10 @@
 // recognised file loads as an asset. The path classification is shared with the
 // demo host's folder picker via `colmap/grouping.ts` (groupColmapModels).
 import type { AddAssetMsg, HostToWebview, ColmapModelRef } from "../shared/messages";
-import { ASSET_EXTS } from "../shared/messages";
+import { ASSET_EXTS, extOf } from "../shared/messages";
 import { sharedFolderName } from "../shared/naming";
 import { parseUriList, URI_LIST_MIME } from "../shared/uriList";
-import { groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
+import { basename, groupColmapModels, isImagePath, type ColmapModelPaths } from "../colmap";
 
 // A dropped file with its path relative to the drop (folders recursed); the path's
 // directory groups files into candidate COLMAP models.
@@ -208,7 +208,7 @@ function buildContent(files: DroppedFile[]): HostToWebview {
   }
   // Every asset in the drop, not just the first: dropping a folder of per-frame
   // splats is how a temporal item is meant to arrive.
-  const assets = files.filter((f) => ASSET_EXTS.includes(ext(f.path)));
+  const assets = files.filter((f) => ASSET_EXTS.includes(extOf(f.path)));
   if (assets.length === 1) return buildAsset(assets[0].file);
   if (assets.length > 1) {
     return {
@@ -228,7 +228,7 @@ function buildContent(files: DroppedFile[]): HostToWebview {
 function buildImageUrls(files: DroppedFile[]): Record<string, string> {
   const imageUrls: Record<string, string> = {};
   for (const { path, file } of files) {
-    if (isImagePath(path)) imageUrls[path.split("/").pop()!] = URL.createObjectURL(file);
+    if (isImagePath(path)) imageUrls[basename(path)] = URL.createObjectURL(file);
   }
   return imageUrls;
 }
@@ -239,7 +239,7 @@ function toColmapRef(
   byPath: Map<string, File>,
   imageUrls: Record<string, string>
 ): ColmapModelRef {
-  const label = model.dir.split("/").pop() || "COLMAP Model";
+  const label = basename(model.dir) || "COLMAP Model";
   return {
     id: nextId("colmap"),
     label,
@@ -254,7 +254,7 @@ function toColmapRef(
   };
 }
 
-/** Build an `addAsset` message from a single dropped file (mesh or splat) as a blob: URL. */
+/** Build an `addAsset` message from a single dropped asset file as a blob: URL. */
 function buildAsset(file: File): AddAssetMsg {
   return {
     type: "addAsset",
@@ -264,9 +264,6 @@ function buildAsset(file: File): AddAssetMsg {
   };
 }
 
-function ext(name: string): string {
-  return name.split(".").pop()?.toLowerCase() ?? "";
-}
 
 /** Full-window drop hint, hidden until a file drag enters the page (`.active`). */
 function buildOverlay(): HTMLElement {
@@ -275,7 +272,7 @@ function buildOverlay(): HTMLElement {
   overlay.className = "viewer-drop";
   const inner = document.createElement("div");
   inner.className = "viewer-drop-inner";
-  inner.textContent = "Drop a file or a COLMAP folder to add it to the scene";
+  inner.textContent = "Drop a reconstruction or asset to add it to the scene";
   overlay.append(inner);
   return overlay;
 }

@@ -7,9 +7,10 @@
     <description><![CDATA[
         View <b>COLMAP reconstructions</b> (a colored point cloud with camera poses,
         each image textured onto its frustum), <b>3D meshes</b> (glTF / GLB / OBJ / PLY),
-        and <b>3D Gaussian Splatting</b> files (PLY / SPLAT / SPZ / KSPLAT) in one
+        <b>point clouds</b> (PLY), <b>3D Gaussian Splatting</b> files
+        (PLY / SPLAT / SPZ / KSPLAT) and <b>3D point tracks</b> (NPZ / NPY) in one
         interactive Three.js scene, embedded in the IDE via JCEF. The same viewer is
-        available as a VS Code extension.
+        available as a VS Code extension and as a web demo.
     ]]></description>
 
     <idea-version since-build="243"/>

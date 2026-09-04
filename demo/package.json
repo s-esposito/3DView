@@ -6,9 +6,11 @@
   "private": true,
   "scripts": {
     "build": "node esbuild.js",
-    "lint": "tsc --noEmit -p ./"
+    "lint": "tsc --noEmit -p ./",
+    "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@3dview/core": "*",
     "esbuild": "^0.20.0",
     "typescript": "^5.4.0"
   }

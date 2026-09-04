@@ -1,8 +1,9 @@
 // Boundary guard for the host-agnostic core (see CLAUDE.md "no-mixing boundary").
 //
 // Enforces, so the VS Code / PyCharm split can't silently erode:
-//   1. Source: nothing under src/shared, src/colmap, src/webview may import
-//      `vscode`, a Node builtin (fs/path/os/...), or anything from src/host.
+//   1. Source: nothing under src/ may import `vscode`, a Node builtin
+//      (fs/path/os/...), or anything from src/host. The whole tree is scanned, so
+//      a new directory is covered the day it appears.
 //   2. Bundle: the built out/webview.js must not contain the literal
 //      `acquireVsCodeApi` or a Node `require(...)` (it must be host-agnostic).
 //
@@ -13,7 +14,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SHARED_DIRS = ["src/shared", "src/colmap", "src/webview"];
+const SOURCE_DIR = "src";
 
 // Forbidden import specifiers in the shared core.
 const NODE_BUILTINS = new Set([
@@ -41,18 +42,14 @@ function walk(dir, out) {
 
 const violations = [];
 
-for (const rel of SHARED_DIRS) {
-  const abs = path.join(ROOT, rel);
-  if (!fs.existsSync(abs)) continue;
-  const files = [];
-  walk(abs, files);
-  for (const file of files) {
-    const text = fs.readFileSync(file, "utf8");
-    for (const m of text.matchAll(SPEC_RE)) {
-      const reason = forbiddenSpecifier(m[1]);
-      if (reason) {
-        violations.push(`${path.relative(ROOT, file)}: ${reason}`);
-      }
+const sourceFiles = [];
+walk(path.join(ROOT, SOURCE_DIR), sourceFiles);
+for (const file of sourceFiles) {
+  const text = fs.readFileSync(file, "utf8");
+  for (const m of text.matchAll(SPEC_RE)) {
+    const reason = forbiddenSpecifier(m[1]);
+    if (reason) {
+      violations.push(`${path.relative(ROOT, file)}: ${reason}`);
     }
   }
 }

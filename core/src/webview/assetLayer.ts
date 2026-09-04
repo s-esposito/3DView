@@ -16,6 +16,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import type { Bounds } from "../shared/messages";
+import { extOf } from "../shared/messages";
 import {
   buildBox,
   buildPlyPoints,
@@ -38,14 +39,14 @@ import {
   buildTrackLines,
   setTrackTrail,
   setTrackOpacity,
-  setTrackWidth,
+  setTrackLineWidth,
   trackSteps,
 } from "./tracks";
 import type { TrackSet } from "./tracks";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
 
-/** A single loaded asset (mesh or splat cloud) as a scene layer. */
+/** A single loaded asset — mesh, point cloud, 3DGS splat or point tracks — as a scene layer. */
 export class AssetLayer implements FrameSource {
   readonly kind = "asset" as const;
   readonly object = new THREE.Group();
@@ -222,9 +223,9 @@ export class AssetLayer implements FrameSource {
     if (opts.pointSize !== previous.pointSize) {
       setPointsSize(this.current, opts.pointSize);
     }
-    setTrackTrail(this.current, opts.trackFrames);
+    setTrackTrail(this.current, opts.trackTrail);
     setTrackOpacity(this.current, opts.trackOpacity);
-    setTrackWidth(this.current, opts.trackWidth);
+    setTrackLineWidth(this.current, opts.trackLineWidth);
   }
 
   /** Swap in freshly built content in place of the current object. */
@@ -279,9 +280,9 @@ export class AssetLayer implements FrameSource {
     this.setWireframe(this.wireframe);
     this.setShaded(this.shaded);
     setPointsSize(object, this.opts.pointSize);
-    setTrackTrail(object, this.opts.trackFrames);
+    setTrackTrail(object, this.opts.trackTrail);
     setTrackOpacity(object, this.opts.trackOpacity);
-    setTrackWidth(object, this.opts.trackWidth);
+    setTrackLineWidth(object, this.opts.trackLineWidth);
   }
 
   /** Free the current content's GPU resources, leaving the group (and box) in place. */
@@ -377,7 +378,7 @@ function loadAsset(
   fallbackColor: number,
   onProgress?: Progress
 ): Promise<LoadedAsset> {
-  const ext = name.split(".").pop()?.toLowerCase();
+  const ext = extOf(name);
   switch (ext) {
     case "glb":
     case "gltf":
@@ -394,7 +395,7 @@ function loadAsset(
     case "npy":
       return loadTracks(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
     default:
-      return Promise.reject(new Error(`Unsupported asset format: .${ext ?? "?"}`));
+      return Promise.reject(new Error(`Unsupported asset format: .${ext}`));
   }
 }
 
@@ -461,7 +462,8 @@ async function loadPly(
   }
   const geometry = plyLoader.parse(buffer);
   // Faces or not is what tells a mesh from a cloud, and only here is it known.
-  const isCloud = geometry.getIndex() == null || geometry.getIndex()!.count === 0;
+  const faces = geometry.getIndex();
+  const isCloud = faces == null || faces.count === 0;
   return { ...finalize(plyToObject(geometry, isCloud, fallbackColor)), isCloud };
 }
 
@@ -508,10 +510,6 @@ async function loadTracks(
   const bytes = new Uint8Array(buffer);
   const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
   const set = decodeTracks(arrays);
-  console.info(
-    `3DView: ${set.count} track(s) over ${set.steps} step(s) from ` +
-      set.groups.map((g) => `${g.name} (${g.count})`).join(", ")
-  );
   return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };
 }
 
