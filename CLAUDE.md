@@ -529,9 +529,15 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - tsconfig per package: `module ESNext`, `moduleResolution Bundler` (esbuild is the
   real bundler; needed for three's ESM example loaders). Hosts resolve
   `@3dview/core` via the workspace symlink (its `types: src/index.ts`).
+- The marketplace icon `vscode/media/icon.png` is **generated** from `media/icon.svg`
+  by `vscode/scripts/make-icon.mjs` (pure Node: scanline-fill the SVG's polygons at 4x,
+  box-downsample, write the PNG with `node:zlib`). The SVG stays the source — it is the
+  activity-bar icon, themed via `currentColor` — so re-run the script after editing it
+  rather than touching the PNG.
 - Packaging (`vsce`, run in `vscode/`): `.vscodeignore` excludes `src/`, `test/`,
   **`out/test/`** (the test bundle `npm test` leaves behind — `test/**` alone matches
   only the source dir, and the built tests shipped in the .vsix until it was added),
+  `scripts/`,
   maps, `*.vsix`, `esbuild.js`, `tsconfig.json`. `out/` + `media/` +
   README ship. `@3dview/core` is a devDependency (esbuild bundles it in), so it is
   not packaged. `vscode_build.sh` passes `vsce --no-dependencies`: because this is a
