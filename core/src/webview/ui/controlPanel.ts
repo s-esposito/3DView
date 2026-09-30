@@ -602,10 +602,15 @@ function collapseWrap(body: HTMLElement): HTMLElement {
 /** A small muted "v<x.y.z>" caption under the panels; the running build's version
  *  (`__APP_VERSION__` is inlined from package.json at build time). */
 function buildVersion(): HTMLElement {
-  const el = document.createElement("div");
+  // A new tab: a browser host opens one, and VS Code's webview hands external
+  // links to the system browser rather than navigating the panel away.
+  const el = document.createElement("a");
   el.className = "viewer-version";
   el.textContent = `v${__APP_VERSION__}`;
-  el.title = "3DView version";
+  el.title = "3DView on GitHub";
+  el.href = "https://github.com/s-esposito/3DView";
+  el.target = "_blank";
+  el.rel = "noopener";
   return el;
 }
 
