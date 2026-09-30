@@ -176,6 +176,21 @@ export interface AddGroupMsg {
   grouping?: GroupingChoice;
 }
 
+/**
+ * The host's starting viewpoint for the scene: the camera sits at `position` and
+ * orbits `target`. Both are in the scene's own frame — the one reconstructions
+ * and assets are loaded in (COLMAP's, +y down) — so the Upright toggle turns them
+ * with the content. It becomes the scene's home view: the viewer moves there now
+ * and goes back there wherever it would otherwise fit the camera to the scene (the
+ * first item landing, Reset view, the Upright toggle, leaving a camera's POV). It
+ * may arrive before the content does.
+ */
+export interface SetViewMsg {
+  type: "setView";
+  position: [number, number, number];
+  target: [number, number, number];
+}
+
 /** The two ways a multi-item add can resolve. Named as the modal's own answers, so
  *  a host-supplied hint and a user's click are the same value downstream. */
 export type GroupingChoice = "temporal" | "separate";
@@ -194,6 +209,7 @@ export type HostToWebview =
   // native picker; the native hosts (VS Code, PyCharm) choose host-side instead.
   | { type: "chooseColmap"; models: ColmapModelRef[] }
   | AddGroupMsg
+  | SetViewMsg
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */

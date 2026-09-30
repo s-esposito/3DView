@@ -181,6 +181,9 @@ function handleHostMessage(msg: HostToWebview) {
         () => msg.models.forEach((m) => revokeColmapTrio(m.urls))
       );
       break;
+    case "setView":
+      viewer.setHomeView(msg.position, msg.target);
+      break;
     case "error":
       showStatus(`Error: ${msg.message}`);
       break;
