@@ -166,6 +166,9 @@ export class Viewer {
    *  splatting is used and removed once no splat asset is left (see syncSpark). */
   private spark?: SparkRenderer;
   private bounds: Bounds = { min: [-1, -1, -1], max: [1, 1, 1] };
+  /** The host's starting viewpoint (see SetViewMsg), in the scene's own frame;
+   *  null fits the camera to the scene's bounds instead. */
+  private homeView: { position: Vec3; target: Vec3 } | null = null;
 
   // Scene-wide display state.
   private readonly opts: DisplayOptions = {
@@ -854,6 +857,12 @@ export class Viewer {
     this.fitCamera();
   }
 
+  /** Make `position` looking at `target` (scene frame) the home view, and go there. */
+  setHomeView(position: Vec3, target: Vec3): void {
+    this.homeView = { position, target };
+    this.fitCamera();
+  }
+
   exitPov(): void {
     this.interaction.exitPov();
     this.fitCamera();
@@ -973,10 +982,16 @@ export class Viewer {
     const diag = wMin.distanceTo(wMax) || 1;
     this.camera.near = diag / 1000;
     this.camera.far = diag * 100;
-    const off = diag * 0.6;
-    this.camera.position.set(center.x + off, center.y + off, center.z + off);
+    if (this.homeView) {
+      // The home view is in the scene's frame; the root carries the Upright flip.
+      this.camera.position.fromArray(this.homeView.position).applyMatrix4(this.root.matrixWorld);
+      this.controls.target.fromArray(this.homeView.target).applyMatrix4(this.root.matrixWorld);
+    } else {
+      const off = diag * 0.6;
+      this.camera.position.set(center.x + off, center.y + off, center.z + off);
+      this.controls.target.copy(center);
+    }
     this.camera.updateProjectionMatrix();
-    this.controls.target.copy(center);
     this.controls.update();
     this.requestRender();
   }

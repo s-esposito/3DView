@@ -190,7 +190,7 @@ tracks) under a single
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
 `setFrustumColor`, `setTrackTrail`/`setTrackOpacity`/`setTrackDensity`/
 `setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
-`setOrientation`, `setTheme`, `resetView`, `exitPov`, `saveViewpoint`, `getState`,
+`setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
 `onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
 callbacks) — never three.js directly. Adding
@@ -421,7 +421,11 @@ routinely carries `dense/fused.ply` and friends.
   `playheads`.
 - **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
   camera only when the scene was empty; adding to an existing scene keeps the
-  user's current view. `resetView()` (R) is the explicit re-fit.
+  user's current view. `resetView()` (R) is the explicit re-fit. A host may set a
+  **home view** instead (`setView` message → `setHomeView`, in the scene's own
+  COLMAP frame): every fit — first item, R, Upright, leaving a POV — then goes
+  there rather than to the bounds' generic diagonal, so it can arrive before the
+  content. No bundled host sends it; embedding pages do.
 - **Image-name path guard:** `attachImageUris` rejects names escaping the images
   root (`..`/absolute) before building a webview URI.
 - **postMessage has no transfer list** in VS Code webviews — typed arrays are
