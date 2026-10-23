@@ -102,6 +102,24 @@ test("parseImagesText skips the observations line and keeps names with spaces", 
   assert.deepEqual(imgs[0].tvec, [1, 2, 3]);
 });
 
+test("parseImagesText reads blank observations lines as the image's own", () => {
+  // COLMAP writes an empty POINTS2D line for an image with no 2D points.
+  const text = [
+    "# IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME",
+    "# POINTS2D[] as (X, Y, POINT3D_ID)",
+    "1 1 0 0 0 0 0 0 1 a.jpg",
+    "",
+    "2 1 0 0 0 1 0 0 1 b.jpg",
+    "",
+    "3 1 0 0 0 2 0 0 1 c.jpg",
+    "",
+  ].join("\n");
+  assert.deepEqual(
+    parseImagesText(text).map((i) => i.name),
+    ["a.jpg", "b.jpg", "c.jpg"]
+  );
+});
+
 // --- points3D ---------------------------------------------------------------
 test("parsePoints3DBin reads xyz/rgb and skips tracks", () => {
   const buf = new ByteWriter()

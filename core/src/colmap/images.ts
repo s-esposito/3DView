@@ -40,22 +40,26 @@ export function parseImagesBin(data: Uint8Array): Image[] {
 }
 
 /**
- * Parse `images.txt`. Two lines per image (ignoring `#` comments):
+ * Parse `images.txt`. Two lines per image (ignoring `#` comments and blank lines
+ * between images):
  *   line 1: IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME
- *   line 2: 2D observations (ignored)
+ *   line 2: 2D observations (ignored) — blank for an image with none
  */
 export function parseImagesText(text: string): Image[] {
   const images: Image[] = [];
   const lines = text.split("\n");
-  let expectPose = true; // the next data line is a pose line, not an observations line
+  let expectPose = true; // the next line is a pose line, not an observations line
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) {
+    if (!expectPose) {
+      // The line right after a pose is its (ignored) observations line, even when
+      // blank: that is how COLMAP writes an image with no 2D points, and its reader
+      // consumes it the same way. Skipping it as a blank line would read the next
+      // image's pose as these observations, dropping every other image.
+      expectPose = true;
       continue;
     }
-    if (!expectPose) {
-      // This is the (ignored) 2D-observations line; the next data line is a pose.
-      expectPose = true;
+    if (trimmed === "" || trimmed.startsWith("#")) {
       continue;
     }
     const tok = trimmed.split(/\s+/);
