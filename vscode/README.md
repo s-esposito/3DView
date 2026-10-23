@@ -45,6 +45,7 @@ area — or skip the drag and right-click the file(s) or folder in the Explorer 
 |--------|-------|
 | Orbit / zoom / pan | drag / scroll / right‑drag |
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
+| Cancel a video render | **Esc** |
 | Reset view | **R** |
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |
@@ -53,7 +54,9 @@ area — or skip the drag and right-click the file(s) or folder in the Explorer 
 
 The **3DView** panel holds the display controls — point size, frustum size / line
 width / color, camera field of view and roll, a light / dark / dim theme, and
-**Render viewpoint**, which saves a transparent PNG of the current view at 1× / 2× / 4×.
+**Render viewpoint**, which saves a transparent PNG of the current view at 1× / 2× / 4×,
+and **Render video**, which saves a video flying through a reconstruction's cameras
+(in image-name order; **Esc** cancels).
 
 ## Elsewhere
 

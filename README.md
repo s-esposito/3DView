@@ -52,8 +52,10 @@ and a **browser demo**, over one shared core.
   upright (Y‑up) toggle.
 - **Adjust & export** — from the **3DView** panel: point size, frustum size / line
   width / color, camera field of view and roll, and a transparent PNG of the current
-  view at **1× / 2× / 4×** (**Render viewpoint**). Rename, hide and remove scene
-  items from the **Scene** panel.
+  view at **1× / 2× / 4×** (**Render viewpoint**), and a video flying through a
+  reconstruction's cameras in image-name order, with optional in-between frames and a
+  loop back to the start (**Render video**; MP4, or WebM where the host has no H.264
+  encoder). Rename, hide and remove scene items from the **Scene** panel.
 - **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
 - **Built for large clouds** — on-demand rendering and lazy, downscaled frustum
   textures keep big reconstructions responsive.
@@ -107,6 +109,7 @@ flush the ten-entry list).
 |--------|-------|
 | Orbit / zoom / pan | drag / scroll / right‑drag |
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
+| Cancel a video render | **Esc** |
 | Reset view | **R** |
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |

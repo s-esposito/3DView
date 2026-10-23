@@ -51,6 +51,9 @@ export class ControlPanel {
   /** How to move each temporal item's playhead, by item id — repopulated on every
    *  render, so playback updates the live slider instead of rebuilding the panel. */
   private readonly playheads = new Map<string, (frame: number) => void>();
+  /** "Render video" settings, kept across panel re-renders; `item` is unset until
+   *  picked, which means the first reconstruction with cameras. */
+  private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false };
 
   constructor(private readonly viewer: Viewer) {}
 
@@ -270,23 +273,59 @@ export class ControlPanel {
 
     // Render viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
     if (s.items.length > 0) {
-      const scales = document.createElement("div");
-      scales.className = "viewer-scale-row";
-      for (const sc of [1, 2, 4]) {
-        const b = document.createElement("button");
-        b.className = "viewer-scale-btn";
-        b.textContent = `${sc}×`;
-        b.title = `Save a PNG of the current view at ${sc}× resolution`;
-        b.addEventListener("click", () => this.viewer.saveViewpoint(sc));
-        scales.append(b);
-      }
+      const scales = scaleButtons(
+        [1, 2, 4],
+        (sc) => `Save a PNG of the current view at ${sc}× resolution`,
+        (sc) => this.viewer.saveViewpoint(sc)
+      );
       body.append(section("Render viewpoint", [scales]));
+    }
+
+    const withCameras = s.items.filter((i) => i.cameraCount > 0);
+    if (withCameras.length > 0) {
+      body.append(this.buildVideoSection(withCameras));
     }
 
     if (s.hasCameras) {
       body.append(hint("Hover a frustum to highlight · click to view from it (Esc to exit)"));
     }
     return body;
+  }
+
+  /**
+   * "Render video": fly through a reconstruction's cameras (in image-name order)
+   * and save the result. Settings live on the panel; the scale buttons start it.
+   */
+  private buildVideoSection(withCameras: SceneItem[]): HTMLElement {
+    const v = this.video;
+    if (!withCameras.some((i) => i.id === v.item)) {
+      v.item = withCameras[0].id;
+    }
+    const rows: HTMLElement[] = [];
+    if (withCameras.length > 1) {
+      rows.push(
+        choiceRow(
+          withCameras.map((i) => ({ label: i.label, value: i.id, title: `${i.cameraCount} cameras` })),
+          v.item,
+          (id) => (v.item = id)
+        )
+      );
+    }
+    rows.push(
+      slider("Frames per camera", 1, 30, 1, v.framesPerCamera, (n) => (v.framesPerCamera = n)),
+      slider("Video fps", 1, 60, 1, v.fps, (n) => (v.fps = n)),
+      checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on))
+    );
+    const scales = scaleButtons(
+      [1, 2],
+      (sc) => `Render the camera path at ${sc}× the cameras' image size`,
+      (sc) => {
+        const { item: itemId, framesPerCamera, fps, loop } = v;
+        void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, scale: sc });
+      }
+    );
+    rows.push(scales, hint("Frustums are hidden while rendering · Esc cancels"));
+    return section("Render video", rows);
   }
 
   /**
@@ -597,6 +636,25 @@ function collapseWrap(body: HTMLElement): HTMLElement {
   clip.append(body);
   wrap.append(clip);
   return wrap;
+}
+
+/** A row of "1×", "2×", … buttons that each start a render at that scale. */
+function scaleButtons(
+  scales: number[],
+  title: (scale: number) => string,
+  onClick: (scale: number) => void
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "viewer-scale-row";
+  for (const sc of scales) {
+    const b = document.createElement("button");
+    b.className = "viewer-scale-btn";
+    b.textContent = `${sc}×`;
+    b.title = title(sc);
+    b.addEventListener("click", () => onClick(sc));
+    row.append(b);
+  }
+  return row;
 }
 
 /** A small muted "v<x.y.z>" caption under the panels; the running build's version

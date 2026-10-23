@@ -130,8 +130,14 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          screen-px linewidth via setLineWidth) + image planes;
                          hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
+    cameraPath.ts        pure "Render video" path math: cameras in name order →
+                         Three.js poses (CameraView → position/quaternion/fov), then
+                         sampled with in-between frames (Catmull-Rom position, slerp)
+    videoEncoder.ts      encodeVideo(): frames drawn into the canvas → MP4 (H.264) or
+                         WebM (VP9/VP8) via WebCodecs + Mediabunny — the only module
+                         that imports Mediabunny (MPL-2.0)
     builders.ts          pure three.js geometry builders + scene math (bounds, frustum
-                         sizing, dispose)
+                         sizing, dispose; sRGB → linear vertex colors)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
@@ -190,9 +196,9 @@ tracks) under a single
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
 `setFrustumColor`, `setTrackTrail`/`setTrackOpacity`/`setTrackDensity`/
 `setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
-`setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `getState`,
+`setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `renderCameraPath`/`cancelVideo`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
-`onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveImage`
+`onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveFile`
 callbacks) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
