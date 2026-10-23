@@ -54,8 +54,9 @@ and a **browser demo**, over one shared core.
   width / color, camera field of view and roll, and a transparent PNG of the current
   view at **1× / 2× / 4×** (**Render viewpoint**), and a video flying through a
   reconstruction's cameras in image-name order, with optional in-between frames and a
-  loop back to the start (**Render video**; MP4, or WebM where the host has no H.264
-  encoder). Rename, hide and remove scene items from the **Scene** panel.
+  loop back to the start and an optional field-of-view override (**Render video**; MP4,
+  or WebM where the host has no H.264 encoder). Renders size points by each cloud's own
+  spacing so surfaces stay filled at high resolution (**Fill point gaps in renders**). Rename, hide and remove scene items from the **Scene** panel.
 - **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
 - **Built for large clouds** — on-demand rendering and lazy, downscaled frustum
   textures keep big reconstructions responsive.

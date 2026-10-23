@@ -137,7 +137,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          WebM (VP9/VP8) via WebCodecs + Mediabunny — the only module
                          that imports Mediabunny (MPL-2.0)
     builders.ts          pure three.js geometry builders + scene math (bounds, frustum
-                         sizing, dispose; sRGB → linear vertex colors)
+                         sizing, dispose; sRGB → linear vertex colors; point spacing
+                         + adaptivePoints: render-time world-sized points)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
@@ -196,7 +197,7 @@ tracks) under a single
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
 `setFrustumColor`, `setTrackTrail`/`setTrackOpacity`/`setTrackDensity`/
 `setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
-`setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `renderCameraPath`/`cancelVideo`, `getState`,
+`setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `renderCameraPath`/`cancelVideo`, `setAdaptivePointSize`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
 `onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveFile`
 callbacks) — never three.js directly. Adding

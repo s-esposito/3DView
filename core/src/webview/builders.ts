@@ -114,6 +114,124 @@ export function buildPlyPoints(
   );
 }
 
+/**
+ * A cloud's typical point spacing: the median distance from a sample of its points
+ * to their nearest neighbour. Searches a uniform grid, doubling the cell until each
+ * sampled point's nearest neighbour is provably found (it lies within one cell), so
+ * sparse and dense clouds alike take a few passes. Coincident points don't count as
+ * neighbours. 0 when there is no spacing to measure (fewer than two distinct points).
+ */
+export function estimatePointSpacing(positions: ArrayLike<number>, samples = 2048): number {
+  const n = Math.floor(positions.length / 3);
+  if (n < 2) {
+    return 0;
+  }
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n * 3; i++) {
+    const a = i % 3;
+    min[a] = Math.min(min[a], positions[i]);
+    max[a] = Math.max(max[a], positions[i]);
+  }
+  const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  // First guess: n points spread over a surface the size of the box.
+  let cell = diag / Math.sqrt(n);
+  if (!(cell > 0)) {
+    return 0;
+  }
+  const step = Math.max(1, Math.floor(n / samples));
+  let pending: number[] = [];
+  for (let i = 0; i < n; i += step) {
+    pending.push(i);
+  }
+  const found: number[] = [];
+  for (let pass = 0; pass < 12 && pending.length > 0; pass++, cell *= 2) {
+    const key = (ix: number, iy: number, iz: number) =>
+      (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791); // collisions only add candidates
+    const coord = (i: number, a: number) => Math.floor((positions[i * 3 + a] - min[a]) / cell);
+    const grid = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+      const k = key(coord(i, 0), coord(i, 1), coord(i, 2));
+      const bucket = grid.get(k);
+      if (bucket) bucket.push(i);
+      else grid.set(k, [i]);
+    }
+    const next: number[] = [];
+    for (const p of pending) {
+      const [cx, cy, cz] = [coord(p, 0), coord(p, 1), coord(p, 2)];
+      let best = Infinity;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            for (const q of grid.get(key(cx + dx, cy + dy, cz + dz)) ?? []) {
+              const d = Math.hypot(
+                positions[q * 3] - positions[p * 3],
+                positions[q * 3 + 1] - positions[p * 3 + 1],
+                positions[q * 3 + 2] - positions[p * 3 + 2]
+              );
+              if (d > 0 && d < best) best = d;
+            }
+          }
+        }
+      }
+      // Within one cell, nothing closer can hide outside the 27 cells searched.
+      if (best <= cell) found.push(best);
+      else next.push(p);
+    }
+    pending = next;
+  }
+  if (found.length === 0) {
+    return 0;
+  }
+  found.sort((a, b) => a - b);
+  return found[Math.floor(found.length / 2)];
+}
+
+/** How many neighbour spacings wide a render draws each point: square points of
+ *  exactly the spacing tile a surface seen head-on; the margin covers surfaces seen
+ *  at an angle and uneven sampling. */
+export const ADAPTIVE_POINT_FILL = 1.5;
+
+// The line in Three's points vertex shader that scales an attenuated point by depth.
+const POINT_ATTENUATION = "if ( isPerspective ) gl_PointSize *= ( scale / - mvPosition.z );";
+
+/** A render-time copy of a cloud's material with its points sized in world units. */
+export interface AdaptivePoints {
+  material: THREE.PointsMaterial;
+  /** Size the points for a camera with vertical `fov` (degrees), clamped to
+   *  `minPx`..`maxPx` drawing-buffer pixels. */
+  fit(fov: number, minPx: number, maxPx: number): void;
+}
+
+/**
+ * A copy of `base` whose points are `ADAPTIVE_POINT_FILL × spacing` wide in world
+ * units, so neighbours touch at any distance and render resolution. Three draws an
+ * attenuated point at size·(H/2)/depth px (pixel ratio 1, as renders use), while a
+ * length s at that depth spans s·(H/2)/(depth·tan(fov/2)) px — hence the tan in fit.
+ * The pixel clamp is patched into the vertex shader: a floor so far points don't
+ * vanish, a cap so points right at the lens don't flood the frame.
+ */
+export function adaptivePoints(base: THREE.PointsMaterial, spacing: number): AdaptivePoints {
+  const material = base.clone();
+  material.sizeAttenuation = true;
+  const clampPx = { minPointSize: { value: 1 }, maxPointSize: { value: 64 } };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, clampPx);
+    shader.vertexShader = shader.vertexShader
+      .replace("uniform float scale;", "uniform float scale;\nuniform float minPointSize;\nuniform float maxPointSize;")
+      .replace(POINT_ATTENUATION, `${POINT_ATTENUATION}\n\t\tgl_PointSize = clamp( gl_PointSize, minPointSize, maxPointSize );`);
+  };
+  material.customProgramCacheKey = () => "adaptive-points";
+  return {
+    material,
+    fit(fov, minPx, maxPx) {
+      material.size = (ADAPTIVE_POINT_FILL * spacing) / Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+      clampPx.minPointSize.value = minPx;
+      clampPx.maxPointSize.value = Math.max(minPx, maxPx);
+    },
+  };
+}
+
 /** Resize every bare point cloud under `object` (screen px). A material tweak —
  *  no geometry is rebuilt — but it does walk the object, so callers apply it on a
  *  build or on an actual change, not on every state sync. */

@@ -53,7 +53,7 @@ export class ControlPanel {
   private readonly playheads = new Map<string, (frame: number) => void>();
   /** "Render video" settings, kept across panel re-renders; `item` is unset until
    *  picked, which means the first reconstruction with cameras. */
-  private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false };
+  private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false, overrideFov: false, fov: 60 };
 
   constructor(private readonly viewer: Viewer) {}
 
@@ -272,13 +272,19 @@ export class ControlPanel {
     );
 
     // Render viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
+    // The point-size switch sits here but applies to video renders too.
     if (s.items.length > 0) {
       const scales = scaleButtons(
         [1, 2, 4],
         (sc) => `Save a PNG of the current view at ${sc}× resolution`,
         (sc) => this.viewer.saveViewpoint(sc)
       );
-      body.append(section("Render viewpoint", [scales]));
+      const fill = checkbox("Fill point gaps in renders", s.adaptivePointSize, (on) =>
+        this.viewer.setAdaptivePointSize(on)
+      );
+      fill.title =
+        "Size points by each cloud's own spacing in viewpoint and video renders, so surfaces stay filled at high resolution";
+      body.append(section("Render viewpoint", [fill, scales]));
     }
 
     const withCameras = s.items.filter((i) => i.cameraCount > 0);
@@ -314,14 +320,22 @@ export class ControlPanel {
     rows.push(
       slider("Frames per camera", 1, 30, 1, v.framesPerCamera, (n) => (v.framesPerCamera = n)),
       slider("Video fps", 1, 60, 1, v.fps, (n) => (v.fps = n)),
-      checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on))
+      checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on)),
+      checkbox("Override field of view", v.overrideFov, (on) => {
+        v.overrideFov = on;
+        this.render(); // a click: show or hide the FOV slider
+      })
     );
+    if (v.overrideFov) {
+      rows.push(slider("Field of view (vertical)°", 10, 120, 1, v.fov, (n) => (v.fov = n)));
+    }
     const scales = scaleButtons(
       [1, 2],
       (sc) => `Render the camera path at ${sc}× the cameras' image size`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
-        void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, scale: sc });
+        const fov = v.overrideFov ? v.fov : undefined;
+        void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
     rows.push(scales, hint("Frustums are hidden while rendering · Esc cancels"));

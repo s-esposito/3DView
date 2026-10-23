@@ -12,6 +12,9 @@ import {
   buildPlyPoints,
   buildColoredPoints,
   srgbBytesToLinear,
+  estimatePointSpacing,
+  adaptivePoints,
+  ADAPTIVE_POINT_FILL,
   setPointsSize,
   cloudColor,
   CLOUD_PALETTE,
@@ -161,6 +164,69 @@ test("buildColoredPoints feeds linear vertex colors, matching the PLY loader's d
   assert.ok(Math.abs(color.getX(1) - expected.r) < 1e-4, `r ${color.getX(1)} vs ${expected.r}`);
   assert.ok(Math.abs(color.getY(1) - expected.g) < 1e-4, `g ${color.getY(1)} vs ${expected.g}`);
   assert.ok(Math.abs(color.getZ(1) - expected.b) < 1e-4, `b ${color.getZ(1)} vs ${expected.b}`);
+});
+
+/** A flat n×n grid of points `spacing` apart, in the XZ plane (like a floor). */
+function gridPositions(n: number, spacing: number, offset = 0): Float32Array {
+  const out = new Float32Array(n * n * 3);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      out.set([offset + i * spacing, 0, offset + j * spacing], (i * n + j) * 3);
+    }
+  }
+  return out;
+}
+
+test("estimatePointSpacing finds a grid's spacing", () => {
+  assert.ok(Math.abs(estimatePointSpacing(gridPositions(200, 0.01)) - 0.01) < 1e-6);
+  // Far from the origin and coarse: the grid search adapts its cell size.
+  assert.ok(Math.abs(estimatePointSpacing(gridPositions(30, 2.5, 1000)) - 2.5) < 1e-3);
+});
+
+test("estimatePointSpacing ignores coincident points", () => {
+  const grid = gridPositions(50, 0.1);
+  const doubled = new Float32Array(grid.length * 2);
+  doubled.set(grid);
+  doubled.set(grid, grid.length);
+  assert.ok(Math.abs(estimatePointSpacing(doubled) - 0.1) < 1e-6);
+});
+
+test("estimatePointSpacing measures sparse clusters by their own spacing", () => {
+  // Two dense patches far apart: the spacing is within a patch, not between them.
+  const a = gridPositions(40, 0.05);
+  const b = gridPositions(40, 0.05, 500);
+  const both = new Float32Array(a.length + b.length);
+  both.set(a);
+  both.set(b, a.length);
+  assert.ok(Math.abs(estimatePointSpacing(both) - 0.05) < 1e-6);
+});
+
+test("estimatePointSpacing is 0 when there is nothing to measure", () => {
+  assert.equal(estimatePointSpacing(new Float32Array([1, 2, 3])), 0);
+  assert.equal(estimatePointSpacing(new Float32Array([1, 2, 3, 1, 2, 3])), 0);
+});
+
+test("adaptivePoints sizes points by spacing and FOV, patching the clamp into Three's shader", () => {
+  const base = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, vertexColors: true });
+  const adaptive = adaptivePoints(base, 0.02);
+  assert.notEqual(adaptive.material, base, "a copy; the live material is left alone");
+  assert.equal(base.sizeAttenuation, false);
+  assert.equal(adaptive.material.sizeAttenuation, true);
+  assert.equal(adaptive.material.vertexColors, true);
+  adaptive.fit(90, 2, 40); // tan(45°) = 1
+  assert.ok(Math.abs(adaptive.material.size - ADAPTIVE_POINT_FILL * 0.02) < 1e-9);
+
+  // The patch must find its anchor lines, or the pixel clamp silently goes missing.
+  const shader = {
+    uniforms: {} as Record<string, THREE.IUniform>,
+    vertexShader: THREE.ShaderLib.points.vertexShader,
+    fragmentShader: THREE.ShaderLib.points.fragmentShader,
+  };
+  adaptive.material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+  assert.match(shader.vertexShader, /gl_PointSize = clamp\( gl_PointSize, minPointSize, maxPointSize \);/);
+  assert.match(shader.vertexShader, /uniform float minPointSize;/);
+  assert.equal(shader.uniforms.minPointSize.value, 2);
+  assert.equal(shader.uniforms.maxPointSize.value, 40);
 });
 
 test("buildPlyPoints keeps a cloud's own colors when it has them", () => {
