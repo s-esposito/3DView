@@ -53,10 +53,12 @@ area — or skip the drag and right-click the file(s) or folder in the Explorer 
 | Cycle Gaussians: splats → ellipsoids → points | **E** |
 
 The **3DView** panel holds the display controls — point size, frustum size / line
-width / color, camera field of view and roll, a light / dark / dim theme, and
-**Render viewpoint**, which saves a transparent PNG of the current view at 1× / 2× / 4×,
-and **Render video**, which saves a video flying through a reconstruction's cameras
-(in image-name order; **Esc** cancels).
+width / color, camera field of view and roll, and a light / dark / dim theme. The
+**Render** panel saves files: **Viewpoint**, a transparent PNG of the current view at
+1× / 2× / 4×, and **Video**, a video flying through a reconstruction's cameras (in
+image-name order, optionally at a field of view of your choosing; **Esc** cancels).
+Both size points by each cloud's own spacing, so surfaces stay filled at render
+resolution (**Fill point gaps**).
 
 ## Elsewhere
 

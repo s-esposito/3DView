@@ -36,12 +36,21 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
    this grandchild: clamping .viewer-clip would fight the 1fr row the collapse animates,
    and a scroll box on .viewer-panel would clip the "+" menu. The cap is halved-viewport
    so that BOTH panels plus the column's fixed chrome (two headers, gap, top offset,
-   version caption ~= 140px) always fit, and only then capped at 40vh. border-box or the
-   padding sits on top of the cap; overflow-x hidden or the knob/thumb animations raise a
-   spurious horizontal bar. */
+   version caption ~= 140px) always fit, and only then capped at 40vh. While the Render
+   panel is open too, the three share the height the same way (a third header and gap
+   ~= 185px of chrome). border-box or the padding sits on top of the cap; overflow-x
+   hidden or the knob/thumb animations raise a spurious horizontal bar. */
 .viewer-body{padding:4px 12px 14px;box-sizing:border-box;max-height:var(--viewer-panel-max);overflow:hidden auto}
+.viewer-ui:has(.viewer-render:not(.collapsed)){--viewer-panel-max:min(32vh,calc((100vh - 185px)/3))}
 .viewer-section{margin-top:14px}
 .viewer-section-title{text-transform:uppercase;font-size:10px;letter-spacing:.7px;color:var(--vscode-descriptionForeground,#999);margin-bottom:7px}
+/* A sub-menu: a section whose title folds its rows away (see components.subsection). */
+.viewer-subsection-title{display:flex;align-items:center;gap:6px;width:100%;padding:0;background:none;border:none;border-radius:4px;cursor:pointer;font-family:inherit;text-align:left;transition:color .15s ease}
+.viewer-subsection-title:hover{color:var(--vscode-foreground,#ddd)}
+.viewer-subsection-title:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:2px}
+.viewer-subsection.collapsed .viewer-subsection-title{margin-bottom:0}
+.viewer-subsection.collapsed .viewer-chevron{transform:rotate(-90deg)}
+.viewer-subsection.collapsed .viewer-subsection-body{display:none}
 .viewer-iconbtn{cursor:pointer;border:none;background:transparent;color:var(--vscode-foreground,#ddd);font:inherit;line-height:1;padding:4px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;transition:background .15s ease,transform .1s ease}
 .viewer-iconbtn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.12))}
 .viewer-iconbtn:active{transform:scale(.88)}

@@ -50,12 +50,15 @@ and a **browser demo**, over one shared core.
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
-- **Adjust & export** — from the **3DView** panel: point size, frustum size / line
-  width / color, camera field of view and roll, and a transparent PNG of the current
-  view at **1× / 2× / 4×** (**Render viewpoint**), and a video flying through a
-  reconstruction's cameras in image-name order, with optional in-between frames and a
-  loop back to the start (**Render video**; MP4, or WebM where the host has no H.264
-  encoder). Rename, hide and remove scene items from the **Scene** panel.
+- **Adjust** — from the **3DView** panel: point size, frustum size / line width /
+  color, and camera field of view and roll. Rename, hide and remove scene items from
+  the **Scene** panel.
+- **Export** — from the **Render** panel: a transparent PNG of the current view at
+  **1× / 2× / 4×** (**Viewpoint**), and a video flying through a reconstruction's
+  cameras in image-name order, with optional in-between frames, a loop back to the
+  start and a field-of-view override (**Video**; MP4, or WebM where the host has no
+  H.264 encoder). Renders size points by each cloud's own spacing, so surfaces stay
+  filled at high resolution (**Fill point gaps**).
 - **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
 - **Built for large clouds** — on-demand rendering and lazy, downscaled frustum
   textures keep big reconstructions responsive.
@@ -66,7 +69,7 @@ and a **browser demo**, over one shared core.
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.0.6.vsix --force
+code --install-extension 3dview-1.0.7.vsix --force
 ```
 
 **From source:**

@@ -17,6 +17,8 @@ import {
   frustumScaleFromDepth,
   disposeObject,
   FRUSTUM_COLOR,
+  adaptivePoints,
+  estimatePointSpacing,
 } from "./builders";
 import {
   SceneLayer,
@@ -97,6 +99,8 @@ export interface CameraPathVideo {
   loop: boolean;
   /** Output size as a multiple of the first camera's image size. */
   scale: number;
+  /** Vertical field of view (degrees) for every frame, overriding the cameras' own. */
+  fov?: number;
 }
 
 /** Read-only snapshot of view state, for the UI to render controls from. */
@@ -123,6 +127,9 @@ export interface ViewerState {
   fov: number;
   /** Camera roll (tilt) about the view axis, in degrees. */
   roll: number;
+  /** Whether renders (viewpoint PNG, camera-path video) size points by the cloud's
+   *  own spacing, so they fill in instead of thinning out at render resolution. */
+  adaptivePointSize: boolean;
   hasPoints: boolean;
   hasCameras: boolean;
   hasAssets: boolean;
@@ -230,6 +237,10 @@ export class Viewer {
   // The camera-path video being rendered, if any; while set, the live render loop
   // stands down (the canvas is the video's frame buffer, and shows its frames).
   private videoRender?: { cancelled: boolean };
+  // Renders size points by each cloud's spacing (see adaptPoints); the spacing is
+  // measured once per geometry, on its first render.
+  private adaptivePointSize = true;
+  private readonly pointSpacing = new WeakMap<THREE.BufferGeometry, number>();
 
   constructor(container: HTMLElement = document.body) {
     // Apply the default theme before reading any themed CSS var below (the
@@ -324,6 +335,7 @@ export class Viewer {
       frustumColor: this.opts.frustumColor,
       fov: this.camera.fov,
       roll: this.rollDeg,
+      adaptivePointSize: this.adaptivePointSize,
       hasPoints: recon.some((l) => l.pointCount > 0),
       hasCameras: recon.some((l) => l.cameraCount > 0),
       hasAssets: this.layers.some((l) => l.kind === "asset"),
@@ -845,6 +857,11 @@ export class Viewer {
     this.requestRender();
   }
 
+  /** Whether renders size points by each cloud's spacing (see adaptPoints). */
+  setAdaptivePointSize(on: boolean): void {
+    this.adaptivePointSize = on;
+  }
+
   /** Reset the camera controls (field of view + roll) to their defaults. */
   resetCamera(): void {
     this.setRoll(0);
@@ -1045,7 +1062,10 @@ export class Viewer {
     this.renderer.setSize(w, h, false);
     this.scene.background = null;
     this.renderer.setClearColor(0x000000, 0);
+    const points = this.adaptPoints(scale);
+    points.fit(this.camera.fov);
     this.renderer.render(this.scene, this.camera);
+    points.restore();
     const png = this.renderer.domElement.toDataURL("image/png");
     this.scene.background = prevBackground;
     this.renderer.setPixelRatio(prevRatio);
@@ -1069,7 +1089,8 @@ export class Viewer {
   /**
    * Render a video flying through a reconstruction's cameras and hand it to
    * `onSaveFile`. Frames are the cameras' own views (their pose and vertical FOV,
-   * principal point assumed centered) at `scale`× the first camera's image size,
+   * unless `fov` overrides it; principal point assumed centered) at `scale`× the
+   * first camera's image size,
    * drawn with a camera of its own so the interactive view is left as it was.
    * Frustums and their images are hidden meanwhile: at a camera's own pose, its
    * image plane would fill the frame. Progress goes to `onProgress`.
@@ -1098,6 +1119,7 @@ export class Viewer {
     const frustumsShown = frustums.map((o) => o.visible);
     const prevRatio = this.renderer.getPixelRatio();
     const render = (this.videoRender = { cancelled: false });
+    const points = this.adaptPoints(h / window.innerHeight);
     frustums.forEach((o) => (o.visible = false));
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(w, h, false);
@@ -1110,8 +1132,9 @@ export class Viewer {
           this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length} (Esc to cancel)`);
           camera.position.copy(frames[i].position);
           camera.quaternion.copy(frames[i].quaternion);
-          camera.fov = frames[i].fov;
+          camera.fov = video.fov ?? frames[i].fov;
           camera.updateProjectionMatrix();
+          points.fit(camera.fov);
           await this.renderSettled(camera);
         },
         () => render.cancelled
@@ -1123,12 +1146,54 @@ export class Viewer {
       this.onError?.(`Video render failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       this.videoRender = undefined;
+      points.restore();
       frustums.forEach((o, i) => (o.visible = frustumsShown[i]));
       this.renderer.setPixelRatio(prevRatio);
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       this.requestRender();
       this.onChange?.(); // clears the progress status
     }
+  }
+
+  /**
+   * For a render at `renderScale`× the on-screen pixel size (by height): swap every
+   * point cloud's material for one sized by the cloud's own spacing (adaptivePoints),
+   * so the render fills in instead of thinning out at its higher resolution. Each
+   * cloud is never drawn thinner than it looks on screen. `fit` sizes the points for
+   * a camera's FOV; `restore` puts the live materials back. A no-op when adaptive
+   * sizing is off.
+   */
+  private adaptPoints(renderScale: number): { fit(fov: number): void; restore(): void } {
+    const swapped: { points: THREE.Points; live: THREE.PointsMaterial; fit(fov: number): void }[] = [];
+    if (this.adaptivePointSize) {
+      this.root.updateMatrixWorld(true);
+      this.root.traverse((object) => {
+        const points = object as THREE.Points;
+        if (!points.isPoints || !(points.material instanceof THREE.PointsMaterial)) {
+          return;
+        }
+        let spacing = this.pointSpacing.get(points.geometry);
+        if (spacing === undefined) {
+          spacing = estimatePointSpacing(points.geometry.getAttribute("position").array);
+          this.pointSpacing.set(points.geometry, spacing);
+        }
+        const live = points.material;
+        const adaptive = adaptivePoints(live, spacing * points.matrixWorld.getMaxScaleOnAxis());
+        const minPx = live.size * renderScale;
+        // Cap: a point at the lens at most 1/20 of the frame height.
+        const maxPx = Math.max(minPx, (window.innerHeight * renderScale) / 20);
+        points.material = adaptive.material;
+        swapped.push({ points, live, fit: (fov) => adaptive.fit(fov, minPx, maxPx) });
+      });
+    }
+    return {
+      fit: (fov) => swapped.forEach((s) => s.fit(fov)),
+      restore: () =>
+        swapped.forEach(({ points, live }) => {
+          (points.material as THREE.Material).dispose();
+          points.material = live;
+        }),
+    };
   }
 
   /**

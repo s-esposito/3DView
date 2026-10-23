@@ -1,13 +1,15 @@
-// The control UI (top-right overlay): two stacked, independently-collapsible
-// panels inside a #viewer-ui column — a "3DView" panel with scene-wide display
-// controls (Show / Appearance / View), and a "Scene" panel below it (the item
-// list + add menu). Both are thin views over the Viewer: they read `getState()`
-// to render and call Viewer setters on interaction; the Viewer owns all state.
+// The control UI (top-right overlay): stacked, independently-collapsible panels
+// inside a #viewer-ui column — a "3DView" panel with scene-wide display controls
+// (Show / Appearance / View), a "Scene" panel below it (the item list + add menu),
+// and, once the scene holds something, a "Render" panel (Viewpoint / Video
+// sub-menus). All are thin views over the Viewer: they read `getState()` to render
+// and call Viewer setters on interaction; the Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
   section,
+  subsection,
   hint,
   checkbox,
   slider,
@@ -46,6 +48,9 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 export class ControlPanel {
   private collapsed = false; // the 3DView (display) panel
   private sceneCollapsed = false; // the Scene panel
+  private renderCollapsed = true; // the Render panel: out of the way until wanted
+  /** Which Render sub-menus are open, kept across panel re-renders. */
+  private readonly renderOpen = { viewpoint: true, video: true };
   /** Scene items whose transform fields are open, kept across panel re-renders. */
   private readonly transformOpen = new Set<string>();
   /** How to move each temporal item's playhead, by item id — repopulated on every
@@ -53,7 +58,7 @@ export class ControlPanel {
   private readonly playheads = new Map<string, (frame: number) => void>();
   /** "Render video" settings, kept across panel re-renders; `item` is unset until
    *  picked, which means the first reconstruction with cameras. */
-  private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false };
+  private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false, overrideFov: false, fov: 60 };
 
   constructor(private readonly viewer: Viewer) {}
 
@@ -70,7 +75,12 @@ export class ControlPanel {
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s), buildVersion());
+    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
+    const renderPanel = this.buildRenderPanel(s);
+    if (renderPanel) {
+      ui.append(renderPanel);
+    }
+    ui.append(buildVersion());
     document.body.appendChild(ui);
     ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
       body.scrollTop = scroll[i] ?? 0;
@@ -271,21 +281,6 @@ export class ControlPanel {
       ])
     );
 
-    // Render viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
-    if (s.items.length > 0) {
-      const scales = scaleButtons(
-        [1, 2, 4],
-        (sc) => `Save a PNG of the current view at ${sc}× resolution`,
-        (sc) => this.viewer.saveViewpoint(sc)
-      );
-      body.append(section("Render viewpoint", [scales]));
-    }
-
-    const withCameras = s.items.filter((i) => i.cameraCount > 0);
-    if (withCameras.length > 0) {
-      body.append(this.buildVideoSection(withCameras));
-    }
-
     if (s.hasCameras) {
       body.append(hint("Hover a frustum to highlight · click to view from it (Esc to exit)"));
     }
@@ -293,10 +288,57 @@ export class ControlPanel {
   }
 
   /**
-   * "Render video": fly through a reconstruction's cameras (in image-name order)
+   * The Render panel: saving the scene as files, once it holds something. The
+   * point-gap switch applies to both renders, so it heads the panel; each render
+   * kind is a sub-menu of its own (video only for reconstructions with cameras).
+   */
+  private buildRenderPanel(s: ViewerState): HTMLElement | null {
+    if (s.items.length === 0) {
+      return null;
+    }
+    const body = document.createElement("div");
+    body.className = "viewer-body";
+
+    const fill = checkbox("Fill point gaps", s.adaptivePointSize, (on) =>
+      this.viewer.setAdaptivePointSize(on)
+    );
+    fill.title =
+      "Size points by each cloud's own spacing in viewpoint and video renders, so surfaces stay filled at high resolution";
+    body.append(section("Points", [fill]));
+
+    // Viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
+    const scales = scaleButtons(
+      [1, 2, 4],
+      (sc) => `Save a PNG of the current view at ${sc}× resolution`,
+      (sc) => this.viewer.saveViewpoint(sc)
+    );
+    const open = this.renderOpen;
+    body.append(subsection("Viewpoint", open.viewpoint, (o) => (open.viewpoint = o), [scales]));
+
+    const withCameras = s.items.filter((i) => i.cameraCount > 0);
+    if (withCameras.length > 0) {
+      const rows = this.buildVideoRows(withCameras);
+      body.append(subsection("Video", open.video, (o) => (open.video = o), rows));
+    }
+
+    const panel = document.createElement("div");
+    panel.className = this.renderCollapsed
+      ? "viewer-panel viewer-render collapsed"
+      : "viewer-panel viewer-render";
+    panel.append(
+      this.header(panel, "Render", null, () => {
+        this.renderCollapsed = !this.renderCollapsed;
+      }),
+      collapseWrap(body)
+    );
+    return panel;
+  }
+
+  /**
+   * The Video sub-menu: fly through a reconstruction's cameras (in image-name order)
    * and save the result. Settings live on the panel; the scale buttons start it.
    */
-  private buildVideoSection(withCameras: SceneItem[]): HTMLElement {
+  private buildVideoRows(withCameras: SceneItem[]): HTMLElement[] {
     const v = this.video;
     if (!withCameras.some((i) => i.id === v.item)) {
       v.item = withCameras[0].id;
@@ -314,18 +356,26 @@ export class ControlPanel {
     rows.push(
       slider("Frames per camera", 1, 30, 1, v.framesPerCamera, (n) => (v.framesPerCamera = n)),
       slider("Video fps", 1, 60, 1, v.fps, (n) => (v.fps = n)),
-      checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on))
+      checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on)),
+      checkbox("Override field of view", v.overrideFov, (on) => {
+        v.overrideFov = on;
+        this.render(); // a click: show or hide the FOV slider
+      })
     );
+    if (v.overrideFov) {
+      rows.push(slider("Field of view (vertical)°", 10, 120, 1, v.fov, (n) => (v.fov = n)));
+    }
     const scales = scaleButtons(
       [1, 2],
       (sc) => `Render the camera path at ${sc}× the cameras' image size`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
-        void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, scale: sc });
+        const fov = v.overrideFov ? v.fov : undefined;
+        void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
     rows.push(scales, hint("Frustums are hidden while rendering · Esc cancels"));
-    return section("Render video", rows);
+    return rows;
   }
 
   /**
