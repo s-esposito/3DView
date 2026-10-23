@@ -21,6 +21,42 @@ export function section(title: string, children: HTMLElement[]): HTMLElement {
   return sec;
 }
 
+/**
+ * A sub-menu: a section whose title (a button with a chevron) folds its rows away.
+ * The open state is the caller's to keep across panel re-renders; a click flips it
+ * in place and reports the new state, so no re-render is needed.
+ */
+export function subsection(
+  title: string,
+  open: boolean,
+  onToggle: (open: boolean) => void,
+  children: HTMLElement[]
+): HTMLElement {
+  const sec = document.createElement("div");
+  sec.className = open ? "viewer-section viewer-subsection" : "viewer-section viewer-subsection collapsed";
+  const heading = document.createElement("button");
+  heading.type = "button";
+  heading.className = "viewer-section-title viewer-subsection-title";
+  heading.setAttribute("aria-expanded", String(open));
+  const chevron = document.createElement("span");
+  chevron.className = "viewer-chevron";
+  chevron.textContent = "▾";
+  chevron.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.textContent = title;
+  heading.append(chevron, label);
+  const body = document.createElement("div");
+  body.className = "viewer-subsection-body";
+  body.append(...children);
+  heading.addEventListener("click", () => {
+    const nowOpen = !sec.classList.toggle("collapsed");
+    heading.setAttribute("aria-expanded", String(nowOpen));
+    onToggle(nowOpen);
+  });
+  sec.append(heading, body);
+  return sec;
+}
+
 export function hint(text: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "viewer-hint";
