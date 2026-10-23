@@ -268,11 +268,12 @@ function buildSplatEllipsoids(cloud: SplatCloud): THREE.InstancedMesh {
     );
     maxRadius = Math.max(maxRadius, scale.x, scale.y, scale.z);
     mesh.setMatrixAt(i, matrix.compose(center, quat, scale));
-    // Raw (working-space) rgb, matching what the points path feeds vertex colors.
+    // sRGB-encoded rgb, decoded to linear as the points path does for vertex colors.
     color.setRGB(
       cloud.colors[s * 3] / 255,
       cloud.colors[s * 3 + 1] / 255,
-      cloud.colors[s * 3 + 2] / 255
+      cloud.colors[s * 3 + 2] / 255,
+      THREE.SRGBColorSpace
     );
     mesh.setColorAt(i, color);
   }

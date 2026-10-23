@@ -10,6 +10,8 @@ import {
   sphereFromBounds,
   frustumScaleFromDepth,
   buildPlyPoints,
+  buildColoredPoints,
+  srgbBytesToLinear,
   setPointsSize,
   cloudColor,
   CLOUD_PALETTE,
@@ -136,6 +138,29 @@ test("cloudColor cycles the palette, giving neighbours different colors", () => 
   // Wraps rather than running off the end, so item N always gets a color.
   assert.equal(cloudColor(CLOUD_PALETTE.length), CLOUD_PALETTE[0]);
   assert.equal(cloudColor(CLOUD_PALETTE.length + 3), CLOUD_PALETTE[3]);
+});
+
+test("srgbBytesToLinear decodes sRGB bytes to linear, keeping the ends exact", () => {
+  const out = srgbBytesToLinear(new Uint8Array([0, 128, 255]));
+  assert.equal(out[0], 0);
+  assert.equal(out[2], 65535);
+  // sRGB 128/255 is ~21.6% linear light, not 50%: the decode Three applies to sRGB textures.
+  assert.ok(Math.abs(out[1] / 65535 - 0.2158605) < 1e-4, `unexpected linear value ${out[1] / 65535}`);
+});
+
+test("buildColoredPoints feeds linear vertex colors, matching the PLY loader's decode", () => {
+  const points = buildColoredPoints(
+    new Float32Array([0, 0, 0, 1, 1, 1]),
+    new Uint8Array([255, 128, 0, 10, 20, 30]),
+    { min: [0, 0, 0], max: [1, 1, 1] },
+    DEFAULT_POINT_SIZE
+  );
+  const color = points.geometry.getAttribute("color");
+  const expected = new THREE.Color().setRGB(10 / 255, 20 / 255, 30 / 255, THREE.SRGBColorSpace);
+  assert.ok(color.normalized);
+  assert.ok(Math.abs(color.getX(1) - expected.r) < 1e-4, `r ${color.getX(1)} vs ${expected.r}`);
+  assert.ok(Math.abs(color.getY(1) - expected.g) < 1e-4, `g ${color.getY(1)} vs ${expected.g}`);
+  assert.ok(Math.abs(color.getZ(1) - expected.b) < 1e-4, `b ${color.getZ(1)} vs ${expected.b}`);
 });
 
 test("buildPlyPoints keeps a cloud's own colors when it has them", () => {
