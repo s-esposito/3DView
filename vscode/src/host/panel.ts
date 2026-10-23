@@ -173,19 +173,21 @@ export class ViewerPanel {
         // stands for every member the webview folded into it.
         this.content = this.content.filter((i) => i.id !== msg.id && i.group !== msg.id);
         break;
-      case "saveImage":
-        void this.saveImage(msg.png, msg.suggestedName);
+      case "saveFile":
+        void this.saveFile(msg.data, msg.suggestedName);
         break;
     }
   }
 
-  /** Save a webview-rendered PNG (data URL) to a user-chosen file. */
-  private async saveImage(png: string, suggestedName: string) {
-    const bytes = Buffer.from(png.replace(/^data:image\/png;base64,/, ""), "base64");
+  /** Save a webview-rendered file (data URL: a viewpoint PNG or a camera-path video)
+   *  to a user-chosen file, offering the type its suggested name's extension names. */
+  private async saveFile(data: string, suggestedName: string) {
+    const bytes = Buffer.from(data.slice(data.indexOf(",") + 1), "base64");
+    const ext = path.extname(suggestedName).slice(1);
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
     const uri = await vscode.window.showSaveDialog({
       defaultUri: folder ? vscode.Uri.joinPath(folder, suggestedName) : vscode.Uri.file(suggestedName),
-      filters: { Images: ["png"] },
+      filters: { [ext === "png" ? "Images" : "Videos"]: [ext] },
     });
     if (!uri) {
       return;

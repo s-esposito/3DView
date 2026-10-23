@@ -221,6 +221,7 @@ export type WebviewToHost =
   // that advertises `HostBridge.opensUris` is sent this (see dropZone.ts).
   | { type: "openUris"; uris: string[] }
   | { type: "removed"; id: string } // an item was removed from the scene
-  // A PNG render of the current viewpoint to save. `png` is a data URL
-  // ("data:image/png;base64,…"); the host writes/downloads it.
-  | { type: "saveImage"; png: string; suggestedName: string };
+  // A rendered file to save: a viewpoint PNG or a camera-path video. `data` is a
+  // data URL ("data:image/png;base64,…"); the host writes/downloads it, offering the
+  // file type that `suggestedName`'s extension names.
+  | { type: "saveFile"; suggestedName: string; data: string };

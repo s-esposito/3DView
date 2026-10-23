@@ -86,9 +86,12 @@ test("ellipsoid mode instances one oriented ellipsoid per splat", () => {
   );
   assert.ok(Math.abs(quaternion.z - Math.SQRT1_2) < 1e-6, "instance rotation not preserved");
 
+  // Colors are sRGB bytes, decoded to Three's linear working space: 128 → ~0.216.
   const color = new THREE.Color();
   mesh.getColorAt(3, color);
-  assert.ok(Math.abs(color.r - 1) < 1e-6 && Math.abs(color.g - 128 / 255) < 1e-6 && color.b === 0);
+  const g = new THREE.Color().setRGB(0, 128 / 255, 0, THREE.SRGBColorSpace).g;
+  assert.ok(Math.abs(color.r - 1) < 1e-6 && Math.abs(color.g - g) < 1e-6 && color.b === 0);
+  assert.ok(Math.abs(g - 0.2158605) < 1e-6, `unexpected linear value ${g}`);
 
   // Preset (not lazily rescanned per instance) and large enough to not cull the cloud.
   assert.ok(mesh.boundingSphere != null);

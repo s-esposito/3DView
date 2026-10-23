@@ -36,7 +36,7 @@ class ColmapViewerService(private val project: Project) : Disposable {
                 if (kind == "colmap") openReconstructionInteractive() else openAssetInteractive(kind)
             }
             p.onError = ::notifyError
-            p.onSaveImage = ::saveImage
+            p.onSaveFile = ::saveFile
         }
     }
 
@@ -111,20 +111,23 @@ class ColmapViewerService(private val project: Project) : Disposable {
         return false
     }
 
-    /** Save a webview-rendered PNG (data URL) to a user-chosen file. */
-    private fun saveImage(png: String, suggestedName: String) {
-        val bytes = runCatching { Base64.getDecoder().decode(png.substringAfter("base64,")) }.getOrNull()
+    /** Save a webview-rendered file (data URL: a viewpoint PNG or a camera-path video)
+     *  to a user-chosen file, offering the type its suggested name's extension names. */
+    private fun saveFile(data: String, suggestedName: String) {
+        val bytes = runCatching { Base64.getDecoder().decode(data.substringAfter("base64,")) }.getOrNull()
         if (bytes == null) {
-            notifyError("Could not decode the rendered image.")
+            notifyError("Could not decode the rendered file.")
             return
         }
-        val descriptor = FileSaverDescriptor("Save Render", "Save the rendered viewpoint as a PNG", "png")
+        val ext = suggestedName.substringAfterLast('.', "")
+        val what = if (ext == "png") "the rendered viewpoint as a PNG" else "the camera-path video"
+        val descriptor = FileSaverDescriptor("Save Render", "Save $what", ext)
         val wrapper = FileChooserFactory.getInstance()
             .createSaveFileDialog(descriptor, project)
             .save(null as VirtualFile?, suggestedName) ?: return
         runCatching { wrapper.file.writeBytes(bytes) }
             .onSuccess { notifyInfo("Saved ${wrapper.file.name}") }
-            .onFailure { notifyError("Could not save image: ${it.message}") }
+            .onFailure { notifyError("Could not save file: ${it.message}") }
     }
 
     private fun notifyError(message: String) {

@@ -54,9 +54,9 @@ viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
 viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
-// `suggestedName` is serialized before the multi-MB `png` so the PyCharm host's
+// `suggestedName` is serialized before the multi-MB `data` so the PyCharm host's
 // regex parser matches the short field without scanning the whole base64 payload.
-viewer.onSaveImage = (png, suggestedName) => host.postMessage({ type: "saveImage", suggestedName, png });
+viewer.onSaveFile = (data, suggestedName) => host.postMessage({ type: "saveFile", suggestedName, data });
 
 /** What an empty scene says, in the status overlay — the one wording for "there is
  *  nothing here yet", matching the Scene list's own empty row. */
@@ -82,6 +82,13 @@ window.addEventListener("keydown", (e) => {
     return; // don't hijack keys while a control is focused
   }
   const key = e.key.toLowerCase();
+  if (viewer.isRenderingVideo) {
+    // Esc cancels; the rest would change the scene under a render in progress.
+    if (key === "escape") {
+      viewer.cancelVideo();
+    }
+    return;
+  }
   if (key === "r") {
     viewer.resetView();
     return;

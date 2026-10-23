@@ -32,6 +32,8 @@ import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
+import { cameraPose, orderCameras, samplePath } from "./cameraPath";
+import { encodeVideo } from "./videoEncoder";
 
 // Cap render resolution: above this, HiDPI fill/memory cost (∝ ratio²) isn't
 // worth the marginal sharpness for point clouds. Never below 1.
@@ -80,6 +82,21 @@ export interface SceneItem {
   frame: number;
   /** Whether the playback clock is advancing this item. */
   playing: boolean;
+  /** Cameras in this item (a reconstruction's frustums); 0 for assets and temporal items. */
+  cameraCount: number;
+}
+
+/** What renderCameraPath renders. */
+export interface CameraPathVideo {
+  /** The reconstruction whose cameras the path follows, in image-name order. */
+  itemId: string;
+  /** Frames per camera-to-camera segment: 1 renders exactly the cameras' views. */
+  framesPerCamera: number;
+  fps: number;
+  /** Close the path back to the first camera (for orbits). */
+  loop: boolean;
+  /** Output size as a multiple of the first camera's image size. */
+  scale: number;
 }
 
 /** Read-only snapshot of view state, for the UI to render controls from. */
@@ -148,8 +165,8 @@ export class Viewer {
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
   onRemoveItem?: (id: string) => void;
-  /** Fired with a PNG data URL of the current viewpoint, for the host to save. */
-  onSaveImage?: (png: string, suggestedName: string) => void;
+  /** Fired with a rendered file (viewpoint PNG, camera-path video) as a data URL, for the host to save. */
+  onSaveFile?: (data: string, suggestedName: string) => void;
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -210,6 +227,9 @@ export class Viewer {
   // On-demand rendering: render only when the camera is moving (damping) or
   // something requested a redraw, instead of re-rasterizing the cloud every frame.
   private needsRender = true;
+  // The camera-path video being rendered, if any; while set, the live render loop
+  // stands down (the canvas is the video's frame buffer, and shows its frames).
+  private videoRender?: { cancelled: boolean };
 
   constructor(container: HTMLElement = document.body) {
     // Apply the default theme before reading any themed CSS var below (the
@@ -327,6 +347,7 @@ export class Viewer {
         frameCount: l instanceof TemporalLayer ? l.frameCount : 0,
         frame: l instanceof TemporalLayer ? l.frame : 0,
         playing: l instanceof TemporalLayer && this.playingLayers.has(l),
+        cameraCount: l instanceof ReconstructionLayer ? l.cameraCount : 0,
       })),
     };
   }
@@ -998,11 +1019,14 @@ export class Viewer {
 
   /**
    * Render the current viewpoint at `scale`× the on-screen resolution and hand the
-   * resulting PNG (data URL) to `onSaveImage` for the host to save. The 3D canvas
+   * resulting PNG (data URL) to `onSaveFile` for the host to save. The 3D canvas
    * only (no UI overlay) is captured, with a fully transparent background (the
    * viewer background color is dropped). Guards against exceeding the GPU's max buffer.
    */
   saveViewpoint(scale: number): void {
+    if (this.videoRender) {
+      return; // the drawing buffer is a video frame until renderCameraPath is done
+    }
     const maxDim = this.renderer.capabilities.maxTextureSize;
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
@@ -1027,10 +1051,104 @@ export class Viewer {
     this.renderer.setPixelRatio(prevRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.requestRender();
-    this.onSaveImage?.(png, `viewpoint-${scale}x.png`);
+    this.onSaveFile?.(png, `viewpoint-${scale}x.png`);
+  }
+
+  /** Whether a camera-path video is being rendered (see renderCameraPath). */
+  get isRenderingVideo(): boolean {
+    return this.videoRender !== undefined;
+  }
+
+  /** Stop the camera-path video being rendered; nothing is saved. */
+  cancelVideo(): void {
+    if (this.videoRender) {
+      this.videoRender.cancelled = true;
+    }
+  }
+
+  /**
+   * Render a video flying through a reconstruction's cameras and hand it to
+   * `onSaveFile`. Frames are the cameras' own views (their pose and vertical FOV,
+   * principal point assumed centered) at `scale`× the first camera's image size,
+   * drawn with a camera of its own so the interactive view is left as it was.
+   * Frustums and their images are hidden meanwhile: at a camera's own pose, its
+   * image plane would fill the frame. Progress goes to `onProgress`.
+   */
+  async renderCameraPath(video: CameraPathVideo): Promise<void> {
+    const layer = this.byId.get(video.itemId);
+    if (this.videoRender || !(layer instanceof ReconstructionLayer) || layer.cameraCount === 0) {
+      return;
+    }
+    const cameras = orderCameras(layer.data.cameras);
+    this.root.updateMatrixWorld(true); // also refreshes layer.object.matrixWorld
+    const keys = cameras.map((c) => cameraPose(c, layer.object.matrixWorld, DEFAULT_FOV));
+    const frames = samplePath(keys, video.framesPerCamera, video.loop);
+    // H.264 needs even dimensions.
+    const even = (v: number) => Math.max(2, 2 * Math.round(v / 2));
+    const w = even(cameras[0].width * video.scale);
+    const h = even(cameras[0].height * video.scale);
+    const maxDim = this.renderer.capabilities.maxTextureSize;
+    if (w > maxDim || h > maxDim) {
+      this.onError?.(`Video too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
+      return;
+    }
+
+    const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, w / h, this.camera.near, this.camera.far);
+    const frustums = this.reconstructionLayers().map((l) => l.cameras.object);
+    const frustumsShown = frustums.map((o) => o.visible);
+    const prevRatio = this.renderer.getPixelRatio();
+    const render = (this.videoRender = { cancelled: false });
+    frustums.forEach((o) => (o.visible = false));
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(w, h, false);
+    try {
+      const result = await encodeVideo(
+        this.renderer.domElement,
+        frames.length,
+        video.fps,
+        async (i) => {
+          this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length} (Esc to cancel)`);
+          camera.position.copy(frames[i].position);
+          camera.quaternion.copy(frames[i].quaternion);
+          camera.fov = frames[i].fov;
+          camera.updateProjectionMatrix();
+          await this.renderSettled(camera);
+        },
+        () => render.cancelled
+      );
+      if (result) {
+        this.onSaveFile?.(result.dataUrl, `camera-path.${result.extension}`);
+      }
+    } catch (err) {
+      this.onError?.(`Video render failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.videoRender = undefined;
+      frustums.forEach((o, i) => (o.visible = frustumsShown[i]));
+      this.renderer.setPixelRatio(prevRatio);
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.requestRender();
+      this.onChange?.(); // clears the progress status
+    }
+  }
+
+  /**
+   * Draw `camera`'s view. Splats are sorted per viewpoint in Spark's worker, so a
+   * first draw from a new viewpoint can use the previous order: redraw until the
+   * sort has caught up (bounded, on timers — rAF may not fire in a hidden webview).
+   */
+  private async renderSettled(camera: THREE.PerspectiveCamera): Promise<void> {
+    this.renderer.render(this.scene, camera);
+    const deadline = performance.now() + 1000;
+    while (this.spark && (this.spark.sorting || this.spark.sortDirty) && performance.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+      this.renderer.render(this.scene, camera);
+    }
   }
 
   private onResize(): void {
+    if (this.videoRender) {
+      return; // the drawing buffer is the video's size; renderCameraPath restores it after
+    }
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
@@ -1066,6 +1184,9 @@ export class Viewer {
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
+    if (this.videoRender) {
+      return; // renderCameraPath owns the canvas until it's done
+    }
     this.advancePlayback();
     // OrbitControls.update() returns true while the camera is still moving
     // (incl. damping glide); render then, or whenever a redraw was requested.

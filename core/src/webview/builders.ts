@@ -45,7 +45,28 @@ export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
   return buildColoredPoints(data.positions, data.colors, data.bounds, pointSize);
 }
 
-/** Shared colored-points builder: positions + Uint8 rgb + AABB-derived sphere.
+// sRGB-encoded 8-bit channel value → linear, as 16-bit normalized ints. Three
+// treats vertex colors as linear (its working color space), while COLMAP and
+// splat colors are sRGB-encoded like image pixels; decoding them is what makes a
+// cloud's colors match its frustum images (whose textures are tagged sRGB). 16
+// bits keep dark tones distinct after decoding, at half the memory of floats.
+const SRGB8_TO_LINEAR16 = (() => {
+  const color = new THREE.Color();
+  return Uint16Array.from({ length: 256 }, (_, i) =>
+    Math.round(color.setRGB(i / 255, i / 255, i / 255, THREE.SRGBColorSpace).r * 65535)
+  );
+})();
+
+/** Linear 16-bit color channels for sRGB-encoded 8-bit ones (see SRGB8_TO_LINEAR16). */
+export function srgbBytesToLinear(colors: Uint8Array): Uint16Array {
+  const out = new Uint16Array(colors.length);
+  for (let i = 0; i < colors.length; i++) {
+    out[i] = SRGB8_TO_LINEAR16[colors[i]];
+  }
+  return out;
+}
+
+/** Shared colored-points builder: positions + sRGB Uint8 rgb + AABB-derived sphere.
  *  Used by the COLMAP cloud above and by the splat layer's "points" render mode. */
 export function buildColoredPoints(
   positions: Float32Array,
@@ -55,8 +76,8 @@ export function buildColoredPoints(
 ): THREE.Points {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  // Uint8 rgb, normalized to 0..1 in the shader.
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3, true));
+  // sRGB Uint8 rgb, decoded to linear Uint16 and normalized to 0..1 in the shader.
+  geometry.setAttribute("color", new THREE.BufferAttribute(srgbBytesToLinear(colors), 3, true));
   // Preset the bounding sphere so Three doesn't scan the whole position buffer on
   // first render (a per-cloud first-frame hitch).
   geometry.boundingSphere = sphereFromBounds(bounds);

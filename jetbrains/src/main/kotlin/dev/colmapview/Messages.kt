@@ -28,8 +28,8 @@ sealed interface WebviewToHost {
     data class RequestAdd(val kind: String) : WebviewToHost
     data class Removed(val id: String) : WebviewToHost
 
-    /** A PNG render of the current viewpoint to save; `png` is a data URL. */
-    data class SaveImage(val png: String, val suggestedName: String) : WebviewToHost
+    /** A rendered file to save (viewpoint PNG, camera-path video); `data` is a data URL. */
+    data class SaveFile(val data: String, val suggestedName: String) : WebviewToHost
 
     companion object {
         fun parse(json: String): WebviewToHost? =
@@ -37,10 +37,10 @@ sealed interface WebviewToHost {
                 "ready" -> Ready
                 "requestAdd" -> field(json, "kind")?.let(::RequestAdd)
                 "removed" -> field(json, "id")?.let(::Removed)
-                "saveImage" -> {
-                    val png = field(json, "png")
+                "saveFile" -> {
+                    val data = field(json, "data")
                     val name = field(json, "suggestedName")
-                    if (png != null && name != null) SaveImage(png, name) else null
+                    if (data != null && name != null) SaveFile(data, name) else null
                 }
                 else -> null
             }
@@ -53,7 +53,7 @@ sealed interface WebviewToHost {
         }
 
         // No-escape fast path: skips four full-string passes for large escape-free
-        // values (e.g. the base64 `png` of a saveImage message).
+        // values (e.g. the base64 `data` of a saveFile message).
         private fun unescape(s: String): String =
             if ('\\' !in s) s
             else s.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n").replace("\\/", "/")
