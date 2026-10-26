@@ -219,7 +219,7 @@ function buildContent(files: DroppedFile[]): HostToWebview {
     };
   }
   throw new Error(
-    `Unrecognised drop — expected a COLMAP folder (cameras/images/points3D) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
+    `Unrecognized drop — expected a COLMAP folder (cameras/images/points3D) or an asset file (${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}).`
   );
 }
 

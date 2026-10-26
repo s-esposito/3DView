@@ -43,7 +43,7 @@ and a **browser demo**, over one shared core.
   **timesteps of one capture** instead of that many scene items: when a folder holds
   more than one model, or you pick / drop several asset files at once, 3DView asks
   which you meant. A temporal item is one Scene row marked **⏱ N**, with its own
-  **timeline** — scrub through the frames or play them back (shared **Playback fps**).
+  **timeline** — scrub through the frames or play them back (shared **Playback FPS**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
   **position / rotation** fields (the move-arrows button on its row), so sources that don't

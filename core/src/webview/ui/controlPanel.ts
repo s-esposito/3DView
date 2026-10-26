@@ -251,7 +251,7 @@ export class ControlPanel {
       // One rate for every temporal item: each owns its playhead, but they share a
       // clock, which keeps the per-item rows to a scrubber and a play button.
       appearance.push(
-        slider("Playback fps", 1, 60, 1, s.playbackFps, (v) => this.viewer.setPlaybackFps(v))
+        slider("Playback FPS", 1, 60, 1, s.playbackFps, (v) => this.viewer.setPlaybackFps(v))
       );
     }
     if (appearance.length > 0) {
@@ -272,8 +272,8 @@ export class ControlPanel {
     // roll (tilt) about the view axis. Reset snaps both sliders back to default.
     body.append(
       section("Camera", [
-        slider("Field of view", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
-        slider("Roll (tilt)°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
+        slider("Field of view°", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
+        slider("Roll°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
         button(
           "Reset camera",
           () => {
@@ -286,7 +286,7 @@ export class ControlPanel {
     );
 
     if (s.hasCameras) {
-      body.append(hint("Hover a frustum to highlight · click to view from it (Esc to exit)"));
+      body.append(hint("Hover a frustum to highlight it · click to view from it (Esc to exit)"));
     }
     return body;
   }
@@ -365,7 +365,7 @@ export class ControlPanel {
     }
     rows.push(
       slider("Frames per camera", 1, 30, 1, v.framesPerCamera, (n) => (v.framesPerCamera = n)),
-      slider("Video fps", 1, 60, 1, v.fps, (n) => (v.fps = n)),
+      slider("Video FPS", 1, 60, 1, v.fps, (n) => (v.fps = n)),
       checkbox("Loop back to the first camera", v.loop, (on) => (v.loop = on)),
       checkbox("Override field of view", v.overrideFov, (on) => {
         v.overrideFov = on;
@@ -379,7 +379,7 @@ export class ControlPanel {
     }
     const scales = scaleButtons(
       [1, 2],
-      (sc) => `Render the camera path at ${sc}× the cameras' image size (frustums are hidden meanwhile)`,
+      (sc) => `Render the camera path at ${sc}× the cameras' image size; frustums are hidden while it runs`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
         const fov = v.overrideFov ? v.fov : undefined;
@@ -764,5 +764,5 @@ function sceneSummary(s: ViewerState): string {
   if (assets) {
     parts.push(`${assets} asset${assets > 1 ? "s" : ""}`);
   }
-  return parts.join(" · ") || "empty scene";
+  return parts.join(" · ") || "Empty scene";
 }

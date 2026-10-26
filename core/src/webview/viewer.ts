@@ -1048,7 +1048,7 @@ export class Viewer {
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
     if (w > maxDim || h > maxDim) {
-      this.onError?.(`Render too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
+      this.onError?.(`Image too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
       return;
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,
