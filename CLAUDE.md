@@ -62,7 +62,10 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
   src/shared/
     messages.ts          host↔webview message contract + DTOs (HostToWebview/WebviewToHost)
     hostBridge.ts        getHostBridge(): the neutral window.__viewerHost channel
-                         (+ opensUris: whether this host can open files by path)
+                         (+ opensUris: whether this host can open files by path;
+                         savesFiles: whether it saves captures itself — VS Code and
+                         PyCharm do, via a save dialog; elsewhere the webview
+                         downloads them in-page, so an embedding page needs nothing)
     naming.ts            compareNatural + sharedFolderName: how items opened together
                          are ordered and named, shared by the hosts and the webview
     uriList.ts           text/uri-list: the payload a drag that names files (rather

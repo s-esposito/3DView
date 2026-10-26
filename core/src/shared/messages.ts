@@ -222,6 +222,7 @@ export type WebviewToHost =
   | { type: "openUris"; uris: string[] }
   | { type: "removed"; id: string } // an item was removed from the scene
   // A rendered file to save: a viewpoint PNG or a camera-path video. `data` is a
-  // data URL ("data:image/png;base64,…"); the host writes/downloads it, offering the
-  // file type that `suggestedName`'s extension names.
+  // data URL ("data:image/png;base64,…"); the host writes it, offering the file type
+  // that `suggestedName`'s extension names. Only a host that advertises
+  // `HostBridge.savesFiles` is sent this; elsewhere the webview downloads it itself.
   | { type: "saveFile"; suggestedName: string; data: string };

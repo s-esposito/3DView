@@ -348,7 +348,7 @@ export class ViewerPanel {
        is the ONLY place acquireVsCodeApi is named; the bundle never references it. -->
   <script nonce="${nonce}">
     const api = acquireVsCodeApi();
-    window.__viewerHost = { postMessage: (msg) => api.postMessage(msg), opensUris: true };
+    window.__viewerHost = { postMessage: (msg) => api.postMessage(msg), opensUris: true, savesFiles: true };
   </script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

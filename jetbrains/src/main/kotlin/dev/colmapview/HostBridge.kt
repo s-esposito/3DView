@@ -32,12 +32,14 @@ class HostBridge(
     /**
      * JS to inject (before the bundle) that installs the neutral bridge. The
      * `query.inject("JSON.stringify(m)")` call expands to JS that ships the
-     * stringified message to the [query] handler above.
+     * stringified message to the [query] handler above. `savesFiles` routes captures
+     * here, to the IDE's save dialog (ColmapViewerService.saveFile).
      */
     fun adapterScript(): String =
         """
         window.__viewerHost = {
-          postMessage: function (m) { ${query.inject("JSON.stringify(m)")} }
+          postMessage: function (m) { ${query.inject("JSON.stringify(m)")} },
+          savesFiles: true
         };
         """.trimIndent()
 
