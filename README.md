@@ -43,7 +43,7 @@ and a **browser demo**, over one shared core.
   **timesteps of one capture** instead of that many scene items: when a folder holds
   more than one model, or you pick / drop several asset files at once, 3DView asks
   which you meant. A temporal item is one Scene row marked **⏱ N**, with its own
-  **timeline** — scrub through the frames or play them back (shared **Playback fps**).
+  **timeline** — scrub through the frames or play them back (shared **Playback FPS**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
   **position / rotation** fields (the move-arrows button on its row), so sources that don't
@@ -53,10 +53,11 @@ and a **browser demo**, over one shared core.
 - **Adjust** — from the **3DView** panel: point size, frustum size / line width /
   color, and camera field of view and roll. Rename, hide and remove scene items from
   the **Scene** panel.
-- **Export** — from the **Render** panel: a transparent PNG of the current view at
-  **1× / 2× / 4×** (**Viewpoint**), and a video flying through a reconstruction's
+- **Export** — from the **Capture** panel: a transparent PNG of the current view at
+  **1× / 2× / 4×** (**Image**), and a video flying through a reconstruction's
   cameras in image-name order, with optional in-between frames, a loop back to the
-  start and a field-of-view override (**Video**; MP4, or WebM where the host has no
+  start and a field-of-view override (**Video**, for a reconstruction with two cameras
+  or more; MP4, or WebM where the host has no
   H.264 encoder). Renders size points by each cloud's own spacing, so surfaces stay
   filled at high resolution (**Fill point gaps**).
 - **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
@@ -69,7 +70,7 @@ and a **browser demo**, over one shared core.
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.0.7.vsix --force
+code --install-extension 3dview-1.0.8.vsix --force
 ```
 
 **From source:**

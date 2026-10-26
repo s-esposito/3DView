@@ -30,7 +30,7 @@ export class InfoPopup {
     box.id = "popup";
     box.className = "viewer-popup";
 
-    const { head, close } = popupHead(cam.name || `image ${cam.imageId}`, "Close");
+    const { head, close } = popupHead(cam.name || `Image ${cam.imageId}`, "Close");
     close.addEventListener("click", onClose);
     box.appendChild(head);
 
@@ -44,16 +44,16 @@ export class InfoPopup {
     body.className = "viewer-popup-body";
     const f = (n: number) => n.toFixed(2);
     if (!cam.imageUri) {
-      body.appendChild(keyValue("image", "not found on disk"));
+      body.appendChild(keyValue("Image", "not found on disk"));
     }
     body.append(
-      keyValue("image id", String(cam.imageId)),
-      keyValue("camera id", `${cam.cameraId} (${cam.model})`),
-      keyValue("resolution", `${cam.width} × ${cam.height}`),
-      keyValue("focal fx, fy", `${f(cam.fx)}, ${f(cam.fy)}`),
-      keyValue("principal cx, cy", `${f(cam.cx)}, ${f(cam.cy)}`),
+      keyValue("Image ID", String(cam.imageId)),
+      keyValue("Camera ID", `${cam.cameraId} (${cam.model})`),
+      keyValue("Resolution", `${cam.width} × ${cam.height}`),
+      keyValue("Focal (fx, fy)", `${f(cam.fx)}, ${f(cam.fy)}`),
+      keyValue("Principal (cx, cy)", `${f(cam.cx)}, ${f(cam.cy)}`),
       keyValue(
-        "center xyz",
+        "Center (x, y, z)",
         `${cam.center[0].toFixed(3)}, ${cam.center[1].toFixed(3)}, ${cam.center[2].toFixed(3)}`
       )
     );

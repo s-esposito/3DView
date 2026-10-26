@@ -54,9 +54,19 @@ viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
 viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
-// `suggestedName` is serialized before the multi-MB `data` so the PyCharm host's
-// regex parser matches the short field without scanning the whole base64 payload.
-viewer.onSaveFile = (data, suggestedName) => host.postMessage({ type: "saveFile", suggestedName, data });
+// A host with a save dialog of its own is handed the file; anywhere else (the demo,
+// a page embedding the bundle) a synthetic <a download> saves it, as a browser can
+// download a data URL directly. `suggestedName` is serialized before the multi-MB
+// `data` so the PyCharm host's regex parser matches the short field without
+// scanning the whole base64 payload.
+viewer.onSaveFile = host.savesFiles
+  ? (data, suggestedName) => host.postMessage({ type: "saveFile", suggestedName, data })
+  : (data, suggestedName) => {
+      const a = document.createElement("a");
+      a.href = data;
+      a.download = suggestedName;
+      a.click();
+    };
 
 /** What an empty scene says, in the status overlay — the one wording for "there is
  *  nothing here yet", matching the Scene list's own empty row. */

@@ -172,7 +172,7 @@ export class Viewer {
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
   onRemoveItem?: (id: string) => void;
-  /** Fired with a rendered file (viewpoint PNG, camera-path video) as a data URL, for the host to save. */
+  /** Fired with a rendered file (viewpoint PNG, camera-path video) as a data URL, to save (main.ts: via the host, or an in-page download). */
   onSaveFile?: (data: string, suggestedName: string) => void;
 
   private readonly renderer: THREE.WebGLRenderer;
@@ -1036,7 +1036,7 @@ export class Viewer {
 
   /**
    * Render the current viewpoint at `scale`× the on-screen resolution and hand the
-   * resulting PNG (data URL) to `onSaveFile` for the host to save. The 3D canvas
+   * resulting PNG (data URL) to `onSaveFile` to save. The 3D canvas
    * only (no UI overlay) is captured, with a fully transparent background (the
    * viewer background color is dropped). Guards against exceeding the GPU's max buffer.
    */
@@ -1048,7 +1048,7 @@ export class Viewer {
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
     if (w > maxDim || h > maxDim) {
-      this.onError?.(`Render too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
+      this.onError?.(`Image too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
       return;
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,

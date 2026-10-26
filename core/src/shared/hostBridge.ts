@@ -13,6 +13,10 @@ export interface HostBridge {
    *  be opened at all. Absent means no, and the drop zone then declines such a
    *  drag rather than accepting one it can't complete. */
   readonly opensUris?: boolean;
+  /** Whether this host writes captures itself on a `saveFile` message (a native
+   *  save dialog). Absent means no, and the webview downloads them in-page — so a
+   *  page embedding the bundle gets working captures without handling anything. */
+  readonly savesFiles?: boolean;
 }
 
 /**
