@@ -89,16 +89,18 @@ export function slider(
   value: number,
   onInput: (v: number) => void
 ): HTMLElement {
+  // One row: caption · track · readout. A whole-number step reads as an integer
+  // ("24", not "24.0"); anything finer keeps the adaptive precision.
+  const fmt = Number.isInteger(step) ? (v: number) => String(Math.round(v)) : fmtNum;
   const wrap = document.createElement("div");
   wrap.className = "viewer-slider";
-  const head = document.createElement("div");
-  head.className = "viewer-slider-head";
   const caption = document.createElement("span");
+  caption.className = "viewer-slider-label";
   caption.textContent = label;
+  caption.title = label; // the column can ellipsize a long caption
   const val = document.createElement("span");
   val.className = "viewer-slider-val";
-  val.textContent = fmtNum(value);
-  head.append(caption, val);
+  val.textContent = fmt(value);
   const input = document.createElement("input");
   input.type = "range";
   input.min = String(min);
@@ -107,10 +109,11 @@ export function slider(
   input.value = String(value);
   input.addEventListener("input", () => {
     const v = Number(input.value);
-    val.textContent = fmtNum(v);
+    val.textContent = fmt(v);
     onInput(v);
   });
-  wrap.append(head, input);
+  input.setAttribute("aria-label", label);
+  wrap.append(caption, input, val);
   return wrap;
 }
 
@@ -148,9 +151,10 @@ function hexToNum(s: string): number {
   return parseInt(s.replace(/^#/, ""), 16) || 0;
 }
 
-export function button(label: string, onClick: () => void): HTMLButtonElement {
+/** A full-width button; `quiet` drops the accent fill, for secondary actions. */
+export function button(label: string, onClick: () => void, quiet = false): HTMLButtonElement {
   const el = document.createElement("button");
-  el.className = "viewer-btn";
+  el.className = quiet ? "viewer-btn quiet" : "viewer-btn";
   el.textContent = label;
   el.addEventListener("click", onClick);
   return el;

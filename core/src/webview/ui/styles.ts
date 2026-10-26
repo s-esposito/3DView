@@ -17,7 +17,7 @@ body[data-viewer-theme="light"]{--vscode-editor-background:#e8e8e9;--vscode-edit
 body[data-viewer-theme="dark"]{--vscode-editor-background:#1b1b1d;--vscode-editorWidget-background:#242427;--vscode-foreground:#e1e1e1;--vscode-descriptionForeground:#9aa0aa;--vscode-widget-border:#ffffff;--vscode-focusBorder:#03d5ff;--vscode-list-hoverBackground:#ffffff;--vscode-toolbar-hoverBackground:rgba(255,255,255,.13);--vscode-input-background:rgba(255,255,255,.14);--vscode-input-foreground:#e1e1e1;--vscode-button-background:#03d5ff;--vscode-button-foreground:#06283b;--vscode-button-hoverBackground:#54e2ff;--vscode-button-secondaryBackground:#3a3d41;--vscode-button-secondaryHoverBackground:#4a4e54;--vscode-menu-background:#242427;--vscode-menu-foreground:#e1e1e1;--vscode-menu-border:rgba(255,255,255,.16);--vscode-menu-selectionBackground:rgba(255,255,255,.09);--glass-reflex-light:.5;--glass-reflex-dark:2}
 body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editorWidget-background:#1b3149;--vscode-foreground:#d5dbe2;--vscode-descriptionForeground:#8ea3bf;--vscode-widget-border:#99deff;--vscode-focusBorder:#ff48a9;--vscode-list-hoverBackground:#99deff;--vscode-toolbar-hoverBackground:rgba(153,222,255,.15);--vscode-input-background:rgba(153,222,255,.12);--vscode-input-foreground:#d5dbe2;--vscode-button-background:#ff48a9;--vscode-button-foreground:#2a0018;--vscode-button-hoverBackground:#ff6cbb;--vscode-button-secondaryBackground:#21384f;--vscode-button-secondaryHoverBackground:#2b4763;--vscode-menu-background:#1b3149;--vscode-menu-foreground:#d5dbe2;--vscode-menu-border:rgba(153,222,255,.25);--vscode-menu-selectionBackground:rgba(153,222,255,.12);--glass-rim-light:#99deff;--glass-rim-dark:#20001b;--glass-reflex-light:.7;--glass-reflex-dark:2}
 .viewer-ui{position:fixed;top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:10px;z-index:10}
-.viewer-panel{width:255px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow);user-select:none}
+.viewer-panel{width:272px;--viewer-label-w:116px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow);user-select:none}
 .viewer-header{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-radius:12px 12px 0 0;transition:background .18s ease}
 .viewer-panel.collapsed .viewer-header{border-radius:12px}
 .viewer-header:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 55%,transparent)}
@@ -36,20 +36,25 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
    this grandchild: clamping .viewer-clip would fight the 1fr row the collapse animates,
    and a scroll box on .viewer-panel would clip the "+" menu. The cap is halved-viewport
    so that BOTH panels plus the column's fixed chrome (two headers, gap, top offset,
-   version caption ~= 140px) always fit, and only then capped at 40vh. While the Render
+   version caption ~= 140px) always fit, and only then capped at 40vh. While the Capture
    panel is open too, the three share the height the same way (a third header and gap
    ~= 185px of chrome). border-box or the padding sits on top of the cap; overflow-x
    hidden or the knob/thumb animations raise a spurious horizontal bar. */
 .viewer-body{padding:4px 12px 14px;box-sizing:border-box;max-height:var(--viewer-panel-max);overflow:hidden auto}
-.viewer-ui:has(.viewer-render:not(.collapsed)){--viewer-panel-max:min(32vh,calc((100vh - 185px)/3))}
-.viewer-section{margin-top:14px}
-.viewer-section-title{text-transform:uppercase;font-size:10px;letter-spacing:.7px;color:var(--vscode-descriptionForeground,#999);margin-bottom:7px}
+.viewer-ui:has(.viewer-capture:not(.collapsed)){--viewer-panel-max:min(32vh,calc((100vh - 185px)/3))}
+/* A section stacks its rows on one rhythm (the gap), so no row carries its own
+   spacing; the reset at the end of the sheet zeroes the margins rows keep for use
+   elsewhere (the modals). The first section sits close under the header. */
+.viewer-section{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.viewer-section:first-child{margin-top:6px}
+.viewer-section-title{text-transform:uppercase;font-size:10px;letter-spacing:.7px;color:var(--vscode-descriptionForeground,#999);margin-bottom:-2px}
 /* A sub-menu: a section whose title folds its rows away (see components.subsection). */
 .viewer-subsection-title{display:flex;align-items:center;gap:6px;width:100%;padding:0;background:none;border:none;border-radius:4px;cursor:pointer;font-family:inherit;text-align:left;transition:color .15s ease}
 .viewer-subsection-title:hover{color:var(--vscode-foreground,#ddd)}
 .viewer-subsection-title:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:2px}
 .viewer-subsection.collapsed .viewer-subsection-title{margin-bottom:0}
 .viewer-subsection.collapsed .viewer-chevron{transform:rotate(-90deg)}
+.viewer-subsection-body{display:flex;flex-direction:column;gap:10px}
 .viewer-subsection.collapsed .viewer-subsection-body{display:none}
 .viewer-iconbtn{cursor:pointer;border:none;background:transparent;color:var(--vscode-foreground,#ddd);font:inherit;line-height:1;padding:4px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;transition:background .15s ease,transform .1s ease}
 .viewer-iconbtn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.12))}
@@ -63,6 +68,11 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-scene-item{display:flex;align-items:center;gap:6px;margin-top:2px;padding:3px 5px;border-radius:6px;transition:background .15s ease}
 .viewer-scene-item:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 45%,transparent)}
 .viewer-scene-item .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Row actions (move / rename / remove) appear on hover or keyboard focus, and stay
+   while the item's transform fields are open; always shown where nothing hovers. */
+.viewer-scene-actions{display:flex;align-items:center;opacity:0;transition:opacity .15s ease}
+.viewer-scene-item:hover .viewer-scene-actions,.viewer-scene-item:focus-within .viewer-scene-actions,.viewer-scene-actions:has([aria-expanded="true"]){opacity:1}
+@media (hover:none){.viewer-scene-actions{opacity:1}}
 .viewer-scene-item .kind{opacity:.45;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
 .viewer-version{align-self:flex-end;padding:0 4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;user-select:text;text-decoration:none}
@@ -97,10 +107,12 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-seg-opt:hover svg{scale:1.18}
 .viewer-seg-opt[aria-checked="true"]{color:var(--vscode-focusBorder,#0e639c)}
 .viewer-seg-opt[aria-checked="true"] svg{scale:1}
-.viewer-slider{display:block;margin-top:12px}
-.viewer-slider-head{display:flex;justify-content:space-between;margin-bottom:5px}
-.viewer-slider-val{color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
-.viewer-slider input{width:100%;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
+/* One row per slider: caption · track · readout. The caption column is shared with
+   .viewer-action, so labels and their controls line up down a section. */
+.viewer-slider{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr) 30px;align-items:center;gap:8px}
+.viewer-slider-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewer-slider-val{text-align:right;color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
+.viewer-slider input{width:100%;min-width:0;margin:0;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
 .viewer-colorrow{display:flex;align-items:center;justify-content:space-between;margin-top:12px;cursor:pointer}
 .viewer-color{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;padding:0;background:none;border:1px solid color-mix(in srgb,var(--vscode-widget-border,#fff) 55%,transparent);border-radius:6px;box-shadow:var(--glass-shadow-sm);cursor:pointer}
 .viewer-color::-webkit-color-swatch-wrapper{padding:2px}
@@ -109,11 +121,17 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-btn{display:block;width:100%;margin-top:14px;padding:7px 8px;cursor:pointer;color:var(--vscode-button-foreground,#fff);background:var(--vscode-button-background,#0e639c);border:none;border-radius:6px;font:inherit;font-weight:500;transition:background .15s ease,transform .1s ease,box-shadow .15s ease}
 .viewer-btn:hover{background:var(--vscode-button-hoverBackground,#1177bb);transform:translateY(-1px);box-shadow:0 3px 12px rgba(0,0,0,0.3)}
 .viewer-btn:active{transform:translateY(0);box-shadow:none}
+/* A secondary action (Reset view / camera): glass, not the accent fill. */
+.viewer-btn.quiet{color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);font-weight:400}
+.viewer-btn.quiet:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(255,255,255,.16));box-shadow:var(--glass-shadow-sm)}
 .viewer-scale-row{display:flex;gap:6px}
-.viewer-scale-btn{flex:1;padding:6px 0;cursor:pointer;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);border-radius:8px;font:inherit;font-variant-numeric:tabular-nums;transition:background .15s ease,transform .1s ease}
+.viewer-scale-btn{flex:1;min-width:0;padding:6px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border:none;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);border-radius:8px;font:inherit;font-variant-numeric:tabular-nums;transition:background .15s ease,transform .1s ease}
 .viewer-scale-btn:hover{background:var(--vscode-button-secondaryHoverBackground,var(--vscode-toolbar-hoverBackground,rgba(255,255,255,0.16)))}
 .viewer-scale-btn:active{transform:scale(.96)}
 .viewer-scale-btn.selected{background:var(--vscode-button-background,#0e639c);color:var(--vscode-button-foreground,#fff)}
+/* A caption + the buttons it names ("Save PNG  1× 2× 4×"). */
+.viewer-action{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr);align-items:center;gap:8px}
+.viewer-action .viewer-scale-btn{padding:4px}
 .viewer-hint{margin-top:12px;color:var(--vscode-descriptionForeground,#999);font-style:italic;line-height:1.45}
 .viewer-popup{position:fixed;left:12px;bottom:12px;width:300px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 82%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.45);overflow:hidden;z-index:10}
 .viewer-popup-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 40%,transparent)}
@@ -152,6 +170,8 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-drop.active{display:flex}
 .viewer-drop-inner{padding:28px 40px;border-radius:14px;border:2px dashed color-mix(in srgb,var(--vscode-focusBorder,#0e639c) 80%,transparent);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 78%,transparent);color:var(--vscode-foreground,#ddd);font:600 14px var(--vscode-font-family,sans-serif);text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.45)}
 @keyframes viewer-fade{from{opacity:0}to{opacity:1}}
+/* Last, to win over each row's own margin-top: inside a section the gap spaces rows. */
+:is(.viewer-section,.viewer-subsection-body)>*{margin-top:0}
 `;
 
 export function ensureStyles(): void {

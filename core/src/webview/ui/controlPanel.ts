@@ -1,7 +1,7 @@
 // The control UI (top-right overlay): stacked, independently-collapsible panels
 // inside a #viewer-ui column — a "3DView" panel with scene-wide display controls
 // (Show / Appearance / View), a "Scene" panel below it (the item list + add menu),
-// and, once the scene holds something, a "Render" panel (Viewpoint / Video
+// and, once the scene holds something, a "Capture" panel (Image / Video
 // sub-menus). All are thin views over the Viewer: they read `getState()` to render
 // and call Viewer setters on interaction; the Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
@@ -48,9 +48,9 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 export class ControlPanel {
   private collapsed = false; // the 3DView (display) panel
   private sceneCollapsed = false; // the Scene panel
-  private renderCollapsed = true; // the Render panel: out of the way until wanted
-  /** Which Render sub-menus are open, kept across panel re-renders. */
-  private readonly renderOpen = { viewpoint: true, video: true };
+  private captureCollapsed = true; // the Capture panel: out of the way until wanted
+  /** Which Capture sub-menus are open, kept across panel re-renders. */
+  private readonly captureOpen = { image: true, video: true };
   /** Scene items whose transform fields are open, kept across panel re-renders. */
   private readonly transformOpen = new Set<string>();
   /** How to move each temporal item's playhead, by item id — repopulated on every
@@ -76,9 +76,9 @@ export class ControlPanel {
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
     ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
-    const renderPanel = this.buildRenderPanel(s);
-    if (renderPanel) {
-      ui.append(renderPanel);
+    const capturePanel = this.buildCapturePanel(s);
+    if (capturePanel) {
+      ui.append(capturePanel);
     }
     ui.append(buildVersion());
     document.body.appendChild(ui);
@@ -264,7 +264,7 @@ export class ControlPanel {
         checkbox("Upright Y-up (U)", s.orientation === "upright", (on) =>
           this.viewer.setOrientation(on ? "upright" : "raw")
         ),
-        button("Reset view (R)", () => this.viewer.resetView()),
+        button("Reset view (R)", () => this.viewer.resetView(), true),
       ])
     );
 
@@ -274,10 +274,14 @@ export class ControlPanel {
       section("Camera", [
         slider("Field of view", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
         slider("Roll (tilt)°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
-        button("Reset camera", () => {
-          this.viewer.resetCamera();
-          this.render(); // a click, not a keystroke — re-reading the sliders is safe
-        }),
+        button(
+          "Reset camera",
+          () => {
+            this.viewer.resetCamera();
+            this.render(); // a click, not a keystroke — re-reading the sliders is safe
+          },
+          true
+        ),
       ])
     );
 
@@ -288,11 +292,12 @@ export class ControlPanel {
   }
 
   /**
-   * The Render panel: saving the scene as files, once it holds something. The
-   * point-gap switch applies to both renders, so it heads the panel; each render
-   * kind is a sub-menu of its own (video only for reconstructions with cameras).
+   * The Capture panel: saving the scene as files, once it holds something. The
+   * point-gap switch applies to both captures, so it heads the panel; each capture
+   * kind is a sub-menu of its own (video only for a reconstruction with a camera
+   * path to fly, i.e. two cameras or more).
    */
-  private buildRenderPanel(s: ViewerState): HTMLElement | null {
+  private buildCapturePanel(s: ViewerState): HTMLElement | null {
     if (s.items.length === 0) {
       return null;
     }
@@ -303,31 +308,36 @@ export class ControlPanel {
       this.viewer.setAdaptivePointSize(on)
     );
     fill.title =
-      "Size points by each cloud's own spacing in viewpoint and video renders, so surfaces stay filled at high resolution";
-    body.append(section("Points", [fill]));
+      "Size points by each cloud's own spacing in image and video captures, so surfaces stay filled at high resolution";
+    const top = document.createElement("div");
+    top.className = "viewer-section";
+    top.append(fill);
+    body.append(top);
 
-    // Viewpoint — save a PNG of the current view at 1×/2×/4× resolution.
+    // Image — save a PNG of the current view at 1×/2×/4× resolution.
     const scales = scaleButtons(
       [1, 2, 4],
       (sc) => `Save a PNG of the current view at ${sc}× resolution`,
       (sc) => this.viewer.saveViewpoint(sc)
     );
-    const open = this.renderOpen;
-    body.append(subsection("Viewpoint", open.viewpoint, (o) => (open.viewpoint = o), [scales]));
+    const open = this.captureOpen;
+    body.append(
+      subsection("Image", open.image, (o) => (open.image = o), [actionRow("Save PNG", scales)])
+    );
 
-    const withCameras = s.items.filter((i) => i.cameraCount > 0);
-    if (withCameras.length > 0) {
-      const rows = this.buildVideoRows(withCameras);
+    const withPath = s.items.filter((i) => i.cameraCount > 1);
+    if (withPath.length > 0) {
+      const rows = this.buildVideoRows(withPath);
       body.append(subsection("Video", open.video, (o) => (open.video = o), rows));
     }
 
     const panel = document.createElement("div");
-    panel.className = this.renderCollapsed
-      ? "viewer-panel viewer-render collapsed"
-      : "viewer-panel viewer-render";
+    panel.className = this.captureCollapsed
+      ? "viewer-panel viewer-capture collapsed"
+      : "viewer-panel viewer-capture";
     panel.append(
-      this.header(panel, "Render", null, () => {
-        this.renderCollapsed = !this.renderCollapsed;
+      this.header(panel, "Capture", null, () => {
+        this.captureCollapsed = !this.captureCollapsed;
       }),
       collapseWrap(body)
     );
@@ -338,16 +348,16 @@ export class ControlPanel {
    * The Video sub-menu: fly through a reconstruction's cameras (in image-name order)
    * and save the result. Settings live on the panel; the scale buttons start it.
    */
-  private buildVideoRows(withCameras: SceneItem[]): HTMLElement[] {
+  private buildVideoRows(withPath: SceneItem[]): HTMLElement[] {
     const v = this.video;
-    if (!withCameras.some((i) => i.id === v.item)) {
-      v.item = withCameras[0].id;
+    if (!withPath.some((i) => i.id === v.item)) {
+      v.item = withPath[0].id;
     }
     const rows: HTMLElement[] = [];
-    if (withCameras.length > 1) {
+    if (withPath.length > 1) {
       rows.push(
         choiceRow(
-          withCameras.map((i) => ({ label: i.label, value: i.id, title: `${i.cameraCount} cameras` })),
+          withPath.map((i) => ({ label: i.label, value: i.id, title: `${i.cameraCount} cameras` })),
           v.item,
           (id) => (v.item = id)
         )
@@ -363,18 +373,20 @@ export class ControlPanel {
       })
     );
     if (v.overrideFov) {
-      rows.push(slider("Field of view (vertical)°", 10, 120, 1, v.fov, (n) => (v.fov = n)));
+      const fov = slider("Field of view°", 10, 120, 1, v.fov, (n) => (v.fov = n));
+      fov.title = "Vertical field of view of the video";
+      rows.push(fov);
     }
     const scales = scaleButtons(
       [1, 2],
-      (sc) => `Render the camera path at ${sc}× the cameras' image size`,
+      (sc) => `Render the camera path at ${sc}× the cameras' image size (frustums are hidden meanwhile)`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
         const fov = v.overrideFov ? v.fov : undefined;
         void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
-    rows.push(scales, hint("Frustums are hidden while rendering · Esc cancels"));
+    rows.push(actionRow("Render", scales), hint("Esc cancels a render"));
     return rows;
   }
 
@@ -501,11 +513,15 @@ export class ControlPanel {
         frames.title = `Temporal item — ${item.frameCount} frames`;
         row.append(frames);
       }
-      row.append(
+      // Shown on hover / keyboard focus (styles.ts), so a list of items reads calmly.
+      const actions = document.createElement("span");
+      actions.className = "viewer-scene-actions";
+      actions.append(
         this.transformToggle(item, editor),
         iconButton("✎", "Rename", () => this.startRename(label, item)),
         iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
       );
+      row.append(actions);
       body.append(row);
       if (item.frameCount > 1) {
         body.append(this.buildTimeline(item));
@@ -704,6 +720,16 @@ function scaleButtons(
     b.addEventListener("click", () => onClick(sc));
     row.append(b);
   }
+  return row;
+}
+
+/** A caption + the buttons it names, aligned with the slider labels above it. */
+function actionRow(label: string, buttons: HTMLElement): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "viewer-action";
+  const caption = document.createElement("span");
+  caption.textContent = label;
+  row.append(caption, buttons);
   return row;
 }
 

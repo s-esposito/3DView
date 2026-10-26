@@ -53,10 +53,11 @@ and a **browser demo**, over one shared core.
 - **Adjust** — from the **3DView** panel: point size, frustum size / line width /
   color, and camera field of view and roll. Rename, hide and remove scene items from
   the **Scene** panel.
-- **Export** — from the **Render** panel: a transparent PNG of the current view at
-  **1× / 2× / 4×** (**Viewpoint**), and a video flying through a reconstruction's
+- **Export** — from the **Capture** panel: a transparent PNG of the current view at
+  **1× / 2× / 4×** (**Image**), and a video flying through a reconstruction's
   cameras in image-name order, with optional in-between frames, a loop back to the
-  start and a field-of-view override (**Video**; MP4, or WebM where the host has no
+  start and a field-of-view override (**Video**, for a reconstruction with two cameras
+  or more; MP4, or WebM where the host has no
   H.264 encoder). Renders size points by each cloud's own spacing, so surfaces stay
   filled at high resolution (**Fill point gaps**).
 - **Themes** — a light / dark / dim scheme for both the UI and the 3D viewport.
