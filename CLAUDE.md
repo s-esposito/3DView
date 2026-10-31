@@ -532,7 +532,7 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - **Dependencies:** `@3dview/core` depends on `three` (**>=0.180**, the
   `@sparkjsdev/spark` peer requirement) and `@sparkjsdev/spark` (the splat loader).
   esbuild inlines Spark — including its embedded WASM splat decoder + `blob:` worker —
-  into `out/webview.js`, so the bundle is several MB (≈6.4M). The worker is
+  into `out/webview.js`, so the bundle is several MB (≈3.7M). The worker is
   self-contained (no `import.meta`/`new URL`, no Node `require`), so the boundary
   guard stays green; it just needs the CSP allowances above on the VS Code host.
 - `core/esbuild.js`: webview entry `src/webview/main.ts` → `out/webview.js`

@@ -15,7 +15,7 @@
 // that includes Spark's own packed buffer, which `SplatMesh` adopts as-is.
 import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { unpackSplats, unpackSplat, PackedSplats, SplatMesh } from "@sparkjsdev/spark";
+import { unpackSplat, PackedSplats, SplatMesh } from "@sparkjsdev/spark";
 import type { Bounds } from "../shared/messages";
 import { computeBounds } from "../colmap/bounds";
 import { buildColoredPoints, DEFAULT_POINT_SIZE, sphereFromBounds } from "./builders";
@@ -43,6 +43,8 @@ const MIN_OPACITY = 0.05;
  */
 export const MAX_ELLIPSOIDS = 1_000_000;
 
+type SplatEncoding = PackedSplats["splatEncoding"];
+
 /** A decoded 3DGS cloud, kept CPU-side so render modes rebuild without re-decoding. */
 export interface SplatCloud {
   /**
@@ -54,6 +56,10 @@ export interface SplatCloud {
    */
   packed: Uint32Array;
   packedCount: number;
+  /** How `packed` is quantized (color and log-scale ranges, SH maxima). The decoder
+   *  picks it per file, so it travels with the buffer: reading or drawing the
+   *  buffer under any other encoding gets colors and sizes wrong. */
+  encoding: SplatEncoding;
   /** Number of finite Gaussians (the plain arrays below are all sized from this). */
   count: number;
   centers: Float32Array; // 3n — xyz
@@ -73,7 +79,15 @@ export interface SplatCloud {
  * blowing up fit-to-view and the world grid.
  */
 export async function decodeSplats(input: Uint8Array, name: string): Promise<SplatCloud> {
-  const { packedArray, numSplats } = await unpackSplats({ input, pathOrUrl: name });
+  // Decoding only: the PackedSplats is dropped once its arrays are taken, and it
+  // allocates no GPU textures until something draws it.
+  const { packedArray, numSplats, splatEncoding } = await new PackedSplats({
+    fileBytes: input,
+    fileName: name,
+  }).initialized;
+  if (!packedArray) {
+    throw new Error(`Spark decoded no splats from ${name}`);
+  }
   const centers = new Float32Array(numSplats * 3);
   const colors = new Uint8Array(numSplats * 3);
   const scales = new Float32Array(numSplats * 3);
@@ -81,7 +95,7 @@ export async function decodeSplats(input: Uint8Array, name: string): Promise<Spl
   const opacities = new Float32Array(numSplats);
   let n = 0; // count of finite splats kept
   for (let i = 0; i < numSplats; i++) {
-    const s = unpackSplat(packedArray, i); // reused output object; copy immediately
+    const s = unpackSplat(packedArray, i, splatEncoding); // reused output object; copy immediately
     const { x, y, z } = s.center;
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
       continue;
@@ -109,6 +123,7 @@ export async function decodeSplats(input: Uint8Array, name: string): Promise<Spl
   return {
     packed: packedArray,
     packedCount: numSplats,
+    encoding: splatEncoding,
     count: n,
     centers: cloudCenters,
     colors: trim(colors, n * 3),
@@ -128,7 +143,7 @@ function trim<T extends Float32Array | Uint8Array>(array: T, length: number): T 
 /** Build the renderable object for a decoded cloud in the requested mode. */
 export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THREE.Object3D {
   if (mode === "splatting") {
-    return buildSplatMeshFrom(cloud.packed, cloud.packedCount);
+    return buildSplatMeshFrom(cloud.packed, cloud.packedCount, cloud.encoding);
   }
   return mode === "ellipsoids" ? buildSplatEllipsoids(cloud) : buildSplatPoints(cloud);
 }
@@ -148,9 +163,13 @@ export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THRE
  * array, while a sequence passes a buffer of its own that it writes each frame into
  * (see `swapSplatCloud`).
  */
-export function buildSplatMeshFrom(packed: Uint32Array, count: number): THREE.Object3D {
+export function buildSplatMeshFrom(
+  packed: Uint32Array,
+  count: number,
+  encoding: SplatEncoding
+): THREE.Object3D {
   const mesh = new SplatMesh({
-    packedSplats: new PackedSplats({ packedArray: packed, numSplats: count }),
+    packedSplats: new PackedSplats({ packedArray: packed, numSplats: count, splatEncoding: encoding }),
   });
   mesh.initialized.catch((err: unknown) =>
     console.error("3DView: Spark could not prepare the splat mesh", err)
@@ -200,6 +219,7 @@ export function swapSplatCloud(object: THREE.Object3D | undefined, cloud: SplatC
   // whatever it was built with. Keeping one buffer also leaves each frame's decoded
   // array untouched, which is why the mesh must own it (`buildSplatMeshFrom`).
   packedArray.set(cloud.packed);
+  packed.splatEncoding = cloud.encoding; // read live by the shader's uniforms
   packed.needsUpdate = true; // three re-uploads the texture on the next generate
   object.updateVersion(); // tells Spark the splats changed, so it regenerates
   return true;

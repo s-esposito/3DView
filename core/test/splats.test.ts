@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { PackedSplats } from "@sparkjsdev/spark";
 
 import {
   buildSplatObject,
@@ -38,6 +39,7 @@ function makeCloud(
     // Spark's packed buffer: not read by the modes below, but part of a cloud.
     packed: new Uint32Array(count * 4),
     packedCount: count,
+    encoding: new PackedSplats().splatEncoding, // Spark's default
     centers,
     colors,
     scales,
@@ -144,9 +146,10 @@ test("disposeObject frees an ellipsoid mesh's per-instance buffers", () => {
 test("swapping a frame writes into the mesh's buffer, not the frame's", () => {
   const a = packedCloud(1, 111);
   const b = packedCloud(1, 222);
+  b.encoding = { ...b.encoding, rgbMax: 4 }; // the decoder picks one per file
   // What AssetLayer hands the mesh: a buffer of its own, seeded with frame A.
   const buffer = a.packed.slice();
-  const mesh = buildSplatMeshFrom(buffer, a.packedCount);
+  const mesh = buildSplatMeshFrom(buffer, a.packedCount, a.encoding);
 
   assert.equal(swapSplatCloud(mesh, b), true);
   assert.equal(buffer[0], 222, "the mesh now renders frame B");
@@ -154,10 +157,10 @@ test("swapping a frame writes into the mesh's buffer, not the frame's", () => {
   assert.equal(b.packed[0], 222, "and so is frame B's");
   // Writing into the same array is what makes the upload happen: repointing the
   // buffer sends the RGBA32UI texture a byte view, which WebGL2 rejects.
-  const packed = (mesh as { packedSplats?: { packedArray?: Uint32Array; needsUpdate?: boolean } })
-    .packedSplats;
+  const packed = (mesh as { packedSplats?: PackedSplats }).packedSplats;
   assert.equal(packed?.packedArray, buffer, "still the mesh's own array");
   assert.equal(packed?.needsUpdate, true, "flagged for re-upload");
+  assert.equal(packed?.splatEncoding.rgbMax, 4, "and drawn under frame B's encoding");
 });
 
 test("a swap is accepted when the buffer holds a partial texture row", () => {
@@ -170,12 +173,13 @@ test("a swap is accepted when the buffer holds a partial texture row", () => {
     cloud.packed = new Uint32Array(3000 * 4).fill(cloud.packed[0]);
     cloud.packedCount = 3000;
   }
-  const mesh = buildSplatMeshFrom(a.packed.slice(), a.packedCount);
+  const mesh = buildSplatMeshFrom(a.packed.slice(), a.packedCount, a.encoding);
   assert.equal(swapSplatCloud(mesh, b), true);
 });
 
 test("a swap is refused unless the frame fits the mesh exactly", () => {
-  const mesh = buildSplatMeshFrom(packedCloud(1, 1).packed, 2048);
+  const first = packedCloud(1, 1);
+  const mesh = buildSplatMeshFrom(first.packed, 2048, first.encoding);
   assert.equal(swapSplatCloud(mesh, packedCloud(2, 9)), false, "different splat count");
   assert.equal(swapSplatCloud(new THREE.Group(), packedCloud(1, 9)), false, "not a splat mesh");
   assert.equal(swapSplatCloud(undefined, packedCloud(1, 9)), false, "nothing to swap");

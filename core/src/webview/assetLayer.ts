@@ -188,7 +188,7 @@ export class AssetLayer implements FrameSource {
     }
     this.frameBuffer ??= new Uint32Array(cloud.packed.length);
     this.frameBuffer.set(cloud.packed);
-    return buildSplatMeshFrom(this.frameBuffer, cloud.packedCount);
+    return buildSplatMeshFrom(this.frameBuffer, cloud.packedCount, cloud.encoding);
   }
 
   /** Time steps in this asset's point tracks, or 0 if it holds none. */
