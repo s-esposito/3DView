@@ -155,6 +155,8 @@ export interface ViewerState {
   positionStep: number;
   /** How fast temporal items play back, in frames per second (shared by all of them). */
   playbackFps: number;
+  /** Which GPU backend draws the scene; null until the renderer is up. */
+  backend: "WebGPU" | "WebGL2" | null;
   items: SceneItem[];
 }
 
@@ -320,6 +322,7 @@ export class Viewer {
     this.renderer = renderer;
     this.syncSplats(); // a splat may have arrived before the renderer did
     this.animate();
+    this.onChange?.(); // the panel shows which backend came up
   }
 
   // --- Public API -----------------------------------------------------------
@@ -359,6 +362,11 @@ export class Viewer {
       trackSmoothing: this.assetOpts.trackSmoothing,
       positionStep: roundToPowerOfTen(diagonalOf(this.bounds) / 100),
       playbackFps: this.playbackFps,
+      backend: this.renderer
+        ? (this.renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend
+          ? "WebGPU"
+          : "WebGL2"
+        : null,
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,

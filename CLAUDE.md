@@ -368,7 +368,8 @@ routinely carries `dense/fused.ply` and friends.
   `directCanvas: false` to keep three's sRGB output): WebGPU where the host has it,
   else its WebGL2 backend — `?gpu=webgpu-gl` in a page URL forces the latter. It
   comes up asynchronously (`Viewer.initRenderer`); nothing renders before, and
-  `renderer` is undefined until then. What follows from it: materials are node
+  `renderer` is undefined until then; once it is up, `getState().backend` says which
+  backend it got, and the panel footer shows it. What follows from it: materials are node
   materials (TSL) — `onBeforeCompile`/`ShaderMaterial` do nothing; fat lines are the
   `lines/webgpu/` ones; and **a `THREE.Points` is always 1px**, so every sized cloud
   is a `PointCloud` (an instanced `Sprite`; size is a uniform, so the slider never

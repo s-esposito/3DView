@@ -75,7 +75,11 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 @media (hover:none){.viewer-scene-actions{opacity:1}}
 .viewer-scene-item .kind{opacity:.45;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
-.viewer-version{align-self:flex-end;padding:0 4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;user-select:text;text-decoration:none}
+.viewer-foot{align-self:flex-end;display:flex;align-items:center;gap:6px}
+.viewer-backend{display:inline-flex;align-items:center;gap:4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;cursor:default}
+.viewer-backend::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--vscode-descriptionForeground,#999)}
+.viewer-backend[data-backend="WebGPU"]::before{background:var(--vscode-focusBorder,#03d5ff)}
+.viewer-version{padding:0 4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;user-select:text;text-decoration:none}
 .viewer-version:hover{opacity:1;text-decoration:underline}
 .viewer-xform{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px 22px;padding:6px 6px 7px;border-radius:7px;background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,.14)) 45%,transparent);box-shadow:var(--glass-shadow-sm)}
 .viewer-xform[hidden]{display:none}
