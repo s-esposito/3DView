@@ -88,15 +88,13 @@ export class TemporalLayer implements SceneLayer {
 
   /**
    * Leave exactly one frame in the scene graph: the drawn one. Clearing `.visible`
-   * would be enough for three.js, but not for the splat renderer — Spark rebuilds
-   * its splat collection by walking the WHOLE scene each update, visible or not, and
-   * runs per-mesh bookkeeping on every SplatMesh it finds. A fifty-frame sequence
-   * would pay that fifty times per rendered frame, for forty-nine frames nobody can
-   * see. A frame that isn't drawn isn't in the scene.
+   * would be enough for three.js, but every other scene walk — picking, the texture
+   * budget, the splat drawer's per-frame gather — would then have to skip the hidden
+   * frames itself, and a fifty-frame sequence would be walked fifty times over for
+   * forty-nine frames nobody can see. A frame that isn't drawn isn't in the scene.
    *
-   * Detaching costs Spark nothing extra: it discovers meshes by traversal alone (no
-   * add/remove hooks), and an off-screen frame was already absent from the visible
-   * set that decides whether a re-sort is needed.
+   * Detaching costs the splat drawer nothing extra: it discovers objects by traversal
+   * alone (no add/remove hooks), and forgets one as soon as a gather misses it.
    */
   private drawOnlyCurrent(): void {
     this.frames.forEach((frame, at) => {

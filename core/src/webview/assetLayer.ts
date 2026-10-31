@@ -15,6 +15,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
+import { LineSegments2 } from "three/examples/jsm/lines/webgpu/LineSegments2.js";
 import type { Bounds } from "../shared/messages";
 import { extOf } from "../shared/messages";
 import {
@@ -28,9 +29,8 @@ import {
 import {
   decodeSplats,
   buildSplatObject,
-  buildSplatMeshFrom,
-  disposeSplatMesh,
   swapSplatCloud,
+  SplatObject,
 } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { readNpy, readNpz } from "./npz";
@@ -161,7 +161,7 @@ export class AssetLayer implements FrameSource {
 
   /**
    * Draw frame `index` of the adopted sequence. In the splatting mode the frame is
-   * written into the existing Spark mesh rather than built into a new one, which is
+   * written into the existing splat object rather than built into a new one, which is
    * what makes playback keep up (see `swapSplatCloud`). The other modes own their
    * geometry, so they rebuild — as they already do on a mode switch.
    */
@@ -188,7 +188,7 @@ export class AssetLayer implements FrameSource {
     }
     this.frameBuffer ??= new Uint32Array(cloud.packed.length);
     this.frameBuffer.set(cloud.packed);
-    return buildSplatMeshFrom(this.frameBuffer, cloud.packedCount, cloud.encoding);
+    return new SplatObject(this.frameBuffer, cloud.packedCount, cloud.encoding);
   }
 
   /** Time steps in this asset's point tracks, or 0 if it holds none. */
@@ -295,7 +295,6 @@ export class AssetLayer implements FrameSource {
       pair.mesh.material = pair.lit;
     }
     this.shadingPairs = [];
-    disposeSplatMesh(this.current); // Spark owns buffers disposeObject can't see
     disposeObject(this.current);
     this.current = undefined;
   }
@@ -316,7 +315,9 @@ function collectShadingPairs(object: THREE.Object3D): ShadingPair[] {
   const pairs: ShadingPair[] = [];
   object.traverse((child) => {
     const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) {
+    // Fat lines (point tracks) are meshes too — instanced quads — but their material
+    // is no lit surface: an unlit twin would draw the bare quads.
+    if (!mesh.isMesh || child instanceof LineSegments2) {
       return;
     }
     const lit = mesh.material;

@@ -1,8 +1,8 @@
 // 3D Gaussian Splatting: decode a splat file into a plain CPU-side cloud (Spark
 // parses the file with WASM in a worker), then build one of three render modes:
-//   - "splatting"  — real Gaussian splatting, rendered by Spark's own SparkRenderer
-//                    (per-viewpoint sorted, SH, alpha falloff). See the Viewer,
-//                    which owns the one SparkRenderer every SplatMesh draws through.
+//   - "splatting"  — real Gaussian splatting, rendered by Radix (per-viewpoint
+//                    sorted, alpha falloff). See `splatDrawer.ts`, which owns the
+//                    one Radix renderer every SplatObject draws through.
 //   - "ellipsoids" — each Gaussian as a solid oriented ellipsoid (the unit sphere
 //                    transformed by T(center)·R(quat)·S(σ·scales)), drawn as one
 //                    instanced icosphere per Gaussian. Opaque, so the z-buffer
@@ -12,13 +12,14 @@
 // data (and as a fallback where splatting is too slow).
 //
 // The decoded cloud is kept so switching modes rebuilds without re-decoding — and
-// that includes Spark's own packed buffer, which `SplatMesh` adopts as-is.
+// that includes Spark's own packed buffer, which `SplatObject` adopts as-is.
 import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { unpackSplat, PackedSplats, SplatMesh } from "@sparkjsdev/spark";
+import { unpackSplat, PackedSplats } from "@sparkjsdev/spark";
+import { ArrayData, Splats } from "@sparkjsdev/radix/core";
 import type { Bounds } from "../shared/messages";
 import { computeBounds } from "../colmap/bounds";
-import { buildColoredPoints, DEFAULT_POINT_SIZE, sphereFromBounds } from "./builders";
+import { buildColoredPoints, DEFAULT_POINT_SIZE, PointCloud, sphereFromBounds } from "./builders";
 
 /** How a decoded splat cloud is rendered, in decreasing fidelity — also the order
  *  the E key cycles and the control panel lists. */
@@ -143,85 +144,79 @@ function trim<T extends Float32Array | Uint8Array>(array: T, length: number): T 
 /** Build the renderable object for a decoded cloud in the requested mode. */
 export function buildSplatObject(cloud: SplatCloud, mode: SplatRenderMode): THREE.Object3D {
   if (mode === "splatting") {
-    return buildSplatMeshFrom(cloud.packed, cloud.packedCount, cloud.encoding);
+    return new SplatObject(cloud.packed, cloud.packedCount, cloud.encoding);
   }
   return mode === "ellipsoids" ? buildSplatEllipsoids(cloud) : buildSplatPoints(cloud);
 }
 
 /**
- * The real thing: a Spark `SplatMesh`, drawn by the scene's `SparkRenderer` with a
- * per-viewpoint sort, spherical harmonics and proper alpha falloff.
+ * The real thing: a splat object, drawn by the Viewer's Radix renderer (see
+ * `splatDrawer.ts`) with a per-viewpoint sort and proper alpha falloff.
  *
- * It adopts an already-decoded packed buffer (`PackedSplats` takes `packedArray`
- * directly and initializes synchronously), so switching into this mode neither
- * re-fetches nor re-parses the file. Nothing is built here per-Gaussian: Spark
- * gathers every visible SplatMesh in the scene each frame, honouring `.visible`
- * and world matrices — so the Scene list's show/hide and the per-item transform
- * apply to splats like anything else.
+ * It holds the packed buffer as Radix array data and nothing else. Radix's packed
+ * layout is Spark's byte for byte, so the decoded buffer is adopted as-is and
+ * switching into this mode neither re-fetches nor re-parses the file. No GPU state
+ * lives here: the drawer uploads `data` the first time it draws this, and again
+ * whenever `version` moves. It gathers the visible splat objects from the scene
+ * before each frame and draws each through its own `matrixWorld`, so the Scene
+ * list's show/hide and the per-item transform apply to splats like anything else.
  *
  * The buffer is taken by reference, not copied: a lone asset passes its cloud's own
  * array, while a sequence passes a buffer of its own that it writes each frame into
  * (see `swapSplatCloud`).
  */
-export function buildSplatMeshFrom(
-  packed: Uint32Array,
-  count: number,
-  encoding: SplatEncoding
-): THREE.Object3D {
-  const mesh = new SplatMesh({
-    packedSplats: new PackedSplats({ packedArray: packed, numSplats: count, splatEncoding: encoding }),
-  });
-  mesh.initialized.catch((err: unknown) =>
-    console.error("3DView: Spark could not prepare the splat mesh", err)
-  );
-  return mesh;
+export class SplatObject extends THREE.Object3D {
+  /** Bumped whenever the buffer is rewritten in place, so the drawer re-uploads it. */
+  version = 0;
+  readonly data: ArrayData;
+
+  constructor(packed: Uint32Array, count: number, encoding: SplatEncoding) {
+    super();
+    this.data = new ArrayData({ count, capacity: packed.length / 4 });
+    this.data.addBundle("splats", Splats.PACKED, {
+      data: { packed: packed as Uint32Array<ArrayBuffer> },
+      meta: { encoding: radixEncoding(encoding) },
+    });
+  }
+
+  /** The packed buffer the drawer uploads. */
+  get packed(): Uint32Array {
+    return this.data.bundles.splats.channels.packed.data as Uint32Array;
+  }
+}
+
+/** The part of Spark's encoding a packed buffer is quantized with; Radix reads the
+ *  same four ranges (the rest are Spark's spherical-harmonic and LoD settings). */
+function radixEncoding({ rgbMin, rgbMax, lnScaleMin, lnScaleMax }: SplatEncoding) {
+  return { rgbMin, rgbMax, lnScaleMin, lnScaleMax };
 }
 
 /**
- * Redraw an existing Spark mesh from another frame of the same capture, in place.
- * True when it took; false when the object isn't a Spark mesh (the ellipsoid and
+ * Redraw an existing splat object from another frame of the same capture, in place.
+ * True when it took; false when the object isn't a splat object (the ellipsoid and
  * point modes build their own geometry) or the frame's layout differs, and the
  * caller must rebuild instead.
  *
- * The point is what it avoids. A fresh `SplatMesh` per frame changes the set of
- * meshes the SparkRenderer collects, and on such a change Spark withholds the new
- * frame until a full re-sort has landed — a GPU→CPU depth readback plus a worker
- * sort, per frame, which is what turns playback into a slideshow. Repointing the
- * SAME `PackedSplats` at the next frame's buffer keeps the mesh, the splat count
- * and therefore Spark's mapping identical, so the frame is displayed immediately
- * and the re-sort follows behind it (one frame of slightly stale ordering, which
- * is imperceptible when consecutive frames are the same Gaussians in motion).
- *
- * Assigning a *different* `PackedSplats` would not do: Spark keys its compiled
- * splat program on the generator object it rebuilds whenever the source object
- * changes, so that path pays a shader compile per frame instead.
+ * The point is what it avoids. A fresh object per frame changes the set the drawer
+ * hands Radix, which then uploads new GPU arrays and, on the WebGL2 backend, keeps
+ * showing the previous set until a worker sort for the new one lands — a slideshow.
+ * Rewriting the same object keeps the set and its GPU arrays: the frame is uploaded
+ * into them and shown at once, and the re-sort follows behind it (one frame of
+ * slightly stale ordering, imperceptible when consecutive frames are the same
+ * Gaussians in motion). Written INTO the object's own buffer, which is why it must
+ * own one (`AssetLayer.buildFrameObject`) — each frame's decoded array stays intact.
  */
 export function swapSplatCloud(object: THREE.Object3D | undefined, cloud: SplatCloud): boolean {
-  if (!(object instanceof SplatMesh)) {
+  if (!(object instanceof SplatObject)) {
     return false;
   }
-  const packed = object.packedSplats;
-  // The frame must fit the mesh exactly: same buffer size, and the same splat count
-  // once Spark's own clamp is applied (it rounds capacity down to whole rows of its
-  // splat texture, so comparing against the raw count would refuse valid frames).
-  const packedArray = packed?.packedArray;
-  if (
-    !packedArray ||
-    packedArray.length !== cloud.packed.length ||
-    packed.numSplats !== Math.min(packed.maxSplats, cloud.packedCount)
-  ) {
+  const packed = object.packed;
+  if (packed.length !== cloud.packed.length || object.data.count !== cloud.packedCount) {
     return false;
   }
-  // Written INTO the mesh's own buffer rather than repointing it at the frame's.
-  // Repointing looks cheaper but does not work: Spark then swaps the texture's data
-  // for `new Uint8Array(buffer)`, and this texture is RGBA32UI — WebGL2 rejects a
-  // byte view for UNSIGNED_INT, so the upload is dropped and the mesh keeps showing
-  // whatever it was built with. Keeping one buffer also leaves each frame's decoded
-  // array untouched, which is why the mesh must own it (`buildSplatMeshFrom`).
-  packedArray.set(cloud.packed);
-  packed.splatEncoding = cloud.encoding; // read live by the shader's uniforms
-  packed.needsUpdate = true; // three re-uploads the texture on the next generate
-  object.updateVersion(); // tells Spark the splats changed, so it regenerates
+  packed.set(cloud.packed);
+  object.data.bundles.splats.meta.encoding = radixEncoding(cloud.encoding);
+  object.version++;
   return true;
 }
 
@@ -232,18 +227,10 @@ export function sameSplatLayout(a: SplatCloud, b: SplatCloud): boolean {
   return a.packedCount === b.packedCount && a.packed.length === b.packed.length;
 }
 
-/** Free a splat object's GPU resources. A no-op unless it is a Spark `SplatMesh`,
- *  whose buffers only its own `dispose()` releases. */
-export function disposeSplatMesh(object: THREE.Object3D | undefined): void {
-  if (object instanceof SplatMesh) {
-    object.dispose();
-  }
-}
-
-/** The cloud's centers as a colored `THREE.Points` — base color only, no covariance.
+/** The cloud's centers as a colored `PointCloud` — base color only, no covariance.
  *  3DGS clouds have no per-point size of their own, so they start at the shared
  *  default and follow the "Point size" slider from there, like any other cloud. */
-function buildSplatPoints(cloud: SplatCloud): THREE.Points {
+function buildSplatPoints(cloud: SplatCloud): PointCloud {
   return buildColoredPoints(cloud.centers, cloud.colors, cloud.bounds, DEFAULT_POINT_SIZE);
 }
 

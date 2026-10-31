@@ -112,9 +112,10 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          swapping its buffer (a FrameSource; see below)
     splats.ts            3DGS: decodeSplats() (Spark, WASM in a worker) → SplatCloud,
                          then buildSplatObject() in one of three render modes —
-                         "splatting" (default; a Spark SplatMesh adopting our packed
-                         buffer, real per-view-sorted splatting drawn by the Viewer's
-                         SparkRenderer), "ellipsoids" (one instanced icosphere per
+                         "splatting" (default; a SplatObject adopting our packed
+                         buffer — Radix's packed layout is Spark's, byte for byte —
+                         real per-view-sorted splatting drawn by the Viewer's
+                         SplatDrawer), "ellipsoids" (one instanced icosphere per
                          Gaussian, opacity- and budget-culled), or
                          "points" (centers only). The latter two are approximations:
                          no per-view sort, SH, or alpha falloff
@@ -127,9 +128,12 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          and width are material tweaks; density (a stable hashed
                          subset) and smoothTracks() (a Gaussian along time, over the
                          visible samples only) do rebuild
+    splatDrawer.ts       SplatDrawer: the one Radix SplatRenderer, fed before each frame
+                         with the scene's visible SplatObjects (uploaded to the GPU on
+                         first draw, re-uploaded in place when a sequence swaps a frame)
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
-    cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/LineMaterial,
+    cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,
                          screen-px linewidth via setLineWidth) + image planes;
                          hover/select; lazy textures (cap)
     cameraInteraction.ts pointer pick/hover/select across layers + fly-to-POV
@@ -140,8 +144,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          WebM (VP9/VP8) via WebCodecs + Mediabunny — the only module
                          that imports Mediabunny (MPL-2.0)
     builders.ts          pure three.js geometry builders + scene math (bounds, frustum
-                         sizing, dispose; sRGB → linear vertex colors; point spacing
-                         + adaptivePoints: render-time world-sized points)
+                         sizing, dispose; sRGB → linear vertex colors; point spacing;
+                         PointCloud: sized points as an instanced sprite, + adapt():
+                         render-time world-sized points; setImagePlaneImage)
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
@@ -209,11 +214,9 @@ Scene list + global toggles adapt automatically. (3DGS arrived as a format insid
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)
 
 **A temporal item is one layer holding many** (`temporalLayer.ts`): N frames under
-one container, **only the drawn one attached to it** (`.visible = false` is not
-enough — Spark rebuilds its splat collection by walking the whole scene each update,
-hidden meshes included, and runs per-mesh bookkeeping on every `SplatMesh` it finds,
-so an undrawn frame it can still reach costs work on every rendered frame; detaching
-costs Spark nothing, as it discovers meshes by traversal alone), so a capture's timesteps are a single Scene row
+one container, **only the drawn one attached to it** (detached, an undrawn frame is
+out of every scene walk — the splat drawer's per-frame gather included — rather
+than skipped by each), so a capture's timesteps are a single Scene row
 with a timeline instead of N rows drawn on top of each other. Its frames are
 ordinary layers, so two rules follow. **`Viewer.drawnLayers()` is what the kind
 filters read** — the top-level layers with a temporal item replaced by its drawn
@@ -228,37 +231,33 @@ changed (`AssetLayer.applyAssetOptions` and `ReconstructionLayer.rebuildCameras`
 diff). Playback rides `animate()` rather than a timer of its own — see the
 on-demand-rendering invariant.
 
-**A 3DGS sequence plays back only if the mesh never changes.** Spark rebuilds its
-splat collection from the scene each update and, whenever that collection's *mapping*
-changes — a different mesh, or a different splat count — it withholds the new frame
-until a full re-sort has landed (GPU→CPU depth readback + worker sort). One mesh per
-frame therefore caps playback at one frame per sort: a slideshow. So when every frame
-of a temporal item is 3DGS **and they share a packed layout** (same splat count, same
-bytes per splat), the item is built as a single `AssetLayer` holding all the decoded
-clouds (`adoptSplatFrames`) and scrubbing writes the next frame into that one mesh's
-buffer (`splats.ts swapSplatCloud`): the mapping never changes, the frame shows at
-once, and the re-sort follows behind it. Three rules come with it. Write the frame **into** the mesh's existing `packedArray` (`packedArray.set`), never
-repoint it at the frame's own array — Spark then swaps the texture's data for a
-`new Uint8Array(buffer)`, and this texture is RGBA32UI, so WebGL2 rejects the upload
-and every frame silently renders as the first. The mesh therefore needs a buffer of
-its own (`buildSplatMeshFrom`), or swapping would overwrite a frame's decoded data.
-Keep the same `PackedSplats` object too — handing the mesh a *different*
-`PackedSplats` rebuilds its generator, and Spark keys the compiled splat program on
-generator identity, so that costs a shader compile per frame; and the layout check is
-count **and** array length, since a differing SH degree changes the packed layout.
-Anything else (mixed layouts, meshes, tracks, reconstructions) keeps the layer-per-frame
-shape. The stale ordering is only invisible while consecutive frames are the same
-Gaussians in motion; equal counts is evidence of that, not proof.
+**A 3DGS sequence plays back only if the splat object never changes.** A new
+object per frame changes the set the drawer hands Radix: new GPU arrays, and on the
+WebGL2 backend the previous set stays on screen until a worker sort for the new one
+lands — one frame per sort, a slideshow. So when every frame of a temporal item is
+3DGS **and they share a packed layout** (same splat count, same buffer length), the
+item is built as a single `AssetLayer` holding all the decoded clouds
+(`adoptSplatFrames`) and scrubbing writes the next frame into that one object's
+buffer (`splats.ts swapSplatCloud`, which also carries the frame's encoding and bumps
+`version`): the drawer re-uploads into the same GPU arrays and requests a sort, so
+the frame shows at once and the re-sort follows behind it. The object therefore owns
+a buffer of its own (`AssetLayer.buildFrameObject`), or swapping would overwrite a
+frame's decoded data. Anything else (mixed layouts, meshes, tracks, reconstructions)
+keeps the layer-per-frame shape. The stale ordering is only invisible while
+consecutive frames are the same Gaussians in motion; equal counts is evidence of
+that, not proof.
 
-**Spark's renderer is the Viewer's, not a layer's.** "splatting" mode needs one
-`SparkRenderer` in the scene — it gathers every visible `SplatMesh` each frame and
-rasterizes them together. The Viewer creates it lazily on first use (it allocates GPU
-accumulators) and adds it to `scene`, not `root`: its own transform is the origin
-Spark encodes splat positions against, so it stays at identity. It fits the on-demand
-loop through its `onDirty` callback — Spark fires it when a viewpoint sort or LoD
-update lands, i.e. exactly when the last frame went stale — wired to `requestRender`.
-Spark reads each mesh's `matrixWorld` and collects via `traverseVisible`, so per-item
-transforms, the upright flip, and Scene-list show/hide all apply for free.
+**The splat renderer is the Viewer's, not a layer's** (`splatDrawer.ts`). Splats are
+drawn by [Radix](https://sparkjs.dev/radix/): one `SplatRenderer` (a `Mesh`) in the
+`scene`, created lazily on first use and disposed once no splat asset is left. Radix
+does not walk the scene itself — it draws an explicit collection — so
+`Viewer.draw()` calls `SplatDrawer.gather` before **every** render: it collects the
+visible `SplatObject`s (`traverseVisible`) and hands each over with a `matrixWorld`
+getter, so per-item transforms, the upright flip and Scene-list show/hide apply for
+free. GPU arrays are freed through Radix's `release`, which fires only once no
+pending sort still needs the object. WebGPU sorts on the GPU within the frame; the
+WebGL2 backend sorts on a worker and fires `onInvalidate` when it lands — wired to
+`requestRender`, and awaited by `renderSettled` for video frames.
 
 **Each layer carries its own placement.** `Viewer.setItemTransform` writes position /
 rotation onto the layer's root group, so sources that don't share a coordinate frame
@@ -363,9 +362,21 @@ routinely carries `dense/fused.ply` and friends.
   `camera.fov`/`updateProjectionMatrix`. Both are webview-only camera state (no host
   message); `resetCamera` returns them to defaults (`DEFAULT_FOV`, roll 0).
 - **Render cost knobs:** pixel ratio is capped at `MAX_PIXEL_RATIO` (1.5) in
-  `viewer.ts` (re-applied on resize); `buildPoints` sets `geometry.boundingSphere`
-  from `data.bounds` (radius = ½ space diagonal) to skip Three's O(n) first-frame
-  scan. The point cloud is never raycast (picking is frustums only).
+  `viewer.ts` (re-applied on resize). The point cloud is never raycast (picking is
+  frustums only).
+- **The renderer is three's `WebGPURenderer`** (made by Radix's `createRenderer`,
+  `directCanvas: false` to keep three's sRGB output): WebGPU where the host has it,
+  else its WebGL2 backend — `?gpu=webgpu-gl` in a page URL forces the latter. It
+  comes up asynchronously (`Viewer.initRenderer`); nothing renders before, and
+  `renderer` is undefined until then. What follows from it: materials are node
+  materials (TSL) — `onBeforeCompile`/`ShaderMaterial` do nothing; fat lines are the
+  `lines/webgpu/` ones; and **a `THREE.Points` is always 1px**, so every sized cloud
+  is a `PointCloud` (an instanced `Sprite`; size is a uniform, so the slider never
+  recompiles). A sprite is culled as a unit quad at its origin, so `PointCloud` sets
+  `frustumCulled = false`, and its quad carries the cloud's bounding box so
+  `Box3.setFromObject` sees the points. Transparent surfaces blend in linear space
+  (WebGL blended in sRGB), so translucency reads lighter than it did. The axes draw
+  after the grid (`renderOrder`), whose center lines they lie on.
 - **PBR meshes need the environment.** Lit meshes are shaded by `scene.environment`
   (a PMREM-filtered `RoomEnvironment`) plus a hemisphere + key light, set once in
   `viewer.ts`. The IBL is not decoration: a `metalness>0` glTF surface (e.g. a GLB
@@ -411,7 +422,8 @@ routinely carries `dense/fused.ply` and friends.
   runs WebAssembly inside a `blob:` Web Worker — hence `worker-src blob:` and
   `'wasm-unsafe-eval'` (the worker inherits the page policy). We fetch the splat
   bytes on the main thread and hand them to Spark, so the worker itself never
-  fetches. If you add asset types/workers, update the CSP.
+  fetches. Radix's WebGL2 sort runs in `blob:` module workers too, covered by the
+  same `worker-src blob:`. If you add asset types/workers, update the CSP.
 - **`localResourceRoots` is fixed at panel creation**, and recreating the panel
   reloads the whole webview ("restart from scratch"). To avoid that on every add,
   `rootsFor` allows the **filesystem/drive root** of each opened path, so adding
@@ -447,15 +459,15 @@ routinely carries `dense/fused.ply` and friends.
   resident (see `textures.ts`/`cameraLayer.ts`). The flip is baked into the
   bitmap (`imageOrientation:"flipY"` + `texture.flipY=false`) — ImageBitmap
   ignores `flipY`. The click-popup uses the full-res `<img>` (one at a time).
-- **Image-plane alpha remap** (`builders.ts buildImagePlane`, `patchImagePlaneAlpha`):
+- **Image-plane alpha remap** (`builders.ts buildImagePlane`, `setImagePlaneImage`):
   the frustum image plane blends by the image's **own** alpha, per-pixel — opaque
   pixels keep their color at full opacity; fully-transparent pixels become white at
   `IMAGE_ALPHA_FLOOR` (0.5); in between interpolates. So a masked-out region reads
-  as a faint white fill instead of vanishing. Done via a `MeshBasicMaterial`
-  `onBeforeCompile` that rewrites `<map_fragment>` (keeps three's sRGB decode/encode,
-  since the sampler returns linear and `vec3(1.0)` is white in linear too), with a
-  `customProgramCacheKey` so it never shares a program with a plain textured
-  material. The material's `opacity` stays the load/evict show-hide gate (1/0) and
+  as a faint white fill instead of vanishing. Done as the `MeshBasicNodeMaterial`'s
+  `colorNode`, set (with the image) by `setImagePlaneImage` — the one way a plane
+  gets or loses its image; `map` holds the image only so disposal finds it. The
+  texture node decodes sRGB, so the mix is in linear, where `vec3(1)` is white too.
+  The material's `opacity` stays the load/evict show-hide gate (1/0) and
   multiplies the result — don't repurpose it for translucency.
 - **One palette color per scene ITEM, not per layer** (`builders.ts CLOUD_PALETTE`
   / `cloudColor`). A point cloud with no per-vertex colors of its own is drawn in a
@@ -481,11 +493,6 @@ routinely carries `dense/fused.ply` and friends.
   shows when `hasPoints || hasPointCloud`; `hasPointCloud` comes from a flag recorded
   at load time (beside `cloud`/`tracks`), not from the built object, so it doesn't
   flip as E cycles the render mode.
-- **Don't preset a bounding sphere on loader-produced geometry.** `PLYLoader` already
-  calls `computeBoundingSphere()`, and its sphere is fitted to the points; replacing it
-  with one around the AABB costs the same scan for up to √3 the radius, i.e. strictly
-  looser culling. `buildColoredPoints` presetting from `Bounds` is the *correct* use of
-  that pattern — it builds the geometry itself, so there is nothing to overwrite.
 - **Precision caveat:** point positions are downcast float64→float32 in
   `points3d.ts` (~7 sig digits). Fine for normalized scenes; revisit for
   geo-referenced coordinates (would need an origin offset).
@@ -529,12 +536,19 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
 - **Workspaces:** root `package.json` orchestrates `@3dview/core` → `3dview`
   → `3dview-demo`; `npm install` once at the root links them. `jetbrains/` is a
   separate Gradle build, not an npm workspace.
-- **Dependencies:** `@3dview/core` depends on `three` (**>=0.180**, the
-  `@sparkjsdev/spark` peer requirement) and `@sparkjsdev/spark` (the splat loader).
-  esbuild inlines Spark — including its embedded WASM splat decoder + `blob:` worker —
-  into `out/webview.js`, so the bundle is several MB (≈3.7M). The worker is
-  self-contained (no `import.meta`/`new URL`, no Node `require`), so the boundary
-  guard stays green; it just needs the CSP allowances above on the VS Code host.
+- **Dependencies:** `@3dview/core` depends on `three` (**^0.186**, the
+  `@sparkjsdev/radix` peer requirement), `@sparkjsdev/spark` (the splat *decoder*
+  only) and `@sparkjsdev/radix` (the splat *renderer*). esbuild inlines all of it —
+  Spark's embedded WASM decoder + `blob:` worker included — into `out/webview.js`,
+  so the bundle is several MB (≈4.6M). The workers are self-contained (no
+  `import.meta`/`new URL`, no Node `require`), so the boundary guard stays green; they
+  just need the CSP allowances above on the VS Code host.
+- **Radix is vendored** as `core/vendor/sparkjsdev-radix-0.0.1.tgz`: the published
+  0.0.1 lists its own dev tooling as runtime `dependencies`, including the macOS-only
+  `fsevents`, so `npm install` fails on Linux (CI included). The tarball is that
+  release repacked with `dependencies`/`devDependencies`/`scripts` and source maps
+  removed — the code only imports `three`. Switch back to the registry once upstream
+  publishes a clean package.
 - `core/esbuild.js`: webview entry `src/webview/main.ts` → `out/webview.js`
   (browser/iife); `--test` bundles `test/*.test.ts` → `out/test/`. `vscode/esbuild.js`:
   extension entry `src/host/extension.ts` → `out/extension.js` (node/cjs, `vscode`

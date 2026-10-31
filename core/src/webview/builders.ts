@@ -2,9 +2,20 @@
 // DOM — everything here takes data in and returns objects/values out, so each
 // piece is easy to read, reuse, and reason about.
 import * as THREE from "three";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { Line2NodeMaterial, MeshBasicNodeMaterial, PointsNodeMaterial } from "three/webgpu";
+import {
+  clamp,
+  float,
+  instancedBufferAttribute,
+  mix,
+  positionView,
+  texture,
+  uniform,
+  vec3,
+  vec4,
+} from "three/tsl";
+import { LineSegments2 } from "three/examples/jsm/lines/webgpu/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { ModelData, CameraView, Bounds } from "../shared/messages";
 
 // Default frustum wireframe color (RGB 0.423, 0.5568, 0.7490 → 8-bit). The Scene
@@ -40,8 +51,8 @@ export function cloudColor(turn: number): number {
   return CLOUD_PALETTE[turn % CLOUD_PALETTE.length];
 }
 
-/** The colored point cloud as a single `THREE.Points`. */
-export function buildPoints(data: ModelData, pointSize: number): THREE.Points {
+/** The colored point cloud as a single `PointCloud`. */
+export function buildPoints(data: ModelData, pointSize: number): PointCloud {
   return buildColoredPoints(data.positions, data.colors, data.bounds, pointSize);
 }
 
@@ -66,31 +77,25 @@ export function srgbBytesToLinear(colors: Uint8Array): Uint16Array {
   return out;
 }
 
-/** Shared colored-points builder: positions + sRGB Uint8 rgb + AABB-derived sphere.
+/** Shared colored-points builder: positions + sRGB Uint8 rgb, with known bounds.
  *  Used by the COLMAP cloud above and by the splat layer's "points" render mode. */
 export function buildColoredPoints(
   positions: Float32Array,
   colors: Uint8Array,
   bounds: Bounds,
   pointSize: number
-): THREE.Points {
+): PointCloud {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   // sRGB Uint8 rgb, decoded to linear Uint16 and normalized to 0..1 in the shader.
   geometry.setAttribute("color", new THREE.BufferAttribute(srgbBytesToLinear(colors), 3, true));
-  // Preset the bounding sphere so Three doesn't scan the whole position buffer on
-  // first render (a per-cloud first-frame hitch).
-  geometry.boundingSphere = sphereFromBounds(bounds);
-  const material = new THREE.PointsMaterial({
-    size: pointSize,
-    vertexColors: true,
-    sizeAttenuation: false,
-  });
-  return new THREE.Points(geometry, material);
+  const cloud = new PointCloud(geometry, null, bounds);
+  cloud.pointSize = pointSize;
+  return cloud;
 }
 
 /**
- * A bare point cloud (a PLY with no faces) as `THREE.Points`. Uses the file's own
+ * A bare point cloud (a PLY with no faces) as a `PointCloud`. Uses the file's own
  * per-vertex colors when it has them; otherwise the whole cloud takes
  * `fallbackColor`, which is what keeps two uncolored clouds apart in one scene.
  * The size is the default: the layer applies the live one when it attaches this.
@@ -98,20 +103,98 @@ export function buildColoredPoints(
 export function buildPlyPoints(
   geometry: THREE.BufferGeometry,
   fallbackColor: number
-): THREE.Points {
+): PointCloud {
   const hasColor = geometry.getAttribute("color") != null;
-  // Note the geometry arrives from PLYLoader, which has already computed a bounding
-  // sphere — a tight one, fitted to the points. Don't overwrite it with a sphere
-  // around the box: same scan, up to sqrt(3) the radius, so strictly looser culling.
-  return new THREE.Points(
-    geometry,
-    new THREE.PointsMaterial({
-      vertexColors: hasColor,
-      color: hasColor ? 0xffffff : fallbackColor,
-      size: DEFAULT_POINT_SIZE,
-      sizeAttenuation: false,
-    })
-  );
+  return new PointCloud(geometry, hasColor ? null : fallbackColor);
+}
+
+/** Half the drawing buffer's height in px: what turns a world size at a depth into
+ *  pixels (three keeps one like it for attenuated points, but doesn't export it). */
+const halfHeight = uniform(1).onRenderUpdate(function ({ renderer }) {
+  return 0.5 * renderer!.getSize(new THREE.Vector2()).y;
+});
+
+/**
+ * A point cloud whose points are `pointSize` screen pixels wide. WebGPU has no sized
+ * point primitive — a `THREE.Points` is always 1px — so this is an instanced sprite:
+ * one screen-facing quad per point, its center and color read per instance from
+ * `points` (the cloud's own geometry: "position", optional "color"). The sprite's
+ * quad carries the cloud's bounding box, so `Box3.setFromObject` sees the points;
+ * and it is never frustum-culled, since three culls a sprite as a unit quad.
+ */
+export class PointCloud extends THREE.Sprite {
+  private readonly size = uniform(DEFAULT_POINT_SIZE);
+  private readonly live: PointsNodeMaterial;
+
+  /** `color` tints an uncolored cloud; null reads the geometry's own colors.
+   *  `bounds`, when known, spares a scan of the positions. */
+  constructor(readonly points: THREE.BufferGeometry, color: number | null, bounds?: Bounds) {
+    const position = points.getAttribute("position");
+    const rgb = points.getAttribute("color");
+    const material = new PointsNodeMaterial({ sizeAttenuation: false });
+    material.positionNode = instancedBufferAttribute(asInstanced(position), "vec3");
+    if (color === null && rgb) {
+      material.colorNode = instancedBufferAttribute(asInstanced(rgb), "vec3");
+    } else {
+      material.color.setHex(color ?? 0xffffff);
+    }
+    super(material as unknown as THREE.SpriteMaterial);
+    material.sizeNode = this.size;
+    this.live = material;
+    this.count = position.count;
+    this.frustumCulled = false;
+    this.geometry = this.geometry.clone(); // the quad is shared by every sprite
+    if (bounds) {
+      this.geometry.boundingBox = new THREE.Box3().setFromArray([...bounds.min, ...bounds.max]);
+      this.geometry.boundingSphere = sphereFromBounds(bounds);
+    } else {
+      points.computeBoundingBox();
+      points.computeBoundingSphere();
+      this.geometry.boundingBox = points.boundingBox;
+      this.geometry.boundingSphere = points.boundingSphere;
+    }
+  }
+
+  get pointSize(): number {
+    return this.size.value;
+  }
+  set pointSize(px: number) {
+    this.size.value = px;
+  }
+
+  /**
+   * For a render: swap in a material whose points are `ADAPTIVE_POINT_FILL × spacing`
+   * wide in world units, so neighbours touch at any distance and render resolution.
+   * A length s at depth z spans s·(H/2)/(z·tan(fov/2)) px — hence the tan in fit —
+   * clamped to `minPx`..`maxPx`: a floor so far points don't vanish, a cap so points
+   * right at the lens don't flood the frame. `restore` puts the live material back.
+   */
+  adapt(spacing: number): { fit(fov: number, minPx: number, maxPx: number): void; restore(): void } {
+    const world = uniform(0);
+    const minPx = uniform(1);
+    const maxPx = uniform(64);
+    const material = this.live.clone();
+    material.sizeAttenuation = false; // clone() drops it; the size below is attenuated already
+    material.sizeNode = clamp(world.mul(halfHeight).div(positionView.z.negate()), minPx, maxPx);
+    this.material = material as unknown as THREE.SpriteMaterial;
+    return {
+      fit(fov, min, max) {
+        world.value = (ADAPTIVE_POINT_FILL * spacing) / Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+        minPx.value = min;
+        maxPx.value = Math.max(min, max);
+      },
+      restore: () => {
+        material.dispose();
+        this.material = this.live as unknown as THREE.SpriteMaterial;
+      },
+    };
+  }
+}
+
+/** The same data as an instanced attribute (shares the array; no copy). */
+function asInstanced(attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute) {
+  const a = attr as THREE.BufferAttribute;
+  return new THREE.InstancedBufferAttribute(a.array, a.itemSize, a.normalized);
 }
 
 /**
@@ -192,56 +275,13 @@ export function estimatePointSpacing(positions: ArrayLike<number>, samples = 204
  *  at an angle and uneven sampling. */
 export const ADAPTIVE_POINT_FILL = 1.5;
 
-// The line in Three's points vertex shader that scales an attenuated point by depth.
-const POINT_ATTENUATION = "if ( isPerspective ) gl_PointSize *= ( scale / - mvPosition.z );";
-
-/** A render-time copy of a cloud's material with its points sized in world units. */
-export interface AdaptivePoints {
-  material: THREE.PointsMaterial;
-  /** Size the points for a camera with vertical `fov` (degrees), clamped to
-   *  `minPx`..`maxPx` drawing-buffer pixels. */
-  fit(fov: number, minPx: number, maxPx: number): void;
-}
-
-/**
- * A copy of `base` whose points are `ADAPTIVE_POINT_FILL × spacing` wide in world
- * units, so neighbours touch at any distance and render resolution. Three draws an
- * attenuated point at size·(H/2)/depth px (pixel ratio 1, as renders use), while a
- * length s at that depth spans s·(H/2)/(depth·tan(fov/2)) px — hence the tan in fit.
- * The pixel clamp is patched into the vertex shader: a floor so far points don't
- * vanish, a cap so points right at the lens don't flood the frame.
- */
-export function adaptivePoints(base: THREE.PointsMaterial, spacing: number): AdaptivePoints {
-  const material = base.clone();
-  material.sizeAttenuation = true;
-  const clampPx = { minPointSize: { value: 1 }, maxPointSize: { value: 64 } };
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, clampPx);
-    shader.vertexShader = shader.vertexShader
-      .replace("uniform float scale;", "uniform float scale;\nuniform float minPointSize;\nuniform float maxPointSize;")
-      .replace(POINT_ATTENUATION, `${POINT_ATTENUATION}\n\t\tgl_PointSize = clamp( gl_PointSize, minPointSize, maxPointSize );`);
-  };
-  material.customProgramCacheKey = () => "adaptive-points";
-  return {
-    material,
-    fit(fov, minPx, maxPx) {
-      material.size = (ADAPTIVE_POINT_FILL * spacing) / Math.tan(THREE.MathUtils.degToRad(fov) / 2);
-      clampPx.minPointSize.value = minPx;
-      clampPx.maxPointSize.value = Math.max(minPx, maxPx);
-    },
-  };
-}
-
 /** Resize every bare point cloud under `object` (screen px). A material tweak —
  *  no geometry is rebuilt — but it does walk the object, so callers apply it on a
  *  build or on an actual change, not on every state sync. */
 export function setPointsSize(object: THREE.Object3D | undefined, size: number): void {
   object?.traverse((child) => {
-    const points = child as THREE.Points;
-    if (points.isPoints) {
-      eachMaterial(points.material, (m) => {
-        (m as THREE.PointsMaterial).size = size;
-      });
+    if (child instanceof PointCloud) {
+      child.pointSize = size;
     }
   });
 }
@@ -310,7 +350,7 @@ export function buildFrustumLines(
   push(corners[3], corners[0]);
   const geometry = new LineSegmentsGeometry();
   geometry.setPositions(seg);
-  const material = new LineMaterial({
+  const material = new Line2NodeMaterial({
     color,
     linewidth,
     worldUnits: false, // linewidth in screen px: constant thickness at any zoom
@@ -339,13 +379,12 @@ export function buildImagePlane(corners: number[][]): THREE.Mesh {
     new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 0], 2)
   );
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
-  const material = new THREE.MeshBasicMaterial({
+  const material = new MeshBasicNodeMaterial({
     color: 0xffffff,
     side: THREE.DoubleSide,
     transparent: true,
     opacity: 0, // invisible until a texture is assigned (opacity is the show/hide gate)
   });
-  patchImagePlaneAlpha(material);
   return new THREE.Mesh(geometry, material);
 }
 
@@ -353,29 +392,31 @@ export function buildImagePlane(corners: number[][]): THREE.Mesh {
 const IMAGE_ALPHA_FLOOR = 0.5;
 
 /**
- * Remap how an image plane blends by the image's own alpha, per-pixel: opaque
- * pixels (image alpha 1) keep their color at full opacity; fully-transparent
- * pixels (image alpha 0) become white at `IMAGE_ALPHA_FLOOR` opacity; in between
- * interpolates. So a masked-out (transparent) region reads as a faint white fill
- * instead of vanishing. The material's `opacity` stays the load/evict show-hide
- * gate (1 shown, 0 hidden) and multiplies the result. Patched via onBeforeCompile
- * so MeshBasicMaterial keeps doing the sRGB decode/encode (the sampler returns
- * linear, and `vec3(1.0)` is white in linear too).
+ * Show `image` on a plane from `buildImagePlane` (or hide it again, for null),
+ * disposing the image it showed before. The plane blends by the image's **own**
+ * alpha, per-pixel: opaque pixels (image alpha 1) keep their color at full opacity;
+ * fully-transparent pixels (image alpha 0) become white at `IMAGE_ALPHA_FLOOR`
+ * opacity; in between interpolates. So a masked-out (transparent) region reads as a
+ * faint white fill instead of vanishing. The material's `opacity` stays the
+ * load/evict show-hide gate (1 shown, 0 hidden) and multiplies the result. The
+ * texture node decodes sRGB, so the mix happens in linear — where `vec3(1)` is
+ * white too. `map` holds the image only so disposal finds it.
  */
-function patchImagePlaneAlpha(material: THREE.MeshBasicMaterial): void {
-  material.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <map_fragment>",
-      `#ifdef USE_MAP
-        vec4 imgTexel = texture2D( map, vMapUv );
-        diffuseColor.rgb = mix( vec3( 1.0 ), imgTexel.rgb, imgTexel.a );
-        diffuseColor.a = mix( ${IMAGE_ALPHA_FLOOR.toFixed(2)}, 1.0, imgTexel.a ) * opacity;
-      #endif`
+export function setImagePlaneImage(material: THREE.Material, image: THREE.Texture | null): void {
+  const plane = material as MeshBasicNodeMaterial;
+  plane.map?.dispose();
+  plane.map = image;
+  if (image) {
+    const texel = texture(image);
+    plane.colorNode = vec4(
+      mix(vec3(1), texel.rgb, texel.a),
+      mix(float(IMAGE_ALPHA_FLOOR), float(1), texel.a)
     );
-  };
-  // Give the patched shader its own program bucket so it never shares a compiled
-  // program with an unpatched MeshBasicMaterial of the same parameters.
-  material.customProgramCacheKey = () => "frustum-image-plane-alpha";
+  } else {
+    plane.colorNode = null;
+  }
+  plane.opacity = image ? 1 : 0;
+  plane.needsUpdate = true;
 }
 
 /**

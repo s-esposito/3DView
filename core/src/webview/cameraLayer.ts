@@ -3,13 +3,14 @@
 // Owns hover/selection highlighting and lazy texture loading. Picking is done by
 // `cameraInteraction.ts` across all layers; each group is stamped with its layer id.
 import * as THREE from "three";
-import type { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import type { Line2NodeMaterial } from "three/webgpu";
 import type { ModelData } from "../shared/messages";
 import { ThumbnailLoader } from "./textures";
 import {
   frustumCorners,
   buildFrustumLines,
   buildImagePlane,
+  setImagePlaneImage,
   disposeObject,
   FRUSTUM_COLOR,
 } from "./builders";
@@ -29,8 +30,8 @@ export interface CameraHit {
 interface CameraRecord {
   index: number;
   group: THREE.Group;
-  lineMaterial: LineMaterial;
-  planeMaterial?: THREE.MeshBasicMaterial;
+  lineMaterial: Line2NodeMaterial;
+  planeMaterial?: THREE.Material;
   uri?: string;
   width: number;
   height: number;
@@ -77,10 +78,10 @@ export class CameraLayer {
       const lines = buildFrustumLines(cam.center, corners, this.baseColor, lineWidth);
       group.add(lines);
 
-      let planeMaterial: THREE.MeshBasicMaterial | undefined;
+      let planeMaterial: THREE.Material | undefined;
       if (showImages && cam.imageUri) {
         const plane = buildImagePlane(corners);
-        planeMaterial = plane.material as THREE.MeshBasicMaterial;
+        planeMaterial = plane.material as THREE.Material;
         group.add(plane);
       }
 
@@ -90,7 +91,7 @@ export class CameraLayer {
       this.records.set(index, {
         index,
         group,
-        lineMaterial: lines.material as LineMaterial,
+        lineMaterial: lines.material,
         planeMaterial,
         uri: cam.imageUri,
         width: cam.width,
@@ -173,10 +174,7 @@ export class CameraLayer {
         texture.dispose();
         return;
       }
-      r.planeMaterial.map?.dispose();
-      r.planeMaterial.map = texture;
-      r.planeMaterial.opacity = 1; // show; the per-pixel alpha remap lives in the shader
-      r.planeMaterial.needsUpdate = true;
+      setImagePlaneImage(r.planeMaterial, texture);
       r.loaded = true;
       this.onTextureChange();
     });
@@ -184,10 +182,7 @@ export class CameraLayer {
 
   private releaseTexture(r: CameraRecord): void {
     if (r.planeMaterial) {
-      r.planeMaterial.map?.dispose();
-      r.planeMaterial.map = null;
-      r.planeMaterial.opacity = 0;
-      r.planeMaterial.needsUpdate = true;
+      setImagePlaneImage(r.planeMaterial, null);
     }
     r.requested = false;
     r.loaded = false;

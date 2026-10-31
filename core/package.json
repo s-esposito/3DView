@@ -16,13 +16,14 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/three": "^0.180.0",
+    "@types/three": "^0.186.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.7.0"
   },
   "dependencies": {
+    "@sparkjsdev/radix": "file:vendor/sparkjsdev-radix-0.0.1.tgz",
     "@sparkjsdev/spark": "^2.4.0",
     "mediabunny": "1.61.3",
-    "three": "^0.180.0"
+    "three": "^0.186.1"
   }
 }

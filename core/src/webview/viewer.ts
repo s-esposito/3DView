@@ -3,6 +3,8 @@
 // rotation implements the raw<->upright-Y-up toggle. The UI drives this via a
 // small imperative API; the Viewer owns all state.
 import * as THREE from "three";
+import { PMREMGenerator, type WebGPURenderer } from "three/webgpu";
+import { createRenderer, getGpuCaps } from "@sparkjsdev/radix";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages";
@@ -17,8 +19,8 @@ import {
   frustumScaleFromDepth,
   disposeObject,
   FRUSTUM_COLOR,
-  adaptivePoints,
   estimatePointSpacing,
+  PointCloud,
 } from "./builders";
 import {
   SceneLayer,
@@ -29,7 +31,7 @@ import {
 } from "./sceneLayer";
 import { AssetLayer, loadSplatCloud } from "./assetLayer";
 import { TemporalLayer } from "./temporalLayer";
-import { SparkRenderer } from "@sparkjsdev/spark";
+import { SplatDrawer } from "./splatDrawer";
 import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
 import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
@@ -175,7 +177,8 @@ export class Viewer {
   /** Fired with a rendered file (viewpoint PNG, camera-path video) as a data URL, to save (main.ts: via the host, or an in-page download). */
   onSaveFile?: (data: string, suggestedName: string) => void;
 
-  private readonly renderer: THREE.WebGLRenderer;
+  /** Set once the GPU device is up (see initRenderer); nothing renders before. */
+  private renderer?: WebGPURenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly controls: OrbitControls;
@@ -186,9 +189,9 @@ export class Viewer {
   private readonly byId = new Map<string, SceneLayer>();
   private grid?: THREE.GridHelper;
   private axes?: THREE.AxesHelper;
-  /** Spark's splat rasterizer — one per scene, created lazily the first time
-   *  splatting is used and removed once no splat asset is left (see syncSpark). */
-  private spark?: SparkRenderer;
+  /** The splat renderer — one per scene, created lazily the first time splatting
+   *  is used and removed once no splat asset is left (see syncSplats). */
+  private splats?: SplatDrawer;
   private bounds: Bounds = { min: [-1, -1, -1], max: [1, 1, 1] };
   /** The host's starting viewpoint (see SetViewMsg), in the scene's own frame;
    *  null fits the camera to the scene's bounds instead. */
@@ -246,36 +249,14 @@ export class Viewer {
     // Apply the default theme before reading any themed CSS var below (the
     // 3D background reads --vscode-editor-background, which the theme overrides).
     document.body.dataset.viewerTheme = this.themeName;
-    // alpha: true → the drawing buffer has an alpha channel so saveViewpoint() can
-    // capture a transparent PNG (normal frames still paint scene.background opaquely).
-    // preserveDrawingBuffer: true → saveViewpoint() renders outside the rAF loop and
-    // then reads the canvas via toDataURL(); without this the webview compositor can
-    // hand back the *previous* frame (opaque theme background), saving a black
-    // background instead of the transparent one we just rendered.
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    container.appendChild(this.renderer.domElement);
+    const canvas = document.createElement("canvas");
+    container.appendChild(canvas);
 
     this.scene = new THREE.Scene();
     this.scene.background = themeColor("--vscode-editor-background", 0x1e1e1e);
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
-    // Lighting for lit mesh materials (glTF PBR, PLY/OBJ). The image-based light
-    // is load-bearing, not decoration: without it metalness/roughness maps render
-    // black (metals reflect the environment, not analytic lights). Intensities are
-    // hand-balanced; see CLAUDE.md "PBR meshes need the environment".
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const room = new RoomEnvironment();
-    this.scene.environment = pmrem.fromScene(room, 0.04).texture;
-    this.scene.environmentIntensity = 0.6;
-    room.dispose(); // free the room's geometry/materials; PMREM keeps only the cubemap
-    pmrem.dispose();
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 1.5));
     const key = new THREE.DirectionalLight(0xffffff, 2.0);
     key.position.set(1, 2, 1);
@@ -287,12 +268,12 @@ export class Viewer {
       0.01,
       1e6
     );
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.addEventListener("end", () => this.refreshTextures());
 
     this.interaction = new CameraInteraction({
-      dom: this.renderer.domElement,
+      dom: canvas,
       camera: this.camera,
       controls: this.controls,
       root: this.root,
@@ -309,6 +290,35 @@ export class Viewer {
     // applied to `root` from the start, not only after the first U toggle.
     this.rebuildHelpers();
     this.applyOrientation();
+    this.initRenderer(canvas).catch((err: unknown) => {
+      console.error("3DView: no renderer", err);
+      this.onError?.(`Can't start the renderer: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+
+  /**
+   * Bring up the renderer: WebGPU where the host has it, else three's WebGL2 backend
+   * (Radix, which draws the splats, runs on either). Asynchronous — the GPU device
+   * has to be requested — so nothing renders until it resolves; content added
+   * meanwhile is simply drawn by the first frame. `directCanvas: false` keeps three's
+   * usual sRGB output, which every material here is tuned for.
+   */
+  private async initRenderer(canvas: HTMLCanvasElement): Promise<void> {
+    const renderer = await createRenderer({ canvas, antialias: true, directCanvas: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    // Lighting for lit mesh materials (glTF PBR, PLY/OBJ). The image-based light
+    // is load-bearing, not decoration: without it metalness/roughness maps render
+    // black (metals reflect the environment, not analytic lights). Intensities are
+    // hand-balanced; see CLAUDE.md "PBR meshes need the environment".
+    const pmrem = new PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    this.scene.environment = pmrem.fromScene(room, 0.04).texture;
+    this.scene.environmentIntensity = 0.6;
+    room.dispose(); // free the room's geometry/materials; PMREM keeps only the cubemap
+    pmrem.dispose();
+    this.renderer = renderer;
+    this.syncSplats(); // a splat may have arrived before the renderer did
     this.animate();
   }
 
@@ -407,7 +417,7 @@ export class Viewer {
         layer.setVisible(true);
         // The scene state may have changed while this was loading; a no-op otherwise.
         this.syncLayerState(layer);
-        this.syncSpark(); // this asset may be the scene's first splat
+        this.syncSplats(); // this asset may be the scene's first splat
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
       })
       .catch((err: Error) => {
@@ -479,7 +489,7 @@ export class Viewer {
       return;
     }
     layer.frames.forEach((f) => this.syncLayerState(f));
-    this.syncSpark(); // the sequence may hold the scene's first splat
+    this.syncSplats(); // the sequence may hold the scene's first splat
     this.refreshScene(fitWhenLoaded);
   }
 
@@ -552,7 +562,7 @@ export class Viewer {
       clouds.forEach((cloud, at) => temporal.addFrame(build([cloud], at)));
     }
     this.attach(temporal); // fits the view when this is the scene's first item
-    this.syncSpark(); // the sequence may hold the scene's first splat
+    this.syncSplats(); // the sequence may hold the scene's first splat
   }
 
   /** One frame of a temporal item, built the same way a lone item of its kind is. */
@@ -694,7 +704,7 @@ export class Viewer {
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
     this.byId.delete(id);
-    this.syncSpark(); // that may have been the scene's last splat
+    this.syncSplats(); // that may have been the scene's last splat
     this.recomputeBounds();
     this.rebuildHelpers();
     this.onChange?.();
@@ -786,30 +796,26 @@ export class Viewer {
   private setAssetOptions(patch: Partial<AssetOptions>): void {
     this.assetOpts = { ...this.assetOpts, ...patch };
     this.layers.forEach((l) => l.applyAssetOptions(this.assetOpts));
-    this.syncSpark();
+    this.syncSplats();
     this.requestRender();
   }
 
   /**
-   * Match Spark's renderer to what the scene needs — call after the layers have been
-   * updated, so the SplatMeshes it draws already exist. It goes up when splatting is
-   * in use and comes down once no splat asset is left, because it holds GPU
-   * accumulators sized to the largest cloud it has drawn.
-   *
-   * It belongs to the scene rather than to `root`: its own transform is the origin
-   * Spark encodes splat positions against, so leaving it at identity keeps that
-   * precise. `onDirty` is what makes it fit our on-demand loop — Spark calls it when
-   * a viewpoint sort or LoD update lands, exactly when the last frame went stale.
+   * Match the splat renderer to what the scene needs — it goes up when splatting is
+   * in use and comes down once no splat asset is left, since it holds GPU buffers
+   * sized to what it has drawn. It belongs to the scene rather than to `root`: it
+   * draws each splat object through that object's own matrixWorld. `onDirty` is what
+   * makes it fit our on-demand loop — it fires when a sort lands after its frame,
+   * exactly when the last frame went stale.
    */
-  private syncSpark(): void {
+  private syncSplats(): void {
     const hasSplat = this.assetLayers().some((l) => l.isSplat);
-    if (this.spark && !hasSplat) {
-      this.spark.removeFromParent();
-      this.spark.dispose();
-      this.spark = undefined;
-    } else if (!this.spark && hasSplat && this.assetOpts.splatMode === "splatting") {
-      this.spark = new SparkRenderer({ renderer: this.renderer, onDirty: this.requestRender });
-      this.scene.add(this.spark);
+    if (this.splats && !hasSplat) {
+      this.splats.dispose();
+      this.splats = undefined;
+    } else if (!this.splats && hasSplat && this.assetOpts.splatMode === "splatting" && this.renderer) {
+      this.splats = new SplatDrawer(this.renderer, this.requestRender);
+      this.scene.add(this.splats.mesh);
     }
   }
 
@@ -993,6 +999,9 @@ export class Viewer {
     disposeObject(this.axes);
     this.axes = new THREE.AxesHelper(diagonalOf(this.bounds) * 0.5);
     this.axes.visible = this.showAxes;
+    // Drawn after the grid, whose center lines it lies exactly on: at equal depth the
+    // later draw wins, and the WebGPU renderer's own order would let the grid win.
+    this.axes.renderOrder = 1;
     this.root.add(this.axes);
     this.grid = buildGrid(this.bounds);
     this.grid.visible = this.showGrid;
@@ -1041,10 +1050,11 @@ export class Viewer {
    * viewer background color is dropped). Guards against exceeding the GPU's max buffer.
    */
   saveViewpoint(scale: number): void {
-    if (this.videoRender) {
+    const renderer = this.renderer;
+    if (this.videoRender || !renderer) {
       return; // the drawing buffer is a video frame until renderCameraPath is done
     }
-    const maxDim = this.renderer.capabilities.maxTextureSize;
+    const maxDim = getGpuCaps(renderer).maxTextureSize;
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
     if (w > maxDim || h > maxDim) {
@@ -1052,24 +1062,24 @@ export class Viewer {
       return;
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,
-    // then read it back with toDataURL(); the renderer's preserveDrawingBuffer (see
-    // the constructor) is what keeps that read pointing at this render, not a stale frame.
+    // then read it back with toDataURL() in the same task — on both backends the
+    // canvas still holds this render then, not a stale frame.
     // Drop the opaque scene.background and clear to alpha 0 so the PNG is transparent;
     // restore both afterwards so the live view keeps its background color.
-    const prevRatio = this.renderer.getPixelRatio();
+    const prevRatio = renderer.getPixelRatio();
     const prevBackground = this.scene.background;
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(w, h, false);
+    renderer.setPixelRatio(1);
+    renderer.setSize(w, h, false);
     this.scene.background = null;
-    this.renderer.setClearColor(0x000000, 0);
+    renderer.setClearColor(0x000000, 0);
     const points = this.adaptPoints(scale);
     points.fit(this.camera.fov);
-    this.renderer.render(this.scene, this.camera);
+    this.draw(this.camera);
     points.restore();
-    const png = this.renderer.domElement.toDataURL("image/png");
+    const png = renderer.domElement.toDataURL("image/png");
     this.scene.background = prevBackground;
-    this.renderer.setPixelRatio(prevRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(prevRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
     this.requestRender();
     this.onSaveFile?.(png, `viewpoint-${scale}x.png`);
   }
@@ -1097,7 +1107,8 @@ export class Viewer {
    */
   async renderCameraPath(video: CameraPathVideo): Promise<void> {
     const layer = this.byId.get(video.itemId);
-    if (this.videoRender || !(layer instanceof ReconstructionLayer) || layer.cameraCount === 0) {
+    const renderer = this.renderer;
+    if (this.videoRender || !renderer || !(layer instanceof ReconstructionLayer) || layer.cameraCount === 0) {
       return;
     }
     const cameras = orderCameras(layer.data.cameras);
@@ -1108,7 +1119,7 @@ export class Viewer {
     const even = (v: number) => Math.max(2, 2 * Math.round(v / 2));
     const w = even(cameras[0].width * video.scale);
     const h = even(cameras[0].height * video.scale);
-    const maxDim = this.renderer.capabilities.maxTextureSize;
+    const maxDim = getGpuCaps(renderer).maxTextureSize;
     if (w > maxDim || h > maxDim) {
       this.onError?.(`Video too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
       return;
@@ -1117,15 +1128,15 @@ export class Viewer {
     const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, w / h, this.camera.near, this.camera.far);
     const frustums = this.reconstructionLayers().map((l) => l.cameras.object);
     const frustumsShown = frustums.map((o) => o.visible);
-    const prevRatio = this.renderer.getPixelRatio();
+    const prevRatio = renderer.getPixelRatio();
     const render = (this.videoRender = { cancelled: false });
     const points = this.adaptPoints(h / window.innerHeight);
     frustums.forEach((o) => (o.visible = false));
-    this.renderer.setPixelRatio(1);
-    this.renderer.setSize(w, h, false);
+    renderer.setPixelRatio(1);
+    renderer.setSize(w, h, false);
     try {
       const result = await encodeVideo(
-        this.renderer.domElement,
+        renderer.domElement,
         frames.length,
         video.fps,
         async (i) => {
@@ -1148,8 +1159,8 @@ export class Viewer {
       this.videoRender = undefined;
       points.restore();
       frustums.forEach((o, i) => (o.visible = frustumsShown[i]));
-      this.renderer.setPixelRatio(prevRatio);
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(prevRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
       this.requestRender();
       this.onChange?.(); // clears the progress status
     }
@@ -1157,56 +1168,55 @@ export class Viewer {
 
   /**
    * For a render at `renderScale`× the on-screen pixel size (by height): swap every
-   * point cloud's material for one sized by the cloud's own spacing (adaptivePoints),
+   * point cloud's material for one sized by the cloud's own spacing (PointCloud.adapt),
    * so the render fills in instead of thinning out at its higher resolution. Each
    * cloud is never drawn thinner than it looks on screen. `fit` sizes the points for
    * a camera's FOV; `restore` puts the live materials back. A no-op when adaptive
    * sizing is off.
    */
   private adaptPoints(renderScale: number): { fit(fov: number): void; restore(): void } {
-    const swapped: { points: THREE.Points; live: THREE.PointsMaterial; fit(fov: number): void }[] = [];
+    const swapped: { fit(fov: number): void; restore(): void }[] = [];
     if (this.adaptivePointSize) {
       this.root.updateMatrixWorld(true);
       this.root.traverse((object) => {
-        const points = object as THREE.Points;
-        if (!points.isPoints || !(points.material instanceof THREE.PointsMaterial)) {
+        if (!(object instanceof PointCloud)) {
           return;
         }
-        let spacing = this.pointSpacing.get(points.geometry);
+        let spacing = this.pointSpacing.get(object.points);
         if (spacing === undefined) {
-          spacing = estimatePointSpacing(points.geometry.getAttribute("position").array);
-          this.pointSpacing.set(points.geometry, spacing);
+          spacing = estimatePointSpacing(object.points.getAttribute("position").array);
+          this.pointSpacing.set(object.points, spacing);
         }
-        const live = points.material;
-        const adaptive = adaptivePoints(live, spacing * points.matrixWorld.getMaxScaleOnAxis());
-        const minPx = live.size * renderScale;
+        const adaptive = object.adapt(spacing * object.matrixWorld.getMaxScaleOnAxis());
+        const minPx = object.pointSize * renderScale;
         // Cap: a point at the lens at most 1/20 of the frame height.
         const maxPx = Math.max(minPx, (window.innerHeight * renderScale) / 20);
-        points.material = adaptive.material;
-        swapped.push({ points, live, fit: (fov) => adaptive.fit(fov, minPx, maxPx) });
+        swapped.push({ fit: (fov) => adaptive.fit(fov, minPx, maxPx), restore: adaptive.restore });
       });
     }
     return {
       fit: (fov) => swapped.forEach((s) => s.fit(fov)),
-      restore: () =>
-        swapped.forEach(({ points, live }) => {
-          (points.material as THREE.Material).dispose();
-          points.material = live;
-        }),
+      restore: () => swapped.forEach((s) => s.restore()),
     };
   }
 
+  /** Render `camera`'s view, handing the splat renderer what the scene shows first. */
+  private draw(camera: THREE.Camera): void {
+    this.splats?.gather(this.scene);
+    this.renderer!.render(this.scene, camera);
+  }
+
   /**
-   * Draw `camera`'s view. Splats are sorted per viewpoint in Spark's worker, so a
-   * first draw from a new viewpoint can use the previous order: redraw until the
-   * sort has caught up (bounded, on timers — rAF may not fire in a hidden webview).
+   * Draw `camera`'s view. On the WebGL2 backend splats are sorted per viewpoint on a
+   * worker, so a first draw from a new viewpoint uses the previous order: wait for the
+   * sort to land and draw again (bounded, on a timer — rAF may not fire in a hidden
+   * webview). WebGPU sorts within the frame, so its first draw is already settled.
    */
   private async renderSettled(camera: THREE.PerspectiveCamera): Promise<void> {
-    this.renderer.render(this.scene, camera);
-    const deadline = performance.now() + 1000;
-    while (this.spark && (this.spark.sorting || this.spark.sortDirty) && performance.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-      this.renderer.render(this.scene, camera);
+    this.draw(camera);
+    if (this.splats?.sortsLater) {
+      await this.splats.nextSort(1000);
+      this.draw(camera);
     }
   }
 
@@ -1216,8 +1226,8 @@ export class Viewer {
     }
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer?.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    this.renderer?.setSize(window.innerWidth, window.innerHeight);
     this.requestRender();
   }
 
@@ -1264,7 +1274,7 @@ export class Viewer {
       this.camera.rotateZ(THREE.MathUtils.degToRad(this.rollDeg));
     }
     if (moving || this.needsRender) {
-      this.renderer.render(this.scene, this.camera);
+      this.draw(this.camera);
       this.needsRender = false;
     }
   };

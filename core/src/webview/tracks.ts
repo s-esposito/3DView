@@ -16,9 +16,9 @@
 // capping the instance count reveals the tracks up to a chosen frame without
 // touching the buffers.
 import * as THREE from "three";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { Line2NodeMaterial } from "three/webgpu";
+import { LineSegments2 } from "three/examples/jsm/lines/webgpu/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Bounds } from "../shared/messages";
 import { sphereFromBounds } from "./builders";
 import type { NpyArray } from "./npz";
@@ -274,7 +274,7 @@ export function buildTrackLines(set: TrackSet, density = 1, smoothing = 0): Line
   // After setPositions: it computes a box and sphere of its own, which this replaces
   // with the set's own bounds (already known, and tighter to write than to derive).
   geometry.boundingSphere = sphereFromBounds(set.bounds);
-  const material = new LineMaterial({
+  const material = new Line2NodeMaterial({
     vertexColors: true,
     linewidth: DEFAULT_TRACK_LINE_WIDTH,
     worldUnits: false, // width in screen px: constant thickness at any zoom

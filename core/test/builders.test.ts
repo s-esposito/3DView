@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import type { PointsNodeMaterial } from "three/webgpu";
 
 import {
   transformBounds,
@@ -13,8 +14,6 @@ import {
   buildColoredPoints,
   srgbBytesToLinear,
   estimatePointSpacing,
-  adaptivePoints,
-  ADAPTIVE_POINT_FILL,
   setPointsSize,
   cloudColor,
   CLOUD_PALETTE,
@@ -158,7 +157,7 @@ test("buildColoredPoints feeds linear vertex colors, matching the PLY loader's d
     { min: [0, 0, 0], max: [1, 1, 1] },
     DEFAULT_POINT_SIZE
   );
-  const color = points.geometry.getAttribute("color");
+  const color = points.points.getAttribute("color");
   const expected = new THREE.Color().setRGB(10 / 255, 20 / 255, 30 / 255, THREE.SRGBColorSpace);
   assert.ok(color.normalized);
   assert.ok(Math.abs(color.getX(1) - expected.r) < 1e-4, `r ${color.getX(1)} vs ${expected.r}`);
@@ -206,41 +205,49 @@ test("estimatePointSpacing is 0 when there is nothing to measure", () => {
   assert.equal(estimatePointSpacing(new Float32Array([1, 2, 3, 1, 2, 3])), 0);
 });
 
-test("adaptivePoints sizes points by spacing and FOV, patching the clamp into Three's shader", () => {
-  const base = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false, vertexColors: true });
-  const adaptive = adaptivePoints(base, 0.02);
-  assert.notEqual(adaptive.material, base, "a copy; the live material is left alone");
-  assert.equal(base.sizeAttenuation, false);
-  assert.equal(adaptive.material.sizeAttenuation, true);
-  assert.equal(adaptive.material.vertexColors, true);
-  adaptive.fit(90, 2, 40); // tan(45°) = 1
-  assert.ok(Math.abs(adaptive.material.size - ADAPTIVE_POINT_FILL * 0.02) < 1e-9);
+/** A cloud's material, as the node material it is (Sprite types it as SpriteMaterial). */
+const materialOf = (cloud: THREE.Sprite) => cloud.material as unknown as PointsNodeMaterial;
 
-  // The patch must find its anchor lines, or the pixel clamp silently goes missing.
-  const shader = {
-    uniforms: {} as Record<string, THREE.IUniform>,
-    vertexShader: THREE.ShaderLib.points.vertexShader,
-    fragmentShader: THREE.ShaderLib.points.fragmentShader,
-  };
-  adaptive.material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
-  assert.match(shader.vertexShader, /gl_PointSize = clamp\( gl_PointSize, minPointSize, maxPointSize \);/);
-  assert.match(shader.vertexShader, /uniform float minPointSize;/);
-  assert.equal(shader.uniforms.minPointSize.value, 2);
-  assert.equal(shader.uniforms.maxPointSize.value, 40);
+test("adapt swaps in a world-sized material for a render, and restore puts the live one back", () => {
+  const cloud = buildPlyPoints(cloudGeometry(true), 0xff0000);
+  const live = materialOf(cloud);
+  const adaptive = cloud.adapt(0.02);
+  assert.notEqual(materialOf(cloud), live, "a copy; the live material is left alone");
+  assert.notEqual(materialOf(cloud).sizeNode, live.sizeNode, "sized by its own node");
+  assert.equal(materialOf(cloud).colorNode, live.colorNode, "same per-point colors");
+  adaptive.fit(90, 2, 40);
+  adaptive.restore();
+  assert.equal(materialOf(cloud), live);
+});
+
+test("a PointCloud draws one instance per point and spans its points' bounds", () => {
+  const cloud = buildColoredPoints(
+    new Float32Array([0, 0, 0, 2, 4, 6, 1, 1, 1]),
+    new Uint8Array(9),
+    { min: [0, 0, 0], max: [2, 4, 6] },
+    DEFAULT_POINT_SIZE
+  );
+  assert.equal(cloud.count, 3);
+  assert.equal(cloud.frustumCulled, false, "three would cull it as a unit quad");
+  const box = new THREE.Box3().setFromObject(cloud);
+  assert.deepEqual(box.max.toArray(), [2, 4, 6]);
+  // Without known bounds it measures them, for Box3.setFromObject's sake (PLY assets).
+  const ply = new THREE.Box3().setFromObject(buildPlyPoints(cloudGeometry(false), 0));
+  assert.equal(ply.isEmpty(), false);
 });
 
 test("buildPlyPoints keeps a cloud's own colors when it has them", () => {
-  const material = buildPlyPoints(cloudGeometry(true), 0xff0000).material as THREE.PointsMaterial;
-  assert.equal(material.vertexColors, true);
+  const cloud = buildPlyPoints(cloudGeometry(true), 0xff0000);
+  assert.notEqual(materialOf(cloud).colorNode, null, "per-point colors");
   // White base, so the per-vertex colors come through unmodulated.
-  assert.equal(material.color.getHex(), 0xffffff);
-  assert.equal(material.size, DEFAULT_POINT_SIZE);
+  assert.equal(materialOf(cloud).color.getHex(), 0xffffff);
+  assert.equal(cloud.pointSize, DEFAULT_POINT_SIZE);
 });
 
 test("buildPlyPoints gives an uncolored cloud the fallback color", () => {
-  const material = buildPlyPoints(cloudGeometry(false), 0xa78bfa).material as THREE.PointsMaterial;
-  assert.equal(material.vertexColors, false);
-  assert.equal(material.color.getHex(), 0xa78bfa);
+  const cloud = buildPlyPoints(cloudGeometry(false), 0xa78bfa);
+  assert.equal(materialOf(cloud).colorNode, null);
+  assert.equal(materialOf(cloud).color.getHex(), 0xa78bfa);
 });
 
 test("setPointsSize resizes point clouds and leaves other objects alone", () => {
@@ -250,6 +257,6 @@ test("setPointsSize resizes point clouds and leaves other objects alone", () => 
   group.add(points, mesh);
 
   setPointsSize(group, 4);
-  assert.equal((points.material as THREE.PointsMaterial).size, 4);
+  assert.equal(points.pointSize, 4);
   assert.equal((mesh.material as THREE.MeshBasicMaterial & { size?: number }).size, undefined);
 });

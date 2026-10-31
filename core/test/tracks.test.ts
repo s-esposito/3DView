@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import * as THREE from "three";
-import type { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import type { LineSegments2 } from "three/examples/jsm/lines/webgpu/LineSegments2.js";
 
 import { readNpy, readNpz, type NpyArray } from "../src/webview/npz";
 import {

@@ -9,12 +9,12 @@ import { PackedSplats } from "@sparkjsdev/spark";
 
 import {
   buildSplatObject,
-  buildSplatMeshFrom,
   swapSplatCloud,
+  SplatObject,
   MAX_ELLIPSOIDS,
   SplatCloud,
 } from "../src/webview/splats";
-import { disposeObject } from "../src/webview/builders";
+import { disposeObject, PointCloud } from "../src/webview/builders";
 
 /** A synthetic cloud: splat i sits at (i, 2i, -i), rotated 90° about z, orange. */
 function makeCloud(
@@ -49,9 +49,7 @@ function makeCloud(
   };
 }
 
-/** A cloud whose packed buffer is filled with `fill`, so a swap is visible. Sized in
- *  whole splat-texture rows (2048): PackedSplats rounds its capacity down to a
- *  multiple of that, and a shorter buffer would hold zero splats. */
+/** A cloud whose packed buffer is filled with `fill`, so a swap is visible. */
 function packedCloud(rows: number, fill: number): SplatCloud {
   const count = rows * 2048;
   const cloud = makeCloud(1, () => 1, () => 0.1);
@@ -61,9 +59,9 @@ function packedCloud(rows: number, fill: number): SplatCloud {
 }
 
 test("points mode draws every splat center", () => {
-  const points = buildSplatObject(makeCloud(10, () => 1, () => 0.1), "points") as THREE.Points;
-  assert.equal(points.isPoints, true);
-  assert.equal(points.geometry.getAttribute("position").count, 10);
+  const points = buildSplatObject(makeCloud(10, () => 1, () => 0.1), "points");
+  assert.ok(points instanceof PointCloud);
+  assert.equal(points.count, 10);
 });
 
 test("ellipsoid mode instances one oriented ellipsoid per splat", () => {
@@ -143,44 +141,28 @@ test("disposeObject frees an ellipsoid mesh's per-instance buffers", () => {
 
 // --- swapping a sequence's frame under one mesh -----------------------------
 
-test("swapping a frame writes into the mesh's buffer, not the frame's", () => {
+test("swapping a frame writes into the object's buffer, not the frame's", () => {
   const a = packedCloud(1, 111);
   const b = packedCloud(1, 222);
   b.encoding = { ...b.encoding, rgbMax: 4 }; // the decoder picks one per file
-  // What AssetLayer hands the mesh: a buffer of its own, seeded with frame A.
+  // What AssetLayer hands the object: a buffer of its own, seeded with frame A.
   const buffer = a.packed.slice();
-  const mesh = buildSplatMeshFrom(buffer, a.packedCount, a.encoding);
+  const object = new SplatObject(buffer, a.packedCount, a.encoding);
 
-  assert.equal(swapSplatCloud(mesh, b), true);
-  assert.equal(buffer[0], 222, "the mesh now renders frame B");
+  assert.equal(swapSplatCloud(object, b), true);
+  assert.equal(buffer[0], 222, "the object now holds frame B");
   assert.equal(a.packed[0], 111, "frame A's decoded data is untouched");
   assert.equal(b.packed[0], 222, "and so is frame B's");
-  // Writing into the same array is what makes the upload happen: repointing the
-  // buffer sends the RGBA32UI texture a byte view, which WebGL2 rejects.
-  const packed = (mesh as { packedSplats?: PackedSplats }).packedSplats;
-  assert.equal(packed?.packedArray, buffer, "still the mesh's own array");
-  assert.equal(packed?.needsUpdate, true, "flagged for re-upload");
-  assert.equal(packed?.splatEncoding.rgbMax, 4, "and drawn under frame B's encoding");
+  assert.equal(object.packed, buffer, "still the object's own array");
+  assert.equal(object.version, 1, "flagged for re-upload");
+  const meta = object.data.bundles.splats.meta as { encoding: { rgbMax: number } };
+  assert.equal(meta.encoding.rgbMax, 4, "and drawn under frame B's encoding");
 });
 
-test("a swap is accepted when the buffer holds a partial texture row", () => {
-  // Spark clamps its splat count down to whole rows, so a capacity that isn't a
-  // multiple of 2048 makes numSplats differ from the frame's own count. Frames still
-  // match each other, and refusing them here would quietly disable the fast path.
-  const a = packedCloud(1, 1);
-  const b = packedCloud(1, 2);
-  for (const cloud of [a, b]) {
-    cloud.packed = new Uint32Array(3000 * 4).fill(cloud.packed[0]);
-    cloud.packedCount = 3000;
-  }
-  const mesh = buildSplatMeshFrom(a.packed.slice(), a.packedCount, a.encoding);
-  assert.equal(swapSplatCloud(mesh, b), true);
-});
-
-test("a swap is refused unless the frame fits the mesh exactly", () => {
+test("a swap is refused unless the frame fits the object exactly", () => {
   const first = packedCloud(1, 1);
-  const mesh = buildSplatMeshFrom(first.packed, 2048, first.encoding);
-  assert.equal(swapSplatCloud(mesh, packedCloud(2, 9)), false, "different splat count");
-  assert.equal(swapSplatCloud(new THREE.Group(), packedCloud(1, 9)), false, "not a splat mesh");
+  const object = new SplatObject(first.packed, first.packedCount, first.encoding);
+  assert.equal(swapSplatCloud(object, packedCloud(2, 9)), false, "different splat count");
+  assert.equal(swapSplatCloud(new THREE.Group(), packedCloud(1, 9)), false, "not a splat object");
   assert.equal(swapSplatCloud(undefined, packedCloud(1, 9)), false, "nothing to swap");
 });
