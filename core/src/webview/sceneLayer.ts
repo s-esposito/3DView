@@ -16,6 +16,7 @@ import {
   DEFAULT_POINT_SIZE,
   disposeObject,
 } from "./builders";
+import type { PointCloud } from "./builders";
 
 /**
  * Scene-wide options for what an asset *draws* (as opposed to how it is lit, which
@@ -98,8 +99,8 @@ export interface SceneLayer {
  * A layer that already holds every frame of a sequence and can redraw itself as any
  * of them. This is what lets a temporal item swap the data under ONE layer instead
  * of attaching a layer per frame — `AssetLayer` implements it for 3DGS sequences,
- * where a fresh mesh per frame would make Spark withhold the frame until a full
- * re-sort landed (see `swapSplatCloud`).
+ * where a fresh object per frame would hold the frame back until a re-sort landed
+ * (see `swapSplatCloud`).
  */
 export interface FrameSource extends SceneLayer {
   /** Frames held; 0 when this layer holds a lone asset. */
@@ -115,7 +116,7 @@ export class ReconstructionLayer implements SceneLayer {
   readonly cameras: CameraLayer;
   visible = true;
 
-  private points?: THREE.Points;
+  private points?: PointCloud;
   private box?: THREE.Box3Helper;
   private readonly localBounds: Bounds;
   // What the frustums currently on screen were built from, so a rebuild that would
@@ -180,7 +181,7 @@ export class ReconstructionLayer implements SceneLayer {
   applyOptions(opts: DisplayOptions): void {
     if (this.points) {
       this.points.visible = opts.points;
-      (this.points.material as THREE.PointsMaterial).size = opts.pointSize;
+      this.points.pointSize = opts.pointSize;
     }
     if (this.box) {
       this.box.visible = opts.box;

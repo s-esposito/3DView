@@ -80,7 +80,7 @@ export class ControlPanel {
     if (capturePanel) {
       ui.append(capturePanel);
     }
-    ui.append(buildVersion());
+    ui.append(buildFooter(s.backend));
     document.body.appendChild(ui);
     ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
       body.scrollTop = scroll[i] ?? 0;
@@ -731,6 +731,26 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
   caption.textContent = label;
   row.append(caption, buttons);
   return row;
+}
+
+/** The caption row under the panels: which GPU backend draws the scene (once the
+ *  renderer is up), then the build's version. */
+function buildFooter(backend: ViewerState["backend"]): HTMLElement {
+  const foot = document.createElement("div");
+  foot.className = "viewer-foot";
+  if (backend) {
+    const el = document.createElement("span");
+    el.className = "viewer-backend";
+    el.dataset.backend = backend;
+    el.textContent = backend;
+    el.title =
+      backend === "WebGPU"
+        ? "Rendering with WebGPU"
+        : "WebGPU isn't available here — rendering with the WebGL2 fallback";
+    foot.append(el);
+  }
+  foot.append(buildVersion());
+  return foot;
 }
 
 /** A small muted "v<x.y.z>" caption under the panels; the running build's version
