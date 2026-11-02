@@ -37,10 +37,11 @@ kotlin {
 // --- Reuse the host-agnostic webview bundle built by the core package's build.
 // Single source of truth: we copy ../core/out/webview.js into plugin resources
 // rather than vendoring a separate copy.
-val repoRoot: File = projectDir.parentFile
-val webviewBundle: File = repoRoot.resolve("core/out/webview.js")
-
 val copyWebview by tasks.registering(Copy::class) {
+    // Locals, not script-level vals: the configuration cache can't serialize a
+    // doFirst that reaches back into the build script.
+    val repoRoot: File = projectDir.parentFile
+    val webviewBundle: File = repoRoot.resolve("core/out/webview.js")
     from(webviewBundle)
     into(layout.projectDirectory.dir("src/main/resources/webview"))
     doFirst {
