@@ -373,7 +373,8 @@ routinely carries `dense/fused.ply` and friends.
   materials (TSL) — `onBeforeCompile`/`ShaderMaterial` do nothing; fat lines are the
   `lines/webgpu/` ones; and **a `THREE.Points` is always 1px**, so every sized cloud
   is a `PointCloud` (an instanced `Sprite`; size is a uniform, so the slider never
-  recompiles). A sprite is culled as a unit quad at its origin, so `PointCloud` sets
+  recompiles; opaque, unlike a sprite's default — in the transparent pass a cloud is
+  ordered against the splats by its origin alone and can draw over splats in front of it). A sprite is culled as a unit quad at its origin, so `PointCloud` sets
   `frustumCulled = false`, and its quad carries the cloud's bounding box so
   `Box3.setFromObject` sees the points. Transparent surfaces blend in linear space
   (WebGL blended in sRGB), so translucency reads lighter than it did. The axes draw

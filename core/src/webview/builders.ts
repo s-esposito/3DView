@@ -131,7 +131,9 @@ export class PointCloud extends THREE.Sprite {
   constructor(readonly points: THREE.BufferGeometry, color: number | null, bounds?: Bounds) {
     const position = points.getAttribute("position");
     const rgb = points.getAttribute("color");
-    const material = new PointsNodeMaterial({ sizeAttenuation: false });
+    // Opaque, unlike a sprite's default: in the transparent pass the whole cloud is
+    // ordered against the splats by its origin alone, and could draw over them.
+    const material = new PointsNodeMaterial({ sizeAttenuation: false, transparent: false });
     material.positionNode = instancedBufferAttribute(asInstanced(position), "vec3");
     if (color === null && rgb) {
       material.colorNode = instancedBufferAttribute(asInstanced(rgb), "vec3");
