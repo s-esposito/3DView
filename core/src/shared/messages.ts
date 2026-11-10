@@ -68,8 +68,10 @@ export type AssetKind = "mesh" | "cloud" | "splat" | "tracks";
  *  remote connection). The kind only chooses the picker's filter: what an asset
  *  actually is comes from the file itself (a `.ply` is a mesh, a point cloud or a
  *  splat, by what is in it), so picking the "wrong" menu entry still loads the file
- *  correctly. */
-export type AddKind = "colmap" | AssetKind | "assetFolder";
+ *  correctly. `"archive"` picks a zipped COLMAP project — offered only by a host
+ *  that advertises `HostBridge.opensArchives`, as the browser demo does for phones,
+ *  which can't pick the folder a model and its images span. */
+export type AddKind = "colmap" | AssetKind | "assetFolder" | "archive";
 
 /**
  * File extensions per asset family — the single source every host filters by.

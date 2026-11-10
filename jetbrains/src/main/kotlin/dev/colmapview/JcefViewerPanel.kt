@@ -135,7 +135,7 @@ class JcefViewerPanel(parent: Disposable) {
           </style>
         </head>
         <body>
-          <div id="status">Loading…</div>
+          <div id="status">Loading</div>
           <script>${bridge.adapterScript()}</script>
           <script src="webview.js"></script>
         </body>

@@ -167,7 +167,7 @@ export class Viewer {
   onChange?: () => void;
   /** Fired when async content (e.g. an asset) fails to load. */
   onError?: (message: string) => void;
-  /** Fired with a human-readable loading phase (download %, "Decoding…") for async assets. */
+  /** Fired with a human-readable loading phase (download %, "Decoding") for async assets. */
   onProgress?: (message: string) => void;
   /** Fired as a temporal item plays, so the panel can move the playhead in place.
    *  Deliberately not onChange — that would rebuild the slider several times a second. */
@@ -1042,7 +1042,9 @@ export class Viewer {
       this.camera.position.fromArray(this.homeView.position).applyMatrix4(this.root.matrixWorld);
       this.controls.target.fromArray(this.homeView.target).applyMatrix4(this.root.matrixWorld);
     } else {
-      const off = diag * 0.6;
+      // The FOV is vertical, so a portrait screen (a phone) sees a narrower slice
+      // across: back off by 1/aspect there to keep the scene's width in view too.
+      const off = (diag * 0.6) / Math.min(1, this.camera.aspect);
       this.camera.position.set(center.x + off, center.y + off, center.z + off);
       this.controls.target.copy(center);
     }
@@ -1148,7 +1150,7 @@ export class Viewer {
         frames.length,
         video.fps,
         async (i) => {
-          this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length} (Esc to cancel)`);
+          this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length}`);
           camera.position.copy(frames[i].position);
           camera.quaternion.copy(frames[i].quaternion);
           camera.fov = video.fov ?? frames[i].fov;

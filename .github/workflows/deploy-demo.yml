@@ -50,6 +50,10 @@ jobs:
         run: |
           mkdir -p _site/dist
           cp demo/index.html _site/
+          # Installable web app: manifest, service worker (must sit at the root to
+          # control the whole site) and the home-screen icons.
+          cp demo/manifest.webmanifest demo/sw.js _site/
+          cp -r demo/icons _site/
           cp demo/dist/demo.js _site/dist/
           cp demo/dist/webview.js _site/dist/
           # Sourcemaps are optional — production core builds are minified and

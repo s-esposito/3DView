@@ -7,29 +7,40 @@ import type {
   AddKind,
 } from "@3dview/core";
 import { basename, extOf, groupColmapModels, isImagePath, ASSET_EXTS, ASSET_KIND_EXTS } from "@3dview/core";
+import { readZip } from "./archive";
+import type { PickedFile } from "./archive";
 
 // Web host bridge for the GitHub Pages demo: installs window.__viewerHost, opens
 // the OS picker for the Scene "+" menu, and hands the webview blob: URLs to fetch.
 // All parsing/rendering lives in the core bundle — this host stays thin.
 
-/** Open the OS picker for a COLMAP folder or an asset file; resolves null if cancelled. */
+/** Open the OS picker for a COLMAP folder or zip, or an asset file; resolves null if cancelled. */
 function showFilePicker(kind: AddKind): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
+    if (kind === "archive") {
+      input.accept = ".zip,application/zip"; // a type every OS knows, phones included
+    }
+    // Several at once (but one zip): a dynamic capture is a folder of per-frame
+    // files, and the webview offers to load such a pick as one temporal item.
+    input.multiple = kind !== "archive";
     if (kind === "colmap" || kind === "assetFolder") {
       // Both pick a folder: a COLMAP model is a folder (e.g. sparse/0) of
       // cameras/images/points3D, and an "assetFolder" is a folder of per-frame
       // asset files. `webkitdirectory` switches the dialog to folder selection; the
       // FileList then holds every file under the chosen folder (each with a
-      // `webkitRelativePath`), and it overrides `accept`, so we set none.
+      // `webkitRelativePath`), and it overrides `accept`, so we set none. Where the
+      // browser can't pick folders (Android, older iOS) it is ignored and `multiple`
+      // lets the user select the files themselves — the model trio plus its images,
+      // which the grouping finds at the top level just the same.
       input.webkitdirectory = true;
-    } else {
-      // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks).
+    } else if (kind !== "archive" && !touchOnly()) {
+      // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks). Not on
+      // a phone: iOS greys out every file whose extension it has no type for
+      // (.ply, .splat, .npz…), so there the dialog shows everything and
+      // `sendAssets` drops what isn't an asset.
       input.accept = ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(",");
-      // Several at once: a dynamic capture is a folder of per-frame files, and the
-      // webview offers to load such a pick as one temporal item.
-      input.multiple = true;
     }
     input.addEventListener("change", () => resolve(input.files));
     input.addEventListener("cancel", () => resolve(null));
@@ -37,9 +48,14 @@ function showFilePicker(kind: AddKind): Promise<FileList | null> {
   });
 }
 
+/** True on a phone / tablet (a finger, no hover) — mirrors core's `isTouchOnly`. */
+const touchOnly = () => matchMedia("(hover: none) and (pointer: coarse)").matches;
+
 /** Install the host bridge on the global object before the webview bundle loads. */
 export function installHostBridge() {
   (globalThis as { __viewerHost?: HostBridge }).__viewerHost = {
+    // The "+" menu offers "COLMAP (zip)": a phone browser can't pick a folder.
+    opensArchives: true,
     postMessage(msg: WebviewToHost) {
       // Only requestAdd (the Scene "+" menu) needs host action; `ready`/`removed`
       // need none — the demo tracks no scene state — and captures download in-page.
@@ -59,13 +75,22 @@ export function installHostBridge() {
 async function handleAdd(kind: AddKind): Promise<void> {
   const files = await showFilePicker(kind);
   if (!files || files.length === 0) return; // cancelled / empty
-  if (kind === "colmap") sendColmap(files);
-  else if (kind === "assetFolder") sendAssetFolder(files);
+  if (kind === "colmap") sendColmap(picked(files));
+  else if (kind === "assetFolder") sendAssetFolder(picked(files));
+  else if (kind === "archive") await sendArchive(files[0]);
   else sendAssets(files);
 }
 
-/** A picked file's path relative to the chosen folder (the key the grouping uses). */
-const pathOf = (f: File) => f.webkitRelativePath || f.name;
+/** Picked files with their paths relative to the chosen folder (the key the
+ *  grouping uses) — the same shape an unpacked zip comes as. */
+const picked = (files: FileList): PickedFile[] =>
+  Array.from(files, (file) => ({ path: file.webkitRelativePath || file.name, file }));
+
+/** Unpack a zipped COLMAP project and load it as the folder it was made from. */
+async function sendArchive(zip: File): Promise<void> {
+  window.postMessage({ type: "loading", message: `Unzipping ${zip.name}` } satisfies HostToWebview, "*");
+  sendColmap(await readZip(zip), zip.name);
+}
 
 /**
  * Map every image-like file under the picked folder to a blob URL, keyed by
@@ -85,18 +110,17 @@ function buildImageUrls(files: File[]): Record<string, string> {
 /** Locate the model(s) in the picked folder and post them (+ any images) to the
  *  webview — one `loadColmap`, or a `chooseColmap` chooser when several are found.
  *  Path classification is shared with drag-and-drop via core's `groupColmapModels`. */
-function sendColmap(files: FileList): void {
-  const list = Array.from(files);
-  const models = groupColmapModels(list.map(pathOf));
+function sendColmap(list: PickedFile[], from = "the selected folder"): void {
+  const models = groupColmapModels(list.map((p) => p.path));
   if (models.length === 0) {
     throw new Error(
-      "No COLMAP model in the selected folder — expected a directory with " +
+      `No COLMAP model in ${from} — expected a directory with ` +
         "(cameras, images, points3D) as .bin or .txt."
     );
   }
-  const byPath = new Map(list.map((f) => [pathOf(f), f]));
+  const byPath = new Map(list.map((p) => [p.path, p.file]));
   // Images live alongside the model(s); map once and share the blob: URLs across all.
-  const imageUrls = buildImageUrls(list);
+  const imageUrls = buildImageUrls(list.map((p) => p.file));
   const imageCount = Object.keys(imageUrls).length;
   const refs = models.map((model, i) => toColmapRef(model, i, byPath, imageUrls));
   const msg: HostToWebview =
@@ -130,8 +154,8 @@ function toColmapRef(
 /** Post every asset file in a picked folder — a per-frame capture, which the webview
  *  offers to load as one temporal item (it orders the frames). The folder's other
  *  files (a README, images) are ignored. */
-function sendAssetFolder(files: FileList): void {
-  const assets = Array.from(files).filter((f) => ASSET_EXTS.includes(extOf(f.name)));
+function sendAssetFolder(list: PickedFile[]): void {
+  const assets = list.map((p) => p.file).filter((f) => ASSET_EXTS.includes(extOf(f.name)));
   if (assets.length === 0) {
     throw new Error(
       `No asset files in the selected folder — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`
@@ -144,9 +168,13 @@ function sendAssetFolder(files: FileList): void {
  *  URLs — one `addAsset`, or an `addGroup` when several were picked, which the
  *  webview offers to load as a single temporal item. */
 function sendAssets(files: FileList | File[]): void {
-  const picked = Array.from(files);
+  // An unfiltered (phone) pick can hold anything; keep the files the viewer reads.
+  const assets = Array.from(files).filter((f) => ASSET_EXTS.includes(extOf(f.name)));
+  if (assets.length === 0) {
+    throw new Error(`Not an asset file — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`);
+  }
   const stamp = Date.now();
-  const members = picked.map((file, i) => ({
+  const members = assets.map((file, i) => ({
     type: "addAsset" as const,
     id: `asset-${stamp}-${i}`,
     label: file.name,

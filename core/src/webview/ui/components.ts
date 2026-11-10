@@ -11,6 +11,19 @@ function fmtNum(v: number): string {
   return v.toFixed(decimals);
 }
 
+/** True where the primary input is a finger and nothing hovers — a phone or tablet,
+ *  where keyboard shortcuts and "hover to…" copy mean nothing. Read at call time, so
+ *  a tablet that gains a mouse/keyboard picks the desktop copy on the next render. */
+export function isTouchOnly(): boolean {
+  return matchMedia("(hover: none) and (pointer: coarse)").matches;
+}
+
+/** A control's label with its keyboard shortcut ("Grid (G)"), minus the shortcut on
+ *  a touch-only device. */
+export function keyed(label: string, key: string): string {
+  return isTouchOnly() ? label : `${label} (${key})`;
+}
+
 export function section(title: string, children: HTMLElement[]): HTMLElement {
   const sec = document.createElement("div");
   sec.className = "viewer-section";
@@ -226,9 +239,17 @@ export function menuButton(
   menu.className = "viewer-menu";
   menu.style.display = "none";
 
+  // Closed by a press anywhere outside it. `pointerdown`, not `click`: mobile Safari
+  // fires no click for a tap on something non-interactive (the 3D canvas), so a
+  // click-closed menu would stay open over the scene on a phone.
+  const outside = (e: Event) => {
+    if (!wrap.contains(e.target as Node)) {
+      close();
+    }
+  };
   const close = () => {
     menu.style.display = "none";
-    document.removeEventListener("click", close);
+    document.removeEventListener("pointerdown", outside, true);
   };
   for (const entry of entries) {
     const item = document.createElement("button");
@@ -248,8 +269,9 @@ export function menuButton(
     const opening = menu.style.display === "none";
     menu.style.display = opening ? "block" : "none";
     if (opening) {
-      // Defer so this same click doesn't immediately close it.
-      setTimeout(() => document.addEventListener("click", close), 0);
+      document.addEventListener("pointerdown", outside, true);
+    } else {
+      close();
     }
   });
 

@@ -10,6 +10,8 @@ import type { CameraHit } from "./cameraLayer";
 
 export const DEFAULT_FOV = 60;
 const CLICK_DRAG_TOLERANCE_PX = 5;
+// A fingertip wobbles more than a mouse between touching down and lifting off.
+const TAP_DRAG_TOLERANCE_PX = 12;
 // Frustums are fat lines (LineSegments2); their pick width is the material
 // linewidth plus this margin (both screen px), so thin frustums stay clickable.
 const FRUSTUM_PICK_MARGIN_PX = 8;
@@ -33,6 +35,8 @@ export class CameraInteraction {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private pointerDown?: { x: number; y: number };
+  /** Pointers currently down: a second finger makes the gesture a pinch, not a tap. */
+  private readonly activePointers = new Set<number>();
   private hovered?: CameraHit;
   private selected?: CameraHit;
   private povActive = false;
@@ -41,9 +45,20 @@ export class CameraInteraction {
     this.raycaster.params.Line2 = { threshold: FRUSTUM_PICK_MARGIN_PX };
     const el = deps.dom;
     el.addEventListener("pointerdown", (e) => {
-      this.pointerDown = { x: e.clientX, y: e.clientY };
+      if (e.isPrimary) {
+        this.activePointers.clear(); // a new gesture: forget any pointer whose up was lost
+      }
+      this.activePointers.add(e.pointerId);
+      this.pointerDown = this.activePointers.size === 1 ? { x: e.clientX, y: e.clientY } : undefined;
     });
-    el.addEventListener("pointerup", (e) => this.onPointerUp(e));
+    el.addEventListener("pointerup", (e) => {
+      this.activePointers.delete(e.pointerId);
+      this.onPointerUp(e);
+    });
+    el.addEventListener("pointercancel", (e) => {
+      this.activePointers.delete(e.pointerId);
+      this.pointerDown = undefined;
+    });
     el.addEventListener("pointermove", (e) => this.onPointerMove(e));
   }
 
@@ -80,7 +95,8 @@ export class CameraInteraction {
     }
     const moved = Math.hypot(e.clientX - this.pointerDown.x, e.clientY - this.pointerDown.y);
     this.pointerDown = undefined;
-    if (moved > CLICK_DRAG_TOLERANCE_PX) {
+    const tolerance = e.pointerType === "touch" ? TAP_DRAG_TOLERANCE_PX : CLICK_DRAG_TOLERANCE_PX;
+    if (moved > tolerance) {
       return; // an orbit drag, not a click
     }
     const hit = this.pick(e.clientX, e.clientY);
@@ -90,8 +106,8 @@ export class CameraInteraction {
   }
 
   private onPointerMove(e: PointerEvent): void {
-    if (this.pointerDown) {
-      return; // ignore movement while orbiting
+    if (e.buttons !== 0 || e.pointerType === "touch") {
+      return; // ignore movement while orbiting; a finger has no hover
     }
     this.setHover(this.pick(e.clientX, e.clientY));
   }

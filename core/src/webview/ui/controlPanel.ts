@@ -19,6 +19,8 @@ import {
   vectorRow,
   iconButton,
   menuButton,
+  isTouchOnly,
+  keyed,
 } from "./components";
 
 // Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
@@ -46,7 +48,10 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 };
 
 export class ControlPanel {
-  private collapsed = false; // the 3DView (display) panel
+  // The 3DView (display) panel. On a phone-sized screen it starts folded: open, it
+  // and the Scene panel would cover most of the view; the Scene panel (with its +)
+  // stays open, as it is what a first visit needs.
+  private collapsed = matchMedia("(max-width: 600px), (max-height: 500px)").matches;
   private sceneCollapsed = false; // the Scene panel
   private captureCollapsed = true; // the Capture panel: out of the way until wanted
   /** Which Capture sub-menus are open, kept across panel re-renders. */
@@ -60,7 +65,11 @@ export class ControlPanel {
    *  picked, which means the first reconstruction with cameras. */
   private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false, overrideFov: false, fov: 60 };
 
-  constructor(private readonly viewer: Viewer) {}
+  /** `archives`: offer "COLMAP (zip)" in the "+" menu (the host can unzip one). */
+  constructor(
+    private readonly viewer: Viewer,
+    private readonly options: { archives?: boolean } = {}
+  ) {}
 
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
@@ -175,26 +184,26 @@ export class ControlPanel {
     const toggles = document.createElement("div");
     toggles.className = "viewer-toggles";
     if (s.hasPoints) {
-      toggles.append(checkbox("Points (P)", s.points, (on) => this.viewer.setGlobal("points", on)));
+      toggles.append(checkbox(keyed("Points", "P"), s.points, (on) => this.viewer.setGlobal("points", on)));
     }
     if (s.hasCameras) {
       toggles.append(
-        checkbox("Frustums (F)", s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
-        checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
+        checkbox(keyed("Frustums", "F"), s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
+        checkbox(keyed("Images", "I"), s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
     if (s.hasPoints || s.hasAssets) {
-      toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
+      toggles.append(checkbox(keyed("Box", "B"), s.box, (on) => this.viewer.setGlobal("box", on)));
     }
     if (s.hasAssets) {
       toggles.append(
-        checkbox("Shaded (S)", s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
-        checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
+        checkbox(keyed("Shaded", "S"), s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
+        checkbox(keyed("Wireframe", "W"), s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
       );
     }
     toggles.append(
-      checkbox("Grid (G)", s.grid, (on) => this.viewer.setGlobal("grid", on)),
-      checkbox("Axes (A)", s.axes, (on) => this.viewer.setGlobal("axes", on))
+      checkbox(keyed("Grid", "G"), s.grid, (on) => this.viewer.setGlobal("grid", on)),
+      checkbox(keyed("Axes", "A"), s.axes, (on) => this.viewer.setGlobal("axes", on))
     );
     body.append(section("Show", [toggles]));
 
@@ -261,10 +270,10 @@ export class ControlPanel {
     // View — orientation + reset.
     body.append(
       section("View", [
-        checkbox("Upright Y-up (U)", s.orientation === "upright", (on) =>
+        checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
           this.viewer.setOrientation(on ? "upright" : "raw")
         ),
-        button("Reset view (R)", () => this.viewer.resetView(), true),
+        button(keyed("Reset view", "R"), () => this.viewer.resetView(), true),
       ])
     );
 
@@ -286,7 +295,13 @@ export class ControlPanel {
     );
 
     if (s.hasCameras) {
-      body.append(hint("Hover a frustum to highlight it · click to view from it (Esc to exit)"));
+      body.append(
+        hint(
+          isTouchOnly()
+            ? "Tap a frustum to view from it · Reset view to exit"
+            : "Hover a frustum to highlight it · click to view from it (Esc to exit)"
+        )
+      );
     }
     return body;
   }
@@ -386,7 +401,10 @@ export class ControlPanel {
         void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
-    rows.push(actionRow("Render", scales), hint("Esc cancels a render"));
+    rows.push(actionRow("Render", scales));
+    if (!isTouchOnly()) {
+      rows.push(hint("Esc cancels a render")); // touch: the status pill has a Cancel button
+    }
     return rows;
   }
 
@@ -452,14 +470,19 @@ export class ControlPanel {
     // (a .ply is a mesh, a point cloud or a splat, by what is in it), so a "wrong"
     // entry still loads it.
     const add = menuButton("+", "Add to scene", [
-      { label: "COLMAP…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
-      { label: "Point cloud…", onClick: () => this.viewer.requestAdd("cloud") },
-      { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
-      { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
+      { label: "COLMAP", onClick: () => this.viewer.requestAdd("colmap") },
+      // The same, zipped — only where the host can unzip (a phone can't pick the
+      // project folder its model and images span).
+      ...(this.options.archives
+        ? [{ label: "COLMAP (zip)", onClick: () => this.viewer.requestAdd("archive") }]
+        : []),
+      { label: "Mesh", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "Point cloud", onClick: () => this.viewer.requestAdd("cloud") },
+      { label: "3DGS", onClick: () => this.viewer.requestAdd("splat") },
+      { label: "Tracks", onClick: () => this.viewer.requestAdd("tracks") },
       // Every asset in a folder, as one temporal item — a per-frame capture, and the
       // way in where a host's file dialog can't select several files at once.
-      { label: "Asset folder…", onClick: () => this.viewer.requestAdd("assetFolder") },
+      { label: "Asset folder", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
 
     panel.append(

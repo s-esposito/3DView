@@ -238,7 +238,7 @@ export class ViewerPanel {
       const data = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "3DView: loading reconstruction…",
+          title: "3DView: loading reconstruction",
         },
         async () => Promise.resolve().then(() => buildModelData(modelDir))
       );
@@ -342,7 +342,7 @@ export class ViewerPanel {
   </style>
 </head>
 <body>
-  <div id="status">Loading…</div>
+  <div id="status">Loading</div>
   <!-- VS Code host adapter: expose the neutral bridge the host-agnostic bundle
        expects (window.__viewerHost), wrapping VS Code's acquireVsCodeApi(). This
        is the ONLY place acquireVsCodeApi is named; the bundle never references it. -->

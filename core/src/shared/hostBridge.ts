@@ -17,6 +17,10 @@ export interface HostBridge {
    *  save dialog). Absent means no, and the webview downloads them in-page — so a
    *  page embedding the bundle gets working captures without handling anything. */
   readonly savesFiles?: boolean;
+  /** Whether this host can open a zipped COLMAP project (the `"archive"` add kind) —
+   *  the way to bring a model and its images in where the browser's picker can't
+   *  select a folder (phones). Absent means no, and the "+" menu doesn't offer it. */
+  readonly opensArchives?: boolean;
 }
 
 /**
