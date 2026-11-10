@@ -65,7 +65,11 @@ export class ControlPanel {
    *  picked, which means the first reconstruction with cameras. */
   private readonly video = { item: "", framesPerCamera: 4, fps: 24, loop: false, overrideFov: false, fov: 60 };
 
-  constructor(private readonly viewer: Viewer) {}
+  /** `archives`: offer "COLMAP (zip)" in the "+" menu (the host can unzip one). */
+  constructor(
+    private readonly viewer: Viewer,
+    private readonly options: { archives?: boolean } = {}
+  ) {}
 
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
@@ -466,14 +470,19 @@ export class ControlPanel {
     // (a .ply is a mesh, a point cloud or a splat, by what is in it), so a "wrong"
     // entry still loads it.
     const add = menuButton("+", "Add to scene", [
-      { label: "COLMAP…", onClick: () => this.viewer.requestAdd("colmap") },
-      { label: "Mesh…", onClick: () => this.viewer.requestAdd("mesh") },
-      { label: "Point cloud…", onClick: () => this.viewer.requestAdd("cloud") },
-      { label: "3DGS…", onClick: () => this.viewer.requestAdd("splat") },
-      { label: "Tracks…", onClick: () => this.viewer.requestAdd("tracks") },
+      { label: "COLMAP", onClick: () => this.viewer.requestAdd("colmap") },
+      // The same, zipped — only where the host can unzip (a phone can't pick the
+      // project folder its model and images span).
+      ...(this.options.archives
+        ? [{ label: "COLMAP (zip)", onClick: () => this.viewer.requestAdd("archive") }]
+        : []),
+      { label: "Mesh", onClick: () => this.viewer.requestAdd("mesh") },
+      { label: "Point cloud", onClick: () => this.viewer.requestAdd("cloud") },
+      { label: "3DGS", onClick: () => this.viewer.requestAdd("splat") },
+      { label: "Tracks", onClick: () => this.viewer.requestAdd("tracks") },
       // Every asset in a folder, as one temporal item — a per-frame capture, and the
       // way in where a host's file dialog can't select several files at once.
-      { label: "Asset folder…", onClick: () => this.viewer.requestAdd("assetFolder") },
+      { label: "Asset folder", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
 
     panel.append(

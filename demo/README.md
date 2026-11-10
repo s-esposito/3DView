@@ -11,7 +11,7 @@ file-picker bridge. Nothing is uploaded; all parsing and rendering happen locall
 Everything loads from the **Scene** panel's **+** ("Add to scene") menu — or by
 **dragging & dropping** a file or a COLMAP folder straight onto the viewer:
 
-### Reconstruction… (COLMAP)
+### COLMAP
 
 Picks a **folder**. Choose your **project root** — the directory that contains
 both `sparse/` (the model) and `images/` (the source images) — so the camera
@@ -36,7 +36,7 @@ of them — and loading several at once offers to treat them as the timesteps of
 capture. If you pick only the model folder (e.g. `sparse/0`) without the sibling
 `images/`, the point cloud and frustums load but the frustums won't be textured.
 
-### Mesh… / Point cloud… / 3DGS splat… / 3D point tracks…
+### Mesh / Point cloud / 3DGS / Tracks
 
 Each entry picks asset files, filtered to that family:
 
@@ -52,10 +52,21 @@ itself, so a `.ply` loads correctly as a mesh, a point cloud or a splat whicheve
 entry you used. You can select **several files at once**, and the viewer then asks
 whether they are separate items or the frames of one temporal (4D) item.
 
-### Asset folder…
+### Asset folder
 
 Picks a **folder** and loads every asset file directly inside it — the quick way to
 open a per-frame capture as one scrubbable item.
+
+### COLMAP (zip)
+
+Picks a **zipped COLMAP project** and loads it as if its folder had been picked
+(`sparse/` + `images/`, at any depth, with the same chooser when it holds several
+models). It is the way to open a project on a phone, whose browser can't pick the
+folder the model and its images span — compress the project folder (in the Files
+app: long-press → **Compress**) and pick the zip. It is unpacked on the device;
+nothing is uploaded. Only the model files and images are read from it, and the
+archive is read into memory, so very large ones are better opened on a desktop.
+Assets need no zip: they are single files, which any picker can select.
 
 Add as many reconstructions and assets as you like; show/hide, rename or remove each
 from the Scene panel.
@@ -83,9 +94,10 @@ a **Cancel** button. Saved PNGs and videos open the share sheet, so you can save
 to Photos or Files.
 
 Folder picking depends on the browser. Where it isn't available (Android Chrome,
-older iOS), **Reconstruction…** and **Asset folder…** open a multi-file picker
+older iOS), **COLMAP** and **Asset folder** open a multi-file picker
 instead: select `cameras` / `images` / `points3D` (plus the images, for textured
-frustums) or the frame files, all together.
+frustums) or the frame files, all together. Most phone pickers select from one folder
+at a time, so for a project whose images sit in another folder use **COLMAP (zip)**.
 
 **Install it as an app:** in Safari tap **Share → Add to Home Screen**; in Chrome
 (Android) tap **⋮ → Add to Home screen / Install app**. The installed app runs full

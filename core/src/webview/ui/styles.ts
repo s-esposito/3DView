@@ -62,6 +62,10 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-iconbtn svg{display:block}
 .viewer-rename{flex:1;min-width:0;font:inherit;color:var(--vscode-input-foreground,inherit);background:var(--vscode-input-background,rgba(255,255,255,0.08));border:1px solid var(--vscode-focusBorder,#0e639c);border-radius:5px;padding:2px 5px}
 .viewer-menuwrap{position:relative}
+/* Each panel's backdrop-filter makes it a stacking context, so the "+" menu's z-index
+   only counts inside its own panel and the panels below would paint over it (and take
+   its taps). Lift the panel that holds a menu above its siblings. */
+.viewer-panel:has(.viewer-menuwrap){z-index:1}
 .viewer-menu{position:absolute;right:0;top:100%;margin-top:6px;min-width:160px;background:color-mix(in srgb,var(--vscode-menu-background,var(--vscode-editorWidget-background,#252526)) 85%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid var(--vscode-menu-border,var(--vscode-widget-border,rgba(255,255,255,0.15)));border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.45);z-index:20;overflow:hidden;transform-origin:top right;animation:viewer-pop .14s ease}
 .viewer-menu-item{display:block;width:100%;text-align:left;padding:7px 12px;cursor:pointer;border:none;background:transparent;color:var(--vscode-menu-foreground,var(--vscode-foreground,#ddd));font:inherit;transition:background .12s ease}
 .viewer-menu-item:hover{background:var(--vscode-menu-selectionBackground,var(--vscode-list-hoverBackground,rgba(255,255,255,0.08)))}
@@ -190,6 +194,9 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-ui{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px))}
 .viewer-popup{left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}
 .viewer-status-cancel{pointer-events:auto;flex:none;padding:5px 12px;cursor:pointer;color:inherit;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-radius:99em;font:inherit}
+/* Touch browsers keep :hover on the last element tapped, which would leave a header
+   or row lit up after the tap; only a real hover lights them. */
+@media (hover:none){.viewer-header:hover,.viewer-scene-item:hover,.viewer-modal-row:hover,.viewer-menu-item:hover{background:transparent}}
 @media (max-width:600px),(max-height:500px){.viewer-popup img{max-height:28vh}.viewer-modal-backdrop{padding:12px}}
 /* Finger-sized targets where the pointer is a finger: ~32px+ hit areas, and 16px text
    in the text fields so iOS doesn't zoom the page when one is focused. */

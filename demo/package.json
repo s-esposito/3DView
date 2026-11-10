@@ -12,6 +12,7 @@
   "devDependencies": {
     "@3dview/core": "*",
     "esbuild": "^0.20.0",
+    "fflate": "^0.8.2",
     "typescript": "^5.4.0"
   }
 }

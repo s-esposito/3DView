@@ -26,7 +26,7 @@ const status = document.getElementById("status")!;
 
 ensureStyles();
 const viewer = new Viewer();
-const panel = new ControlPanel(viewer);
+const panel = new ControlPanel(viewer, { archives: host.opensArchives });
 const popup = new InfoPopup();
 
 // Selecting a camera shows its info popup; closing it (✕) clears the highlight
@@ -208,7 +208,7 @@ function handleHostMessage(msg: HostToWebview) {
       viewer.addReconstruction(msg.id, msg.label, msg.data, msg.source); // fires onChange
       break;
     case "addAsset":
-      showStatus(`Loading ${msg.label}…`, true);
+      showStatus(`Loading ${msg.label}`, true);
       viewer.addAsset(msg.id, msg.label, msg.asset.uri, msg.asset.name); // async; onChange/onError
       break;
     case "loadColmap":
@@ -239,7 +239,10 @@ function handleHostMessage(msg: HostToWebview) {
           const members: AddItem[] = picked.map((m) => ({ type: "loadColmap", ...m }));
           void addItems(nextGroupId(), label ?? picked[0].label, members);
         },
-        () => msg.models.forEach((m) => revokeColmapTrio(m.urls))
+        () => {
+          msg.models.forEach((m) => revokeColmapTrio(m.urls));
+          updateStatus(); // drop a host's "loading" message: nothing is coming
+        }
       );
       break;
     case "setView":
@@ -277,6 +280,7 @@ async function addItems(
   }
   if (answer === "cancel") {
     ordered.forEach(release);
+    updateStatus(); // drop a host's "loading" message: nothing is coming
     return;
   }
   const frames: TemporalFrame[] = [];
@@ -300,7 +304,7 @@ async function toFrame(m: AddItem): Promise<TemporalFrame | undefined> {
   if (m.type === "addReconstruction") {
     return { kind: "reconstruction", id, label, data: m.data, source: m.source };
   }
-  showStatus(`Loading ${label}…`, true);
+  showStatus(`Loading ${label}`, true);
   try {
     return { kind: "reconstruction", id, label, data: await loadColmapData(m), source: m.source };
   } catch (err) {
@@ -341,7 +345,7 @@ function loadColmapData(m: ColmapModelRef) {
 
 /** Fetch + parse a URL-served COLMAP model and add it to the scene. */
 function loadColmapModel(m: ColmapModelRef) {
-  showStatus(`Loading ${m.label}…`, true);
+  showStatus(`Loading ${m.label}`, true);
   loadColmapData(m)
     .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
     .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));

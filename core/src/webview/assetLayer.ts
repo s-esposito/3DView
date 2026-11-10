@@ -236,7 +236,7 @@ export class AssetLayer implements FrameSource {
 
   /** Load the asset file and add it (plus a bounding box) under this layer's group.
    *  Content that has options (3DGS mode, track density) is built for `opts`;
-   *  `onProgress` reports the current phase (download %, then "Decoding…"). */
+   *  `onProgress` reports the current phase (download %, then "Decoding"). */
   async load(
     uri: string,
     name: string,
@@ -358,14 +358,14 @@ interface LoadedAsset {
   isCloud?: boolean;
 }
 
-/** Reports a human-readable loading phase ("Downloading… 45%", "Decoding…"). */
+/** Reports a human-readable loading phase ("Downloading 45%", "Decoding"). */
 type Progress = (phase: string) => void;
 
-/** "Downloading… 45%" when the total size is known, else a running byte count. */
+/** "Downloading 45%" when the total size is known, else a running byte count. */
 function downloadPhase(loaded: number, total: number): string {
   return total > 0
-    ? `Downloading… ${Math.round((loaded / total) * 100)}%`
-    : `Downloading… ${(loaded / 1e6).toFixed(1)} MB`;
+    ? `Downloading ${Math.round((loaded / total) * 100)}%`
+    : `Downloading ${(loaded / 1e6).toFixed(1)} MB`;
 }
 
 const gltfLoader = new GLTFLoader();
@@ -415,7 +415,7 @@ export async function loadSplatCloud(
   if (name.toLowerCase().endsWith(".ply") && !isSplatPly(bytes)) {
     throw new Error(`${name} is a mesh, not a 3DGS file`);
   }
-  onProgress?.("Decoding…");
+  onProgress?.("Decoding");
   return decodeSplats(bytes, name);
 }
 
@@ -458,7 +458,7 @@ async function loadPly(
   const buffer = await fetchBytes(uri, onProgress);
   const bytes = new Uint8Array(buffer);
   if (isSplatPly(bytes)) {
-    onProgress?.("Decoding…");
+    onProgress?.("Decoding");
     return buildSplatLayer(bytes, name, splatMode);
   }
   const geometry = plyLoader.parse(buffer);
@@ -476,7 +476,7 @@ async function loadSplat(
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
-  onProgress?.("Decoding…");
+  onProgress?.("Decoding");
   return buildSplatLayer(new Uint8Array(buffer), name, splatMode);
 }
 
@@ -507,7 +507,7 @@ async function loadTracks(
   onProgress?: Progress
 ): Promise<LoadedAsset> {
   const buffer = await fetchBytes(uri, onProgress);
-  onProgress?.("Decoding…");
+  onProgress?.("Decoding");
   const bytes = new Uint8Array(buffer);
   const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
   const set = decodeTracks(arrays);
