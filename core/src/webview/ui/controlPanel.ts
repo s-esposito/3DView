@@ -19,6 +19,8 @@ import {
   vectorRow,
   iconButton,
   menuButton,
+  isTouchOnly,
+  keyed,
 } from "./components";
 
 // Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
@@ -46,7 +48,10 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 };
 
 export class ControlPanel {
-  private collapsed = false; // the 3DView (display) panel
+  // The 3DView (display) panel. On a phone-sized screen it starts folded: open, it
+  // and the Scene panel would cover most of the view; the Scene panel (with its +)
+  // stays open, as it is what a first visit needs.
+  private collapsed = matchMedia("(max-width: 600px), (max-height: 500px)").matches;
   private sceneCollapsed = false; // the Scene panel
   private captureCollapsed = true; // the Capture panel: out of the way until wanted
   /** Which Capture sub-menus are open, kept across panel re-renders. */
@@ -175,26 +180,26 @@ export class ControlPanel {
     const toggles = document.createElement("div");
     toggles.className = "viewer-toggles";
     if (s.hasPoints) {
-      toggles.append(checkbox("Points (P)", s.points, (on) => this.viewer.setGlobal("points", on)));
+      toggles.append(checkbox(keyed("Points", "P"), s.points, (on) => this.viewer.setGlobal("points", on)));
     }
     if (s.hasCameras) {
       toggles.append(
-        checkbox("Frustums (F)", s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
-        checkbox("Images (I)", s.images, (on) => this.viewer.setGlobal("images", on))
+        checkbox(keyed("Frustums", "F"), s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
+        checkbox(keyed("Images", "I"), s.images, (on) => this.viewer.setGlobal("images", on))
       );
     }
     if (s.hasPoints || s.hasAssets) {
-      toggles.append(checkbox("Box (B)", s.box, (on) => this.viewer.setGlobal("box", on)));
+      toggles.append(checkbox(keyed("Box", "B"), s.box, (on) => this.viewer.setGlobal("box", on)));
     }
     if (s.hasAssets) {
       toggles.append(
-        checkbox("Shaded (S)", s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
-        checkbox("Wireframe (W)", s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
+        checkbox(keyed("Shaded", "S"), s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
+        checkbox(keyed("Wireframe", "W"), s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
       );
     }
     toggles.append(
-      checkbox("Grid (G)", s.grid, (on) => this.viewer.setGlobal("grid", on)),
-      checkbox("Axes (A)", s.axes, (on) => this.viewer.setGlobal("axes", on))
+      checkbox(keyed("Grid", "G"), s.grid, (on) => this.viewer.setGlobal("grid", on)),
+      checkbox(keyed("Axes", "A"), s.axes, (on) => this.viewer.setGlobal("axes", on))
     );
     body.append(section("Show", [toggles]));
 
@@ -261,10 +266,10 @@ export class ControlPanel {
     // View — orientation + reset.
     body.append(
       section("View", [
-        checkbox("Upright Y-up (U)", s.orientation === "upright", (on) =>
+        checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
           this.viewer.setOrientation(on ? "upright" : "raw")
         ),
-        button("Reset view (R)", () => this.viewer.resetView(), true),
+        button(keyed("Reset view", "R"), () => this.viewer.resetView(), true),
       ])
     );
 
@@ -286,7 +291,13 @@ export class ControlPanel {
     );
 
     if (s.hasCameras) {
-      body.append(hint("Hover a frustum to highlight it · click to view from it (Esc to exit)"));
+      body.append(
+        hint(
+          isTouchOnly()
+            ? "Tap a frustum to view from it · Reset view to exit"
+            : "Hover a frustum to highlight it · click to view from it (Esc to exit)"
+        )
+      );
     }
     return body;
   }
@@ -386,7 +397,10 @@ export class ControlPanel {
         void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
-    rows.push(actionRow("Render", scales), hint("Esc cancels a render"));
+    rows.push(actionRow("Render", scales));
+    if (!isTouchOnly()) {
+      rows.push(hint("Esc cancels a render")); // touch: the status pill has a Cancel button
+    }
     return rows;
   }
 

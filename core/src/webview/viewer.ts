@@ -1148,7 +1148,7 @@ export class Viewer {
         frames.length,
         video.fps,
         async (i) => {
-          this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length} (Esc to cancel)`);
+          this.onProgress?.(`Rendering video: frame ${i + 1} of ${frames.length}`);
           camera.position.copy(frames[i].position);
           camera.quaternion.copy(frames[i].quaternion);
           camera.fov = video.fov ?? frames[i].fov;

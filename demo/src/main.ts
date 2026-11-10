@@ -14,3 +14,13 @@ bundle.src = new URL("webview.js", import.meta.url).href;
 document.body.appendChild(bundle);
 
 console.log("[demo] host bridge installed; loading viewer bundle");
+
+// Installable web app: the service worker lets the installed app open offline (see
+// sw.js). Registered after load so it never competes with the viewer bundle's
+// download; relative, so its scope is the Pages base path. Not on file:// or plain
+// http — browsers only allow service workers on https and localhost.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((err) => console.warn("[demo] no service worker", err));
+  });
+}

@@ -2,8 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover runs the 3D view edge to edge, under a notch; the panels
+         keep clear of it with env(safe-area-inset-*) (core's styles.ts). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>3DView — COLMAP, mesh &amp; 3DGS viewer</title>
+    <!-- Installable web app: the manifest + sw.js (registered in src/main.ts) are
+         what "Add to Home Screen" / "Install app" need; the apple-* tags are iOS's. -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#1b1b1d" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="3DView" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e639c'/%3E%3Cpath d='M16 6l8 4.5v9L16 24l-8-4.5v-9z' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M8 10.5l8 4.5 8-4.5M16 15v9' fill='none' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"
@@ -14,6 +25,13 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
+        /* A phone's page-level gestures fight the 3D view: no pull-to-refresh /
+           bounce when a drag overshoots, no double-tap zoom. (The canvas itself is
+           touch-action:none, set by OrbitControls.) */
+        overscroll-behavior: none;
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%; /* no text inflation in landscape (iOS) */
+        text-size-adjust: 100%;
         background: #000;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
@@ -33,7 +51,7 @@
       #status {
         position: fixed;
         left: 50%;
-        bottom: 24px;
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
         transform: translateX(-50%);
         max-width: min(560px, calc(100vw - 32px));
         display: flex;

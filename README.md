@@ -7,7 +7,7 @@ with the source images, glTF/OBJ/PLY meshes, 3DGS splats
 Three.js scene. It runs as a **VS Code extension**, a **PyCharm / JetBrains plugin**
 and a **browser demo**, over one shared core.
 
-**🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models, meshes, and 3DGS splats in the browser (no install required).
+**🌐 [Try the web demo](https://s-esposito.github.io/3DView/)** — load your own COLMAP models, meshes, and 3DGS splats in the browser (no install required). It works on phones too, and can be installed to the home screen as an app.
 
 ![3DView](imgs/teaser.png)
 

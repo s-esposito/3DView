@@ -74,6 +74,23 @@ from the Scene panel.
 | Toggle upright (Y-up) orientation | `u` |
 | Cycle Gaussians: splats → ellipsoids → points | `e` |
 
+### On a phone or tablet
+
+The demo works with touch: **one finger** rotates, **two fingers** pinch-zoom and
+pan, and **tapping** a frustum flies to that camera (**Reset view** in the 3DView
+panel leaves it). Keyboard shortcuts have panel equivalents, and a video render shows
+a **Cancel** button. Saved PNGs and videos open the share sheet, so you can save them
+to Photos or Files.
+
+Folder picking depends on the browser. Where it isn't available (Android Chrome,
+older iOS), **Reconstruction…** and **Asset folder…** open a multi-file picker
+instead: select `cameras` / `images` / `points3D` (plus the images, for textured
+frustums) or the frame files, all together.
+
+**Install it as an app:** in Safari tap **Share → Add to Home Screen**; in Chrome
+(Android) tap **⋮ → Add to Home screen / Install app**. The installed app runs full
+screen and, once opened, works offline. Your files still never leave the device.
+
 ## Build & run locally
 
 From the repo root (npm workspaces link the packages):
@@ -82,6 +99,9 @@ From the repo root (npm workspaces link the packages):
 npm install
 npm run build      # builds @3dview/core, then copies its bundle into demo/dist/
 ```
+
+The home-screen icons in `icons/` are generated: after changing the art, run
+`node scripts/make-icons.mjs` from `demo/`.
 
 Then serve the `demo/` directory with any static server (`index.html` references
 `dist/demo.js`, which loads `dist/webview.js` from the same folder):

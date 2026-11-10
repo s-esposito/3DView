@@ -15,6 +15,7 @@ import { compareNatural, sharedFolderName } from "../shared/naming";
 import { ControlPanel } from "./ui/controlPanel";
 import { InfoPopup, showColmapChooser, askTemporalGrouping } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
+import { isTouchOnly } from "./ui/components";
 import { loadColmapFromUrls } from "./colmapLoader";
 import { installDropZone } from "./dropZone";
 
@@ -61,16 +62,39 @@ viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
 // scanning the whole base64 payload.
 viewer.onSaveFile = host.savesFiles
   ? (data, suggestedName) => host.postMessage({ type: "saveFile", suggestedName, data })
-  : (data, suggestedName) => {
-      const a = document.createElement("a");
-      a.href = data;
-      a.download = suggestedName;
-      a.click();
-    };
+  : (data, suggestedName) => void saveInBrowser(data, suggestedName);
+
+/** Save a capture from the page. On a phone the share sheet is where "Save to
+ *  Photos / Files" lives (and an installed iOS web app has no download UI at all),
+ *  so offer the file there first; a desktop browser, or a share that can't happen
+ *  (no support, the tap's user activation expired during a long render), falls back
+ *  to a synthetic <a download>, as a browser can download a data URL directly. */
+async function saveInBrowser(data: string, suggestedName: string): Promise<void> {
+  if (isTouchOnly() && typeof navigator.canShare === "function") {
+    try {
+      const blob = await (await fetch(data)).blob();
+      const file = new File([blob], suggestedName, { type: blob.type });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return; // the user closed the share sheet: they chose not to save
+      }
+    }
+  }
+  const a = document.createElement("a");
+  a.href = data;
+  a.download = suggestedName;
+  a.click();
+}
 
 /** What an empty scene says, in the status overlay — the one wording for "there is
  *  nothing here yet", matching the Scene list's own empty row. */
-const EMPTY_HINT = "Open a reconstruction or asset — drag & drop, or use + in the Scene panel.";
+const EMPTY_HINT = isTouchOnly()
+  ? "Open a reconstruction or asset — tap + in the Scene panel."
+  : "Open a reconstruction or asset — drag & drop, or use + in the Scene panel.";
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
@@ -124,23 +148,43 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
+/** The overlay's message node, and the shape (spinner? Cancel?) it was built for. It
+ *  is updated in place while the shape holds: a video render reports every frame,
+ *  and rebuilding would swap the Cancel button out from under a finger mid-tap. */
+let statusText: HTMLSpanElement | undefined;
+let statusShape = "";
+
 /** Show the centered overlay. When `busy`, prefix an animated spinner (the work
  *  runs off the main thread — e.g. a fetch or the Spark decode worker — so it
- *  keeps spinning, signalling progress even without a percentage). */
+ *  keeps spinning, signalling progress even without a percentage). While a video
+ *  renders it carries a Cancel button — the one way to stop it without a keyboard. */
 function showStatus(message: string, busy = false) {
   status.style.display = "flex";
-  status.replaceChildren();
-  const wrap = document.createElement("span");
-  wrap.className = "viewer-status";
-  if (busy) {
-    const spinner = document.createElement("span");
-    spinner.className = "viewer-spinner";
-    wrap.append(spinner);
+  const cancellable = viewer.isRenderingVideo;
+  const shape = `${busy}|${cancellable}`;
+  if (!statusText || shape !== statusShape) {
+    statusShape = shape;
+    status.replaceChildren();
+    const wrap = document.createElement("span");
+    wrap.className = "viewer-status";
+    if (busy) {
+      const spinner = document.createElement("span");
+      spinner.className = "viewer-spinner";
+      wrap.append(spinner);
+    }
+    statusText = document.createElement("span");
+    wrap.append(statusText);
+    if (cancellable) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "viewer-status-cancel";
+      cancel.textContent = isTouchOnly() ? "Cancel" : "Cancel (Esc)";
+      cancel.addEventListener("click", () => viewer.cancelVideo());
+      wrap.append(cancel);
+    }
+    status.append(wrap);
   }
-  const text = document.createElement("span");
-  text.textContent = message;
-  wrap.append(text);
-  status.append(wrap);
+  statusText.textContent = message;
 }
 
 /** Hide the overlay once the scene has content; otherwise show a prompt. */

@@ -176,6 +176,39 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 @keyframes viewer-fade{from{opacity:0}to{opacity:1}}
 /* Last, to win over each row's own margin-top: inside a section the gap spaces rows. */
 :is(.viewer-section,.viewer-subsection-body)>*{margin-top:0}
+/* --- Phones and tablets ------------------------------------------------------
+   Mobile browsers' 100vh is the height with the toolbars hidden, so a vh cap lets the
+   panels run under the address bar; dvh tracks what is actually visible. */
+@supports (height:100dvh){:root{--viewer-panel-max:min(40dvh,calc((100dvh - 140px)/2))}.viewer-ui:has(.viewer-capture:not(.collapsed)){--viewer-panel-max:min(32dvh,calc((100dvh - 185px)/3))}.viewer-modal{max-height:80dvh}}
+/* No double-tap zoom on the UI (it would eat quick taps on +/- style controls), and a
+   panel scrolled to its end doesn't drag the page along. */
+.viewer-ui,.viewer-popup,.viewer-modal-backdrop{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.viewer-body,.viewer-modal-list{overscroll-behavior:contain}
+.viewer-panel,.viewer-popup{max-width:calc(100vw - 24px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));box-sizing:border-box}
+/* Clear the notch / home indicator where the page runs edge to edge (an installed
+   web app, viewport-fit=cover); env() is 0 everywhere else, so desktop is unchanged. */
+.viewer-ui{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px))}
+.viewer-popup{left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+.viewer-status-cancel{pointer-events:auto;flex:none;padding:5px 12px;cursor:pointer;color:inherit;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-radius:99em;font:inherit}
+@media (max-width:600px),(max-height:500px){.viewer-popup img{max-height:28vh}.viewer-modal-backdrop{padding:12px}}
+/* Finger-sized targets where the pointer is a finger: ~32px+ hit areas, and 16px text
+   in the text fields so iOS doesn't zoom the page when one is focused. */
+@media (pointer:coarse){
+.viewer-header{padding:11px 12px}
+.viewer-iconbtn{min-width:32px;min-height:32px}
+.viewer-menu-item{padding:12px 14px}
+.viewer-rename,.viewer-xform-num{font-size:16px;padding:4px 5px}
+.viewer-slider input{height:28px}
+.viewer-seg-opt{height:34px}
+.viewer-scale-btn,.viewer-action .viewer-scale-btn{padding:9px 4px}
+.viewer-btn{padding:10px 8px}
+.viewer-xform-reset{padding:7px 12px}
+.viewer-popup-close{padding:6px 10px;font-size:16px}
+.viewer-modal-row{padding:11px 10px}
+.viewer-modal-row input{width:20px;height:20px}
+.viewer-row{min-height:28px}
+.viewer-color{width:44px;height:28px}
+}
 `;
 
 export function ensureStyles(): void {

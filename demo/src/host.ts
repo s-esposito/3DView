@@ -17,25 +17,34 @@ function showFilePicker(kind: AddKind): Promise<FileList | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
+    // Several at once: a dynamic capture is a folder of per-frame files, and the
+    // webview offers to load such a pick as one temporal item.
+    input.multiple = true;
     if (kind === "colmap" || kind === "assetFolder") {
       // Both pick a folder: a COLMAP model is a folder (e.g. sparse/0) of
       // cameras/images/points3D, and an "assetFolder" is a folder of per-frame
       // asset files. `webkitdirectory` switches the dialog to folder selection; the
       // FileList then holds every file under the chosen folder (each with a
-      // `webkitRelativePath`), and it overrides `accept`, so we set none.
+      // `webkitRelativePath`), and it overrides `accept`, so we set none. Where the
+      // browser can't pick folders (Android, older iOS) it is ignored and `multiple`
+      // lets the user select the files themselves — the model trio plus its images,
+      // which the grouping finds at the top level just the same.
       input.webkitdirectory = true;
-    } else {
-      // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks).
+    } else if (!touchOnly()) {
+      // Filtered to the kind the Scene "+" asked for (mesh / 3DGS / tracks). Not on
+      // a phone: iOS greys out every file whose extension it has no type for
+      // (.ply, .splat, .npz…), so there the dialog shows everything and
+      // `sendAssets` drops what isn't an asset.
       input.accept = ASSET_KIND_EXTS[kind].map((e) => `.${e}`).join(",");
-      // Several at once: a dynamic capture is a folder of per-frame files, and the
-      // webview offers to load such a pick as one temporal item.
-      input.multiple = true;
     }
     input.addEventListener("change", () => resolve(input.files));
     input.addEventListener("cancel", () => resolve(null));
     input.click();
   });
 }
+
+/** True on a phone / tablet (a finger, no hover) — mirrors core's `isTouchOnly`. */
+const touchOnly = () => matchMedia("(hover: none) and (pointer: coarse)").matches;
 
 /** Install the host bridge on the global object before the webview bundle loads. */
 export function installHostBridge() {
@@ -144,7 +153,11 @@ function sendAssetFolder(files: FileList): void {
  *  URLs — one `addAsset`, or an `addGroup` when several were picked, which the
  *  webview offers to load as a single temporal item. */
 function sendAssets(files: FileList | File[]): void {
-  const picked = Array.from(files);
+  // An unfiltered (phone) pick can hold anything; keep the files the viewer reads.
+  const picked = Array.from(files).filter((f) => ASSET_EXTS.includes(extOf(f.name)));
+  if (picked.length === 0) {
+    throw new Error(`Not an asset file — expected ${ASSET_EXTS.map((e) => `.${e}`).join(" / ")}.`);
+  }
   const stamp = Date.now();
   const members = picked.map((file, i) => ({
     type: "addAsset" as const,
