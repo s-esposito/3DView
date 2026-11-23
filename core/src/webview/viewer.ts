@@ -683,6 +683,30 @@ export class Viewer {
     this.requestRender();
   }
 
+  /**
+   * Place a scene item — or `node`, a named object inside it (a glTF node) — by a
+   * full 4x4 matrix, row-major: rotation, translation and scale (see SetTransformMsg).
+   * Like setItemTransform it fires no `onChange`, so a host can stream it; a matrix
+   * the target already has costs nothing, so a host may resend it every pass.
+   */
+  setItemMatrix(id: string, rowMajor: number[], node?: string): void {
+    const layer = this.byId.get(id);
+    const target = node ? layer?.object.getObjectByName(node) : layer?.object;
+    const key = rowMajor.join();
+    if (!layer || !target || rowMajor.length !== 16 || target.userData.hostMatrix === key) {
+      return;
+    }
+    target.userData.hostMatrix = key;
+    const m = new THREE.Matrix4();
+    m.set(...(rowMajor as Parameters<THREE.Matrix4["set"]>));
+    m.decompose(target.position, target.quaternion, target.scale);
+    target.updateMatrix(); // bounds below read `matrix`, not the render-time one
+    this.recomputeBounds();
+    this.rebuildHelpers();
+    this.refreshTextures();
+    this.requestRender();
+  }
+
   /** Put a scene item back at the origin, unrotated. */
   resetItemTransform(id: string): void {
     this.setItemTransform(id, { position: [0, 0, 0], rotation: [0, 0, 0] });

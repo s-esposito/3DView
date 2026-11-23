@@ -208,7 +208,7 @@ tracks) under a single
 `root` group; helpers (grid/axes) and fit-to-view union over all layers. The UI
 (`webview/ui/`) talks to the scene ONLY through the Viewer API (`addReconstruction`,
 `addAsset`, `removeItem`,
-`renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`,
+`renameItem`, `setItemVisible`, `setItemTransform`/`resetItemTransform`, `setItemMatrix`,
 `setGlobal`/`toggleGlobal`, `setPointSize`, `setFrustumScale`, `setFrustumLineWidth`,
 `setFrustumColor`, `setTrackTrail`/`setTrackOpacity`/`setTrackDensity`/
 `setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
@@ -456,7 +456,10 @@ routinely carries `dense/fused.ply` and friends.
   **home view** instead (`setView` message → `setHomeView`, in the scene's own
   COLMAP frame): every fit — first item, R, Upright, leaving a POV — then goes
   there rather than to the bounds' generic diagonal, so it can arrive before the
-  content. No bundled host sends it; embedding pages do.
+  content. No bundled host sends it; embedding pages do. Likewise a host may
+  **place an item** (`setTransform` message → `setItemMatrix`): a full row-major
+  4x4 for the item, or for a named glTF node inside it, so a page can move an
+  object live as its pose is optimised.
 - **Image-name path guard:** `attachImageUris` rejects names escaping the images
   root (`..`/absolute) before building a webview URI.
 - **postMessage has no transfer list** in VS Code webviews — typed arrays are
