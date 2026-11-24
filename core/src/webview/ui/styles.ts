@@ -8,7 +8,7 @@
 // highlights, dark bottom-right shadows) into --glass-shadow / --glass-shadow-sm;
 // --glass-reflex-light/dark scale every rim's intensity at once (one knob to tune).
 const CSS = `
-:root{--viewer-panel-max:min(40vh,calc((100vh - 140px)/2));--viewer-blur:blur(12px) saturate(1.3);--glass-rim-light:#fff;--glass-rim-dark:#000;--glass-reflex-light:.65;--glass-reflex-dark:1;--glass-shadow:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*10%),transparent),inset 1.8px 3px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*90%),transparent),inset -2px -2px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*80%),transparent),inset -3px -8px 1px -6px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*60%),transparent),inset -0.3px -1px 4px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*12%),transparent),inset -1.5px 2.5px 0 -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 0 3px 4px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 2px -6.5px 1px -4px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*10%),transparent),0 1px 5px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*18%),transparent),0 8px 22px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*26%),transparent);--glass-shadow-sm:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*14%),transparent),inset 1px 1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*85%),transparent),inset -1px -1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*55%),transparent),inset 0 2px 3px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*22%),transparent),0 1px 2px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*14%),transparent)}
+:root{--viewer-blur:blur(12px) saturate(1.3);--glass-rim-light:#fff;--glass-rim-dark:#000;--glass-reflex-light:.65;--glass-reflex-dark:1;--glass-shadow:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*10%),transparent),inset 1.8px 3px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*90%),transparent),inset -2px -2px 0 -2px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*80%),transparent),inset -3px -8px 1px -6px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*60%),transparent),inset -0.3px -1px 4px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*12%),transparent),inset -1.5px 2.5px 0 -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 0 3px 4px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*20%),transparent),inset 2px -6.5px 1px -4px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*10%),transparent),0 1px 5px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*18%),transparent),0 8px 22px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*26%),transparent);--glass-shadow-sm:inset 0 0 0 1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*14%),transparent),inset 1px 1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*85%),transparent),inset -1px -1.5px 0 -1px color-mix(in srgb,var(--glass-rim-light) calc(var(--glass-reflex-light)*55%),transparent),inset 0 2px 3px -2px color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*22%),transparent),0 1px 2px 0 color-mix(in srgb,var(--glass-rim-dark) calc(var(--glass-reflex-dark)*14%),transparent)}
 /* Theme color schemes: override the --vscode-* vars our UI reads (so every rule
    retones with no churn) + the glass-reflex knobs. The viewer also re-reads
    --vscode-editor-background for the 3D viewport on switch. Set on <body> by
@@ -16,32 +16,28 @@ const CSS = `
 body[data-viewer-theme="light"]{--vscode-editor-background:#e8e8e9;--vscode-editorWidget-background:#ffffff;--vscode-foreground:#1e2436;--vscode-descriptionForeground:#5b6478;--vscode-widget-border:#9aa0ad;--vscode-focusBorder:#0052f5;--vscode-list-hoverBackground:#d6d8de;--vscode-toolbar-hoverBackground:rgba(0,0,0,.07);--vscode-input-background:#dcdde1;--vscode-input-foreground:#1e2436;--vscode-button-background:#0052f5;--vscode-button-foreground:#ffffff;--vscode-button-hoverBackground:#1a64ff;--vscode-button-secondaryBackground:#dcdde1;--vscode-button-secondaryHoverBackground:#cdced3;--vscode-menu-background:#ffffff;--vscode-menu-foreground:#1e2436;--vscode-menu-border:#c7c9cf;--vscode-menu-selectionBackground:#e7e8ec;--glass-reflex-light:.45;--glass-reflex-dark:.6}
 body[data-viewer-theme="dark"]{--vscode-editor-background:#1b1b1d;--vscode-editorWidget-background:#242427;--vscode-foreground:#e1e1e1;--vscode-descriptionForeground:#9aa0aa;--vscode-widget-border:#ffffff;--vscode-focusBorder:#03d5ff;--vscode-list-hoverBackground:#ffffff;--vscode-toolbar-hoverBackground:rgba(255,255,255,.13);--vscode-input-background:rgba(255,255,255,.14);--vscode-input-foreground:#e1e1e1;--vscode-button-background:#03d5ff;--vscode-button-foreground:#06283b;--vscode-button-hoverBackground:#54e2ff;--vscode-button-secondaryBackground:#3a3d41;--vscode-button-secondaryHoverBackground:#4a4e54;--vscode-menu-background:#242427;--vscode-menu-foreground:#e1e1e1;--vscode-menu-border:rgba(255,255,255,.16);--vscode-menu-selectionBackground:rgba(255,255,255,.09);--glass-reflex-light:.5;--glass-reflex-dark:2}
 body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editorWidget-background:#1b3149;--vscode-foreground:#d5dbe2;--vscode-descriptionForeground:#8ea3bf;--vscode-widget-border:#99deff;--vscode-focusBorder:#ff48a9;--vscode-list-hoverBackground:#99deff;--vscode-toolbar-hoverBackground:rgba(153,222,255,.15);--vscode-input-background:rgba(153,222,255,.12);--vscode-input-foreground:#d5dbe2;--vscode-button-background:#ff48a9;--vscode-button-foreground:#2a0018;--vscode-button-hoverBackground:#ff6cbb;--vscode-button-secondaryBackground:#21384f;--vscode-button-secondaryHoverBackground:#2b4763;--vscode-menu-background:#1b3149;--vscode-menu-foreground:#d5dbe2;--vscode-menu-border:rgba(153,222,255,.25);--vscode-menu-selectionBackground:rgba(153,222,255,.12);--glass-rim-light:#99deff;--glass-rim-dark:#20001b;--glass-reflex-light:.7;--glass-reflex-dark:2}
-.viewer-ui{position:fixed;top:12px;right:12px;display:flex;flex-direction:column;align-items:flex-end;gap:10px;z-index:10}
-.viewer-panel{width:272px;--viewer-label-w:116px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow);user-select:none}
-.viewer-header{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-radius:12px 12px 0 0;transition:background .18s ease}
-.viewer-panel.collapsed .viewer-header{border-radius:12px}
-.viewer-header:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 55%,transparent)}
-.viewer-header:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:-2px}
+/* The right-hand column: the dock (the open panel + the rail) over the footer, from the top
+   to the bottom of the window, so the open panel can take its whole height. The column itself
+   takes no clicks, only what is in it. */
+.viewer-ui{position:fixed;top:12px;right:12px;bottom:12px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;z-index:10;pointer-events:none}
+.viewer-ui>*{pointer-events:auto}
+.viewer-dock{flex:0 1 auto;min-height:0;display:flex;align-items:flex-start;gap:8px;max-height:100%}
+.viewer-rail{flex:none;display:flex;flex-direction:column;gap:4px;padding:5px;background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow)}
+.viewer-rail-btn{display:grid;place-items:center;width:32px;height:32px;padding:0;border:none;border-radius:8px;background:transparent;color:var(--vscode-foreground,#ddd);opacity:.7;cursor:pointer;transition:background .15s ease,opacity .15s ease}
+.viewer-rail-btn:hover{opacity:1;background:var(--vscode-toolbar-hoverBackground,rgba(255,255,255,.13))}
+.viewer-rail-btn[aria-pressed="true"]{opacity:1;color:var(--vscode-focusBorder,#0e639c);background:color-mix(in srgb,var(--vscode-focusBorder,#0e639c) 18%,transparent)}
+.viewer-rail-btn:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:1px}
+.viewer-panel{display:flex;flex-direction:column;max-height:100%;width:272px;--viewer-label-w:116px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:12px;box-shadow:var(--glass-shadow);user-select:none}
+.viewer-header{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px}
 .viewer-chevron{transition:transform .2s ease;opacity:.7;font-size:10px}
-.viewer-panel.collapsed .viewer-chevron{transform:rotate(-90deg)}
 .viewer-titles{display:flex;flex-direction:column;line-height:1.3;flex:1;min-width:0}
 .viewer-title{font-weight:600;letter-spacing:.2px}
 .viewer-sub{color:var(--vscode-descriptionForeground,#999);font-size:11px}
-.viewer-panel.collapsed .viewer-sub{display:none}
-.viewer-collapse{display:grid;grid-template-rows:1fr;transition:grid-template-rows .26s ease}
-.viewer-panel.collapsed .viewer-collapse{grid-template-rows:0fr}
-.viewer-clip{overflow:hidden;min-height:0}
-/* Where a panel scrolls, so none can outgrow the window (every host sets
-   html,body{overflow:hidden}, which would put the overflow out of reach). It has to be
-   this grandchild: clamping .viewer-clip would fight the 1fr row the collapse animates,
-   and a scroll box on .viewer-panel would clip the "+" menu. The cap is halved-viewport
-   so that BOTH panels plus the column's fixed chrome (two headers, gap, top offset,
-   version caption ~= 140px) always fit, and only then capped at 40vh. While the Capture
-   panel is open too, the three share the height the same way (a third header and gap
-   ~= 185px of chrome). border-box or the padding sits on top of the cap; overflow-x
+/* The one place a panel scrolls (every host sets html,body{overflow:hidden}, which would put
+   the overflow out of reach): the body, under a header that stays. Not .viewer-panel, which
+   would clip the "+" menu. border-box or the padding sits on top of the height; overflow-x
    hidden or the knob/thumb animations raise a spurious horizontal bar. */
-.viewer-body{padding:4px 12px 14px;box-sizing:border-box;max-height:var(--viewer-panel-max);overflow:hidden auto}
-.viewer-ui:has(.viewer-capture:not(.collapsed)){--viewer-panel-max:min(32vh,calc((100vh - 185px)/3))}
+.viewer-body{flex:1 1 auto;min-height:0;padding:4px 12px 14px;box-sizing:border-box;overflow:hidden auto}
 /* A section stacks its rows on one rhythm (the gap), so no row carries its own
    spacing; the reset at the end of the sheet zeroes the margins rows keep for use
    elsewhere (the modals). The first section sits close under the header. */
@@ -79,7 +75,18 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 @media (hover:none){.viewer-scene-actions{opacity:1}}
 .viewer-scene-item .kind{opacity:.45;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
-.viewer-foot{align-self:flex-end;display:flex;align-items:center;gap:6px}
+.viewer-foot{flex:none;align-self:flex-end;display:flex;align-items:center;gap:6px}
+.viewer-foot .viewer-seg{width:84px;padding:2px}
+.viewer-foot .viewer-seg-thumb{top:2px;bottom:2px;left:2px;width:calc((100% - 4px)/3)}
+.viewer-foot .viewer-seg-opt{height:20px}
+.viewer-foot .viewer-seg-opt svg{width:13px;height:13px}
+/* The simulation's playback bar, bottom centre. */
+.viewer-transport{position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:10;display:flex;align-items:center;gap:6px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:5px 6px 5px 8px;font:12px var(--vscode-font-family,sans-serif);color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-editorWidget-background,#1e1e1e) 80%,transparent);backdrop-filter:var(--viewer-blur);-webkit-backdrop-filter:var(--viewer-blur);border:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 55%,transparent);border-radius:99em;box-shadow:var(--glass-shadow);user-select:none;touch-action:manipulation}
+.viewer-transport .viewer-iconbtn{width:28px;height:28px;justify-content:center}
+.viewer-transport .viewer-iconbtn:disabled{opacity:.4;cursor:default}
+.viewer-transport-line{flex:0 1 auto;min-width:0;width:10em;padding:0 4px;color:var(--vscode-descriptionForeground,#999);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.viewer-transport .viewer-scale-row{flex:none;width:auto}
+.viewer-transport .viewer-scale-btn{flex:none;padding:4px 7px;border-radius:99em}
 .viewer-backend{display:inline-flex;align-items:center;gap:4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;cursor:default}
 .viewer-backend::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--vscode-descriptionForeground,#999)}
 .viewer-backend[data-backend="WebGPU"]::before{background:var(--vscode-focusBorder,#03d5ff)}
@@ -185,25 +192,30 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 /* --- Phones and tablets ------------------------------------------------------
    Mobile browsers' 100vh is the height with the toolbars hidden, so a vh cap lets the
    panels run under the address bar; dvh tracks what is actually visible. */
-@supports (height:100dvh){:root{--viewer-panel-max:min(40dvh,calc((100dvh - 140px)/2))}.viewer-ui:has(.viewer-capture:not(.collapsed)){--viewer-panel-max:min(32dvh,calc((100dvh - 185px)/3))}.viewer-modal{max-height:80dvh}}
+@supports (height:100dvh){.viewer-modal{max-height:80dvh}}
 /* No double-tap zoom on the UI (it would eat quick taps on +/- style controls), and a
    panel scrolled to its end doesn't drag the page along. */
 .viewer-ui,.viewer-popup,.viewer-modal-backdrop{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .viewer-body,.viewer-modal-list{overscroll-behavior:contain}
-.viewer-panel,.viewer-popup{max-width:calc(100vw - 24px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));box-sizing:border-box}
+.viewer-popup{max-width:calc(100vw - 24px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));box-sizing:border-box}
+/* The panel beside the rail (44px + the 8px gap). */
+.viewer-panel{max-width:calc(100vw - 76px - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));box-sizing:border-box}
 /* Clear the notch / home indicator where the page runs edge to edge (an installed
    web app, viewport-fit=cover); env() is 0 everywhere else, so desktop is unchanged. */
-.viewer-ui{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px))}
+.viewer-ui{top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+/* While the playback bar is up, the column ends above it (on a narrow window they would meet). */
+body:has(#viewer-transport) .viewer-ui{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
 .viewer-popup{left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(12px + env(safe-area-inset-bottom,0px))}
 .viewer-status-cancel{pointer-events:auto;flex:none;padding:5px 12px;cursor:pointer;color:inherit;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-radius:99em;font:inherit}
 /* Touch browsers keep :hover on the last element tapped, which would leave a header
    or row lit up after the tap; only a real hover lights them. */
-@media (hover:none){.viewer-header:hover,.viewer-scene-item:hover,.viewer-modal-row:hover,.viewer-menu-item:hover{background:transparent}}
+@media (hover:none){.viewer-scene-item:hover,.viewer-modal-row:hover,.viewer-menu-item:hover{background:transparent}}
 @media (max-width:600px),(max-height:500px){.viewer-popup img{max-height:28vh}.viewer-modal-backdrop{padding:12px}}
 /* Finger-sized targets where the pointer is a finger: ~32px+ hit areas, and 16px text
    in the text fields so iOS doesn't zoom the page when one is focused. */
 @media (pointer:coarse){
-.viewer-header{padding:11px 12px}
+.viewer-rail-btn{width:38px;height:38px}
+.viewer-transport .viewer-iconbtn{width:36px;height:36px}
 .viewer-iconbtn{min-width:32px;min-height:32px}
 .viewer-menu-item{padding:12px 14px}
 .viewer-rename,.viewer-xform-num{font-size:16px;padding:4px 5px}

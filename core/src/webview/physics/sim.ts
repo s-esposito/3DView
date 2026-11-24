@@ -138,7 +138,7 @@ export class World {
   }
 
   /** The object and chunk a tag belongs to, if any. */
-  owner(tag: number): { sim: Sim; chunk: number } | null {
+  private owner(tag: number): { sim: Sim; chunk: number } | null {
     for (const sim of this.objects) {
       const chunk = tag - sim.tag0;
       if (chunk >= 0 && chunk < sim.bodies.length) return { sim, chunk };

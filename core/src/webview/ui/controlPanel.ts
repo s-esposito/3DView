@@ -1,10 +1,10 @@
-// The control UI (top-right overlay): stacked, independently-collapsible panels
-// inside a #viewer-ui column — a "3DView" panel with scene-wide display controls
-// (Show / Appearance / View), a "Scene" panel below it (the item list + add menu),
-// a "Physics" panel while the scene holds a chunked object, and, once the scene holds
-// something, a "Capture" panel (Image / Video
-// sub-menus). All are thin views over the Viewer: they read `getState()` to render
-// and call Viewer setters on interaction; the Viewer owns all state.
+// The control UI. On the right (#viewer-ui), an icon rail and the one panel it has open, at
+// full height: "Scene" (the item list + add menu), "Display" (scene-wide Show / Appearance /
+// View / Camera), "Physics" while the scene holds a chunked object, "Capture" once it holds
+// anything; under them the footer (backend, version, theme). At the bottom (#viewer-transport),
+// the simulation's playback bar while there is something to simulate. All are thin views over
+// the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
+// Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction, PhysicsView } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
 import { SPLAT_RENDER_MODES } from "../splats";
@@ -38,9 +38,29 @@ const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor
 // Four-way move arrows: the per-item transform (position + rotation) disclosure.
 const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
 
-// Play / pause, for a temporal item's timeline.
+// The rail's panels: layers (Scene), sliders (Display), a ball over the ground (Physics), a
+// camera (Capture); and the playback bar's "restore" (an arrow turning back).
+const RAIL_SVG = `viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const ICON_SCENE = `<svg ${RAIL_SVG}><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>`;
+const ICON_DISPLAY = `<svg ${RAIL_SVG}><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>`;
+const ICON_PHYSICS = `<svg ${RAIL_SVG}><circle cx="12" cy="8" r="4"/><path d="M4 20h16M9 14.5l-1 2.5M15 14.5l1 2.5M12 15v2.5"/></svg>`;
+const ICON_CAPTURE = `<svg ${RAIL_SVG}><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+const ICON_RESTORE = `<svg ${RAIL_SVG}><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg>`;
+
+// Play / pause, for a temporal item's timeline and the playback bar.
 const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>`;
+
+type PanelId = "scene" | "display" | "physics" | "capture";
+/** The rail, in order: which panels exist, and when. */
+const PANELS: Array<{ id: PanelId; label: string; icon: string; shown: (s: ViewerState) => boolean }> = [
+  { id: "scene", label: "Scene", icon: ICON_SCENE, shown: () => true },
+  { id: "display", label: "Display", icon: ICON_DISPLAY, shown: () => true },
+  { id: "physics", label: "Physics", icon: ICON_PHYSICS, shown: (s) => s.physics !== null },
+  { id: "capture", label: "Capture", icon: ICON_CAPTURE, shown: (s) => s.items.length > 0 },
+];
+/** The playback bar's speeds (sim seconds per real second). */
+const SPEEDS = ["0.1", "0.25", "0.5", "1"] as const;
 
 /** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
  *  SPLAT_RENDER_MODES fails to compile until it is described here. */
@@ -51,13 +71,11 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 };
 
 export class ControlPanel {
-  // The 3DView (display) panel. On a phone-sized screen it starts folded: open, it
-  // and the Scene panel would cover most of the view; the Scene panel (with its +)
-  // stays open, as it is what a first visit needs.
-  private collapsed = matchMedia("(max-width: 600px), (max-height: 500px)").matches;
-  private sceneCollapsed = false; // the Scene panel
-  private captureCollapsed = true; // the Capture panel: out of the way until wanted
-  private physicsCollapsed = false; // the Physics panel: what a chunked object is opened for
+  /** The panel the rail has open (one at a time; none = the rail alone). Scene to begin with:
+   *  its "+" is what a first visit needs. */
+  private open: PanelId | null = "scene";
+  /** Each panel's scroll offset, kept across re-renders and panel switches. */
+  private readonly scrollTops = new Map<PanelId, number>();
   /** The Physics panel's drop height per object, metres (3 unless set), and the object it
    *  shows, kept across re-renders. */
   private readonly dropHeights = new Map<string, number>();
@@ -85,30 +103,112 @@ export class ControlPanel {
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
     // This rebuilds the UI wholesale — on every rename, remove and load — so a scrolled
-    // body would jump back to the top. Carry the offsets across, like transformOpen.
-    const scroll = Array.from(document.querySelectorAll<HTMLElement>(".viewer-body")).map(
-      (body) => body.scrollTop
-    );
+    // body would jump back to the top. Carry its offset across, like transformOpen.
+    const shown = document.querySelector<HTMLElement>("#viewer-ui .viewer-panel");
+    if (shown) {
+      this.scrollTops.set(shown.dataset.panel as PanelId, shown.querySelector(".viewer-body")!.scrollTop);
+    }
     document.getElementById("viewer-ui")?.remove();
+    document.getElementById("viewer-transport")?.remove();
+    this.physicsLines.clear(); // the lines built below re-register
+    this.playheads.clear();
     const s = this.viewer.getState();
 
+    const panels = PANELS.filter((p) => p.shown(s));
+    if (this.open && !panels.some((p) => p.id === this.open)) {
+      this.open = "scene"; // its panel went (the last chunked object, the last item)
+    }
+    const dock = document.createElement("div");
+    dock.className = "viewer-dock";
+    if (this.open) {
+      dock.append(this.buildPanel(this.open, s));
+    }
+    dock.append(this.buildRail(panels));
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
-    const physicsPanel = this.buildPhysicsPanel(s);
-    if (physicsPanel) {
-      ui.append(physicsPanel);
-    }
-    const capturePanel = this.buildCapturePanel(s);
-    if (capturePanel) {
-      ui.append(capturePanel);
-    }
-    ui.append(buildFooter(s.backend));
+    ui.append(dock, buildFooter(s.backend, this.buildThemeSwitcher(s)));
     document.body.appendChild(ui);
-    ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
-      body.scrollTop = scroll[i] ?? 0;
-    });
+    const body = ui.querySelector<HTMLElement>(".viewer-body");
+    if (body && this.open) {
+      body.scrollTop = this.scrollTops.get(this.open) ?? 0;
+    }
+    if (s.physics) {
+      document.body.appendChild(this.buildTransport(s.physics));
+    }
+  }
+
+  private buildPanel(id: PanelId, s: ViewerState): HTMLElement {
+    switch (id) {
+      case "scene":
+        return this.panelFrame(id, "Scene", sceneSummary(s), this.buildSceneBody(s), this.buildAddMenu());
+      case "display":
+        return this.panelFrame(id, "Display", null, this.buildDisplayBody(s));
+      case "physics":
+        return this.panelFrame(id, "Physics", null, this.buildPhysicsBody(s.physics!));
+      case "capture":
+        return this.panelFrame(id, "Capture", null, this.buildCaptureBody(s));
+    }
+  }
+
+  /** The rail: one button per panel; a click opens it (closing the other), or closes it. */
+  private buildRail(panels: typeof PANELS): HTMLElement {
+    const rail = document.createElement("div");
+    rail.className = "viewer-rail";
+    rail.setAttribute("role", "toolbar");
+    rail.setAttribute("aria-label", "Panels");
+    rail.setAttribute("aria-orientation", "vertical");
+    for (const p of panels) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "viewer-rail-btn";
+      btn.innerHTML = p.icon;
+      btn.title = p.label;
+      btn.setAttribute("aria-label", p.label);
+      btn.setAttribute("aria-pressed", String(this.open === p.id));
+      btn.addEventListener("click", () => {
+        this.open = this.open === p.id ? null : p.id;
+        this.render();
+      });
+      rail.append(btn);
+    }
+    return rail;
+  }
+
+  /** A panel: its title row (title, subtitle, an action such as the Scene "+") over a body
+   *  that scrolls by itself — the only scroll box, so the panel never outgrows the window. */
+  private panelFrame(
+    id: PanelId,
+    title: string,
+    subtitle: string | null,
+    body: HTMLElement,
+    action?: HTMLElement
+  ): HTMLElement {
+    const panel = document.createElement("div");
+    panel.className = "viewer-panel";
+    panel.dataset.panel = id;
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", title);
+    const header = document.createElement("div");
+    header.className = "viewer-header";
+    const titles = document.createElement("div");
+    titles.className = "viewer-titles";
+    const titleEl = document.createElement("span");
+    titleEl.className = "viewer-title";
+    titleEl.textContent = title;
+    titles.append(titleEl);
+    if (subtitle !== null) {
+      const sub = document.createElement("span");
+      sub.className = "viewer-sub";
+      sub.textContent = subtitle;
+      titles.append(sub);
+    }
+    header.append(titles);
+    if (action) {
+      header.append(action);
+    }
+    panel.append(header, body);
+    return panel;
   }
 
   /** Rewrite a physics status line, a chunked object's or (``id`` null) the simulation's (the
@@ -122,84 +222,9 @@ export class ControlPanel {
     this.playheads.get(id)?.(frame);
   }
 
-  /** A collapsible panel header: chevron + title (+ optional subtitle + action). */
-  private header(
-    panel: HTMLElement,
-    title: string,
-    subtitle: string | null,
-    toggle: () => void,
-    action?: HTMLElement
-  ): HTMLElement {
-    const header = document.createElement("div");
-    header.className = "viewer-header";
-    header.title = "Collapse / expand";
-    // Expose the header as a real toggle button to keyboard / screen-reader users:
-    // focusable, announced as a button, with its collapsed state in aria-expanded.
-    header.setAttribute("role", "button");
-    header.tabIndex = 0;
-    header.setAttribute("aria-label", `${title} panel`);
-    header.setAttribute("aria-expanded", String(!panel.classList.contains("collapsed")));
-
-    const chevron = document.createElement("span");
-    chevron.className = "viewer-chevron";
-    chevron.textContent = "▾";
-    chevron.setAttribute("aria-hidden", "true"); // decorative; aria-expanded conveys state
-
-    const titles = document.createElement("div");
-    titles.className = "viewer-titles";
-    const titleEl = document.createElement("span");
-    titleEl.className = "viewer-title";
-    titleEl.textContent = title;
-    titles.append(titleEl);
-    if (subtitle !== null) {
-      const sub = document.createElement("span");
-      sub.className = "viewer-sub";
-      sub.textContent = subtitle;
-      titles.append(sub);
-    }
-
-    header.append(chevron, titles);
-    if (action) {
-      // The action (e.g. the "+" menu) stops its own click from bubbling here.
-      header.append(action);
-    }
-    const flip = () => {
-      toggle();
-      const collapsed = panel.classList.toggle("collapsed");
-      header.setAttribute("aria-expanded", String(!collapsed));
-    };
-    header.addEventListener("click", flip);
-    header.addEventListener("keydown", (e) => {
-      // Only the header itself toggles; ignore keys bubbling from the action (the
-      // "+" menu button is independently focusable and handles its own keys).
-      if (e.target !== header || (e.key !== "Enter" && e.key !== " ")) {
-        return;
-      }
-      e.preventDefault(); // Space would otherwise scroll the page
-      flip();
-    });
-    return header;
-  }
-
-  /** The 3DView panel: scene-wide display controls. */
-  private buildDisplayPanel(s: ViewerState): HTMLElement {
-    const panel = document.createElement("div");
-    panel.className = this.collapsed ? "viewer-panel collapsed" : "viewer-panel";
-    panel.append(
-      this.header(panel, "3DView", null, () => {
-        this.collapsed = !this.collapsed;
-      }),
-      collapseWrap(this.buildDisplayBody(s))
-    );
-    return panel;
-  }
-
   private buildDisplayBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
-
-    // Theme — light/dark/dim color scheme for the UI and the 3D viewport.
-    body.append(section("Theme", [this.buildThemeSwitcher(s)]));
 
     // Show — scene-wide visibility toggles, only for content that exists.
     const toggles = document.createElement("div");
@@ -288,15 +313,19 @@ export class ControlPanel {
       body.append(section("Appearance", appearance));
     }
 
-    // View — orientation + reset.
-    body.append(
-      section("View", [
-        checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
-          this.viewer.setOrientation(on ? "upright" : "raw")
-        ),
-        button(keyed("Reset view", "R"), () => this.viewer.resetView(), true),
-      ])
-    );
+    // View — orientation, following a simulation, reset.
+    const view: HTMLElement[] = [
+      checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
+        this.viewer.setOrientation(on ? "upright" : "raw")
+      ),
+    ];
+    if (s.physics) {
+      const follow = checkbox("Follow the pieces", s.physics.follow, (on) => this.viewer.setPhysicsFollow(on));
+      follow.title = "Keep the camera on the object last acted on while its pieces move";
+      view.push(follow);
+    }
+    view.push(button(keyed("Reset view", "R"), () => this.viewer.resetView(), true));
+    body.append(section("View", view));
 
     // Camera — controls OrbitControls' drag can't reach: perspective FOV and a
     // roll (tilt) about the view axis. Reset snaps both sliders back to default.
@@ -329,57 +358,60 @@ export class ControlPanel {
 
   /**
    * The Physics panel, while the scene holds a chunked object (an .npz from
-   * GenerativeReconstruction's export_chunks.py). Simulation: the scene's clock and settings
-   * (every object shares one world, so they collide). Object: one object's line and actions,
-   * picked from a dropdown when there are several. The first action calibrates every object's
-   * welds (~7 simulated seconds each, with progress on its line).
+   * GenerativeReconstruction's export_chunks.py). World: what every object shares (they are
+   * in one world, so they collide); its clock is the playback bar. Object: one object's line
+   * and actions, picked from a dropdown when there are several. The first action calibrates
+   * every object's welds (~7 simulated seconds each, with progress on its line).
    */
-  private buildPhysicsPanel(s: ViewerState): HTMLElement | null {
-    this.physicsLines.clear();
-    const p = s.physics;
-    if (!p) {
-      return null;
-    }
+  private buildPhysicsBody(p: PhysicsView): HTMLElement {
     const item = p.objects.find((o) => o.id === this.physicsObject) ?? p.objects[0];
     this.physicsObject = item.id;
-    const body = document.createElement("div");
-    body.className = "viewer-body";
-    body.append(this.buildSimulationSection(p), this.buildPhysicsObject(item, p.objects));
-    const panel = document.createElement("div");
-    panel.className = this.physicsCollapsed ? "viewer-panel collapsed" : "viewer-panel";
-    panel.append(
-      this.header(panel, "Physics", null, () => {
-        this.physicsCollapsed = !this.physicsCollapsed;
-      }),
-      collapseWrap(body)
-    );
-    return panel;
-  }
-
-  private buildSimulationSection(p: PhysicsView): HTMLElement {
-    const line = hint(p.status);
-    this.physicsLines.set("", (status) => {
-      line.textContent = status;
-    });
-    const busy = p.objects.some((o) => o.busy);
-    const play = button(p.running ? "Pause" : "Play", () => this.viewer.playPhysics(!p.running));
-    play.title = "Run every object (the first time calibrates their welds)";
-    const reset = button("Reset all", () => this.viewer.resetPhysics());
-    reset.title = "Every object back to rest, whole";
-    play.disabled = reset.disabled = busy;
-    const row = document.createElement("div");
-    row.className = "viewer-scale-row";
-    row.append(play, reset);
-    const speed = slider("Speed", 0.1, 1, 0.05, p.speed, (v) => this.viewer.setPhysicsSpeed(v),
-      (v) => `${Number(v.toFixed(2))}×`);
-    speed.title = "Slow motion: the same steps, fewer a second (the outcome does not change)";
     const gravity = slider("Gravity (m/s²)", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
       (v) => v.toFixed(1));
     gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
-    const follow = checkbox("Follow the pieces", p.follow, (on) => this.viewer.setPhysicsFollow(on));
-    follow.title = "Keep the camera on the object last acted on while its pieces move";
-    return section("Simulation", [line, row, speed, gravity, follow,
-      hint("Click a piece to shoot it · shift-click to blast there")]);
+    const body = document.createElement("div");
+    body.className = "viewer-body";
+    body.append(
+      section("World", [gravity, hint("Click a piece to shoot it · shift-click to blast there")]),
+      this.buildPhysicsObject(item, p.objects)
+    );
+    return body;
+  }
+
+  /** The simulation's playback bar (bottom centre): play / pause, restore every object, its
+   *  line (updated in place), and the speed. */
+  private buildTransport(p: PhysicsView): HTMLElement {
+    const bar = document.createElement("div");
+    bar.id = "viewer-transport";
+    bar.className = "viewer-transport";
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "Simulation");
+    const busy = p.objects.some((o) => o.busy);
+    const play = document.createElement("button");
+    play.className = "viewer-iconbtn";
+    play.innerHTML = p.running ? ICON_PAUSE : ICON_PLAY;
+    play.title = p.running ? "Pause the simulation" : "Play the simulation (the first time calibrates every object's welds)";
+    play.addEventListener("click", () => this.viewer.playPhysics(!p.running));
+    const restore = document.createElement("button");
+    restore.className = "viewer-iconbtn";
+    restore.innerHTML = ICON_RESTORE;
+    restore.title = "Restore all: every object back to rest, whole";
+    restore.addEventListener("click", () => this.viewer.resetPhysics());
+    play.disabled = restore.disabled = busy;
+    const line = document.createElement("span");
+    line.className = "viewer-transport-line";
+    line.textContent = p.status;
+    this.physicsLines.set("", (status) => {
+      line.textContent = status;
+    });
+    const speed = choiceRow(
+      SPEEDS.map((v) => ({ label: `${v}×`, value: v, title: v === "1" ? "Real time" : "Slow motion: the same steps, fewer a second" })),
+      SPEEDS.find((v) => Number(v) === p.speed) ?? "1",
+      (v) => this.viewer.setPhysicsSpeed(Number(v))
+    );
+    speed.setAttribute("aria-label", "Speed");
+    bar.append(play, restore, line, speed);
+    return bar;
   }
 
   private buildPhysicsObject(item: PhysicsItem, objects: PhysicsItem[]): HTMLElement {
@@ -444,10 +476,7 @@ export class ControlPanel {
    * kind is a sub-menu of its own (video only for a reconstruction with a camera
    * path to fly, i.e. two cameras or more).
    */
-  private buildCapturePanel(s: ViewerState): HTMLElement | null {
-    if (s.items.length === 0) {
-      return null;
-    }
+  private buildCaptureBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
 
@@ -477,18 +506,7 @@ export class ControlPanel {
       const rows = this.buildVideoRows(withPath);
       body.append(subsection("Video", open.video, (o) => (open.video = o), rows));
     }
-
-    const panel = document.createElement("div");
-    panel.className = this.captureCollapsed
-      ? "viewer-panel viewer-capture collapsed"
-      : "viewer-panel viewer-capture";
-    panel.append(
-      this.header(panel, "Capture", null, () => {
-        this.captureCollapsed = !this.captureCollapsed;
-      }),
-      collapseWrap(body)
-    );
-    return panel;
+    return body;
   }
 
   /**
@@ -592,16 +610,13 @@ export class ControlPanel {
     return seg;
   }
 
-  /** The Scene panel: a "+" add menu in the header + the item list as the body. */
-  private buildScenePanel(s: ViewerState): HTMLElement {
-    const panel = document.createElement("div");
-    panel.className = this.sceneCollapsed ? "viewer-panel collapsed" : "viewer-panel";
-
+  /** The Scene panel's "+" add menu (its header's action). */
+  private buildAddMenu(): HTMLElement {
     // One entry per loadable kind. The asset entries differ only in how the host
     // filters its file picker — what a file actually is comes from the file itself
     // (a .ply is a mesh, a point cloud or a splat, by what is in it), so a "wrong"
     // entry still loads it.
-    const add = menuButton("+", "Add to scene", [
+    return menuButton("+", "Add to scene", [
       { label: "COLMAP", onClick: () => this.viewer.requestAdd("colmap") },
       // The same, zipped — only where the host can unzip (a phone can't pick the
       // project folder its model and images span).
@@ -616,26 +631,11 @@ export class ControlPanel {
       // way in where a host's file dialog can't select several files at once.
       { label: "Asset folder", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
-
-    panel.append(
-      this.header(
-        panel,
-        "Scene",
-        sceneSummary(s),
-        () => {
-          this.sceneCollapsed = !this.sceneCollapsed;
-        },
-        add
-      ),
-      collapseWrap(this.buildSceneBody(s))
-    );
-    return panel;
   }
 
   private buildSceneBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
-    this.playheads.clear(); // the rows below re-register the ones that still exist
 
     if (s.items.length === 0) {
       const empty = document.createElement("div");
@@ -847,23 +847,6 @@ function fmtGlue(k: number): string {
   return k < 1 ? k.toFixed(1) : k < 10 ? k.toFixed(1).replace(/\.0$/, "") : String(Math.round(k));
 }
 
-/**
- * Wrap a panel body so the `.collapsed` grid-rows transition animates its height.
- * The grid's child must be a padding-free clip layer (`.viewer-clip`): the padded
- * `.viewer-body` itself can't be the grid item, because an item's padding is added
- * to its min-content size and floors the `0fr` row at ~18px (the panel then never
- * closes fully). The padding lives on the grandchild instead.
- */
-function collapseWrap(body: HTMLElement): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "viewer-collapse";
-  const clip = document.createElement("div");
-  clip.className = "viewer-clip";
-  clip.append(body);
-  wrap.append(clip);
-  return wrap;
-}
-
 /** A row of "1×", "2×", … buttons that each start a render at that scale. */
 function scaleButtons(
   scales: number[],
@@ -894,8 +877,8 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
 }
 
 /** The caption row under the panels: which GPU backend draws the scene (once the
- *  renderer is up), then the build's version. */
-function buildFooter(backend: ViewerState["backend"]): HTMLElement {
+ *  renderer is up), the build's version, and the theme switcher. */
+function buildFooter(backend: ViewerState["backend"], theme: HTMLElement): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "viewer-foot";
   if (backend) {
@@ -909,7 +892,7 @@ function buildFooter(backend: ViewerState["backend"]): HTMLElement {
         : "WebGPU isn't available here — rendering with the WebGL2 fallback";
     foot.append(el);
   }
-  foot.append(buildVersion());
+  foot.append(buildVersion(), theme);
   return foot;
 }
 

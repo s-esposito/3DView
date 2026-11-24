@@ -21,7 +21,7 @@ and a **browser demo**, over one shared core.
   (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
   A `.ply` is auto-detected as a mesh, a point cloud or a splat, including the
   PlayCanvas / SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
-  of the 3DView panel: **Splats** (default) — true Gaussian splatting through Spark's
+  of the **Display** panel: **Splats** (default) — true Gaussian splatting through Spark's
   renderer, sorted per viewpoint with spherical harmonics; **Ellipsoids** — each
   Gaussian as a solid oriented ellipsoid, to see the primitives as data; and
   **Points** — bare centers, the cheap fallback for huge scenes.
@@ -50,9 +50,10 @@ and a **browser demo**, over one shared core.
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
-- **Adjust** — from the **3DView** panel: point size, frustum size / line width /
-  color, and camera field of view and roll. Rename, hide and remove scene items from
-  the **Scene** panel.
+- **Adjust** — the icon rail on the right opens one panel at a time (**Scene**,
+  **Display**, **Physics**, **Capture**). From **Display**: point size, frustum size /
+  line width / color, and camera field of view and roll. Rename, hide and remove scene
+  items from the **Scene** panel. The theme (light / dark / dim) is in the footer.
 - **Export** — from the **Capture** panel: a transparent PNG of the current view at
   **1× / 2× / 4×** (**Image**), and a video flying through a reconstruction's
   cameras in image-name order, with optional in-between frames, a loop back to the

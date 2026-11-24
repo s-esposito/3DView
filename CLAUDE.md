@@ -174,9 +174,11 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            -> Viewer.physicsClick). The layer's box follows the pieces;
                            with Follow on the camera eases toward the median chunk of the
                            object last acted on, and snaps back to rest on its Reset/Drop/
-                           preset. UI: the Physics panel (controlPanel's buildPhysicsPanel):
-                           Simulation section + one Object section (a <select> picks it when
-                           there are several); lines updated in place via Viewer.onPhysics
+                           preset. UI: the playback bar (controlPanel's buildTransport:
+                           Play/Pause, Restore all, the line, speed) and the Physics panel
+                           (buildPhysicsBody: World — gravity — + one Object section, a
+                           <select> picking it when there are several); Follow is in
+                           Display's View; lines updated in place via Viewer.onPhysics
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,
@@ -196,9 +198,11 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     textures.ts          ThumbnailLoader: concurrency-limited, downscaling
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
-    ui/                  styles.ts, components.ts, controlPanel.ts (Scene list +
-                         per-item timeline), overlays.ts (InfoPopup, model chooser,
-                         temporal-grouping prompt)
+    ui/                  styles.ts, components.ts, controlPanel.ts (the icon rail +
+                         the ONE panel it has open — Scene list + per-item timeline,
+                         Display, Physics, Capture — the footer with the theme, and
+                         the simulation's playback bar), overlays.ts (InfoPopup, model
+                         chooser, temporal-grouping prompt)
   test/                  pure unit tests, run under `node --test`: colmap.test.ts
                          (parsers/poses/grouping), builders.test.ts (bounds + scene
                          math), splats.test.ts (3DGS render-mode geometry),
@@ -487,13 +491,14 @@ routinely carries `dense/fused.ply` and friends.
   because the host only ever builds URIs for opened content (mesh files; images
   under a model's dir, path-escape-guarded). Don't narrow `rootsFor` back to exact
   folders — it reintroduces the reload-on-add bug.
-- **A panel scrolls in its body, and nowhere else.** Every host sets
+- **One panel at a time, scrolling in its body and nowhere else.** Every host sets
   `html,body{overflow:hidden}`, so anything a panel pushes past the viewport is
-  unreachable: `.viewer-body` carries the `--viewer-panel-max` cap and the scroller
-  (the rule's own comment in `styles.ts` has why it must be that box, and why the cap
-  is halved-viewport rather than a flat 40vh). `ControlPanel.render()` rebuilds the
-  whole UI, so it carries each body's `scrollTop` across — like `transformOpen` and
-  `playheads`.
+  unreachable. The rail opens one panel (`ControlPanel.open`); the column runs from top
+  to bottom of the window (above the playback bar while it is up) and the open panel's
+  `.viewer-body` is its only scroller (a flex child with `min-height:0`). Don't bring
+  back stacked panels with a shared height budget: four of them pushed Capture
+  off-screen at 1100x800. `ControlPanel.render()` rebuilds the whole UI, so it carries
+  each panel's `scrollTop` across — like `transformOpen` and `playheads`.
 - **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
   camera only when the scene was empty; adding to an existing scene keeps the
   user's current view. `resetView()` (R) is the explicit re-fit. A host may set a
