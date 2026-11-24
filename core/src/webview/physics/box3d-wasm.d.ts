@@ -34,6 +34,9 @@ interface Box3dBody {
   getWorldPoint(local: Box3dVec3): Box3dVec3;
   getMass(): number;
   setAwake(awake: boolean): void;
+  isAwake(): boolean;
+  /** Remove the body, its shapes and joints from the world. */
+  destroy(): void;
 }
 
 interface Box3dJoint {
@@ -51,6 +54,7 @@ interface Box3dWorld {
     localFrameB: { position: Box3dVec3; rotation: Box3dQuat };
   }): Box3dJoint;
   step(dt: number, substeps: number): void;
+  setGravity(gravity: Box3dVec3): void;
   getAwakeBodyCount(): number;
   /** Hits (shapes created with enableHitEvents) in the last step, with their approach speed. */
   getContactEvents(): {

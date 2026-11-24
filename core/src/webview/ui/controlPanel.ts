@@ -5,7 +5,7 @@
 // something, a "Capture" panel (Image / Video
 // sub-menus). All are thin views over the Viewer: they read `getState()` to render
 // and call Viewer setters on interaction; the Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction } from "../viewer";
+import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction, PhysicsView } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
@@ -14,6 +14,7 @@ import {
   subsection,
   hint,
   checkbox,
+  selectRow,
   slider,
   colorRow,
   button,
@@ -57,10 +58,12 @@ export class ControlPanel {
   private sceneCollapsed = false; // the Scene panel
   private captureCollapsed = true; // the Capture panel: out of the way until wanted
   private physicsCollapsed = false; // the Physics panel: what a chunked object is opened for
-  /** The Physics panel's drop height, metres, kept across re-renders. */
-  private dropHeight = 3;
-  /** How to rewrite each chunked object's status line, by item id — repopulated on every
-   *  render, so a running simulation updates the line instead of rebuilding the panel. */
+  /** The Physics panel's drop height per object, metres (3 unless set), and the object it
+   *  shows, kept across re-renders. */
+  private readonly dropHeights = new Map<string, number>();
+  private physicsObject = "";
+  /** How to rewrite each physics status line, by item id ("" = the simulation's) — repopulated
+   *  on every render, so a running simulation updates the lines instead of rebuilding the panel. */
   private readonly physicsLines = new Map<string, (status: string) => void>();
   /** Which Capture sub-menus are open, kept across panel re-renders. */
   private readonly captureOpen = { image: true, video: true };
@@ -108,9 +111,10 @@ export class ControlPanel {
     });
   }
 
-  /** Rewrite a chunked object's status line (the Viewer's onPhysics, while it runs). */
-  setPhysicsStatus(id: string, status: string): void {
-    this.physicsLines.get(id)?.(status);
+  /** Rewrite a physics status line, a chunked object's or (``id`` null) the simulation's (the
+   *  Viewer's onPhysics, while it runs). */
+  setPhysicsStatus(id: string | null, status: string): void {
+    this.physicsLines.get(id ?? "")?.(status);
   }
 
   /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
@@ -325,23 +329,22 @@ export class ControlPanel {
 
   /**
    * The Physics panel, while the scene holds a chunked object (an .npz from
-   * GenerativeReconstruction's export_chunks.py): per object a live status line, then play /
-   * pause, a drop from the set height, and a reset to rest. The first play or drop calibrates
-   * the welds (~7 simulated seconds, with progress on the line).
+   * GenerativeReconstruction's export_chunks.py). Simulation: the scene's clock and settings
+   * (every object shares one world, so they collide). Object: one object's line and actions,
+   * picked from a dropdown when there are several. The first action calibrates every object's
+   * welds (~7 simulated seconds each, with progress on its line).
    */
   private buildPhysicsPanel(s: ViewerState): HTMLElement | null {
     this.physicsLines.clear();
-    if (s.physics.length === 0) {
+    const p = s.physics;
+    if (!p) {
       return null;
     }
+    const item = p.objects.find((o) => o.id === this.physicsObject) ?? p.objects[0];
+    this.physicsObject = item.id;
     const body = document.createElement("div");
     body.className = "viewer-body";
-    for (const item of s.physics) {
-      body.append(this.buildPhysicsSection(item, s.physics.length > 1));
-    }
-    const follow = checkbox("Follow the pieces", s.physicsFollow, (on) => this.viewer.setPhysicsFollow(on));
-    follow.title = "Keep the camera on the object as its pieces move";
-    body.append(section("View", [follow, hint("Click a piece to shoot it · shift-click to blast there")]));
+    body.append(this.buildSimulationSection(p), this.buildPhysicsObject(item, p.objects));
     const panel = document.createElement("div");
     panel.className = this.physicsCollapsed ? "viewer-panel collapsed" : "viewer-panel";
     panel.append(
@@ -353,27 +356,48 @@ export class ControlPanel {
     return panel;
   }
 
-  private buildPhysicsSection(item: PhysicsItem, named: boolean): HTMLElement {
+  private buildSimulationSection(p: PhysicsView): HTMLElement {
+    const line = hint(p.status);
+    this.physicsLines.set("", (status) => {
+      line.textContent = status;
+    });
+    const busy = p.objects.some((o) => o.busy);
+    const play = button(p.running ? "Pause" : "Play", () => this.viewer.playPhysics(!p.running));
+    play.title = "Run every object (the first time calibrates their welds)";
+    const reset = button("Reset all", () => this.viewer.resetPhysics());
+    reset.title = "Every object back to rest, whole";
+    play.disabled = reset.disabled = busy;
+    const row = document.createElement("div");
+    row.className = "viewer-scale-row";
+    row.append(play, reset);
+    const speed = slider("Speed", 0.1, 1, 0.05, p.speed, (v) => this.viewer.setPhysicsSpeed(v),
+      (v) => `${Number(v.toFixed(2))}×`);
+    speed.title = "Slow motion: the same steps, fewer a second (the outcome does not change)";
+    const gravity = slider("Gravity (m/s²)", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
+      (v) => v.toFixed(1));
+    gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
+    const follow = checkbox("Follow the pieces", p.follow, (on) => this.viewer.setPhysicsFollow(on));
+    follow.title = "Keep the camera on the object last acted on while its pieces move";
+    return section("Simulation", [line, row, speed, gravity, follow,
+      hint("Click a piece to shoot it · shift-click to blast there")]);
+  }
+
+  private buildPhysicsObject(item: PhysicsItem, objects: PhysicsItem[]): HTMLElement {
     const line = hint(item.status);
     this.physicsLines.set(item.id, (status) => {
       line.textContent = status;
     });
-    const run = (action: PhysicsAction) => () =>
-      this.viewer.runPhysics(item.id, action, this.dropHeight);
-    const busy = item.state === "calibrating";
-    const play = item.state === "running" ? button("Pause", run("pause")) : button("Play", run("play"));
+    const height = this.dropHeights.get(item.id) ?? 3;
+    const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height);
     const drop = button("Drop", run("drop"));
     drop.title = "Lift it to the drop height, tilted, and let it fall";
     const reset = button("Reset", run("reset"));
-    reset.title = "Back to rest, whole";
-    for (const b of [play, drop, reset]) {
-      b.disabled = busy;
-    }
+    reset.title = "This object back to rest, whole, where it is placed";
     const row = document.createElement("div");
     row.className = "viewer-scale-row";
-    row.append(play, drop, reset);
-    const height = slider("Drop height (m)", 0, 4, 0.1, this.dropHeight, (v) => {
-      this.dropHeight = v;
+    row.append(drop, reset);
+    const heightRow = slider("Drop height (m)", 0, 4, 0.1, height, (v) => {
+      this.dropHeights.set(item.id, v);
     });
     // Glue on a log scale (0.3x to 300x the load each weld carries at rest): the object
     // stands above 1x; shatter's top step is "off".
@@ -394,13 +418,24 @@ export class ControlPanel {
       ["volley", "Volley", "Five shots through it from here"],
       ["crumble", "Crumble", "The glue vanishes"],
     ];
+    const actions = [drop, reset];
     for (const [name, label, title] of presetCopy) {
       const b = button(label, () => this.viewer.physicsPreset(item.id, name));
       b.title = `${title} (from rest, default glue)`;
-      b.disabled = busy;
       presets.append(b);
+      actions.push(b);
     }
-    return section(named ? item.label : "Simulation", [line, row, height, glue, shatter, presets]);
+    for (const b of actions) {
+      b.disabled = item.busy;
+    }
+    const picker = objects.length > 1
+      ? [selectRow("Object", objects.map((o) => ({ label: o.label, value: o.id })), item.id, (id) => {
+        this.physicsObject = id;
+        this.render();
+      })]
+      : [];
+    return section(objects.length > 1 ? "Object" : item.label,
+      [...picker, line, row, heightRow, glue, shatter, presets]);
   }
 
   /**

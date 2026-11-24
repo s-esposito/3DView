@@ -135,9 +135,12 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          first draw, re-uploaded in place when a sequence swaps a frame)
     physics/             (exp/physics) a chunked object breaking apart:
       box3d.ts             loadBox3d(): the vendored box3d-wasm, compiled on first use
-      sim.ts               Sim: one rigid body per chunk (its voxels merged into boxes), a
-                           weld per pair of touching chunks broken by load per area, weld
-                           strengths calibrated from the object's own settled loads;
+      sim.ts               World: one box3d world + the ground, stepped as one, holding any
+                           number of objects that collide; hits, rays and blasts routed back
+                           by tag range. Sim: one object in it — one rigid body per chunk
+                           (its voxels merged into boxes), a weld per pair of touching chunks
+                           broken by load per area, weld strengths calibrated from the
+                           object's own settled loads (alone, in a World of its own);
                            brittle impacts, blasts, shots, unglue. PhysicsScene = the
                            chunked object (what GenerativeReconstruction's export_chunks.py
                            writes). No DOM: test/physics.test.ts runs it under node
@@ -151,23 +154,29 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            the scene's data frame is COLMAP's (y down) and the root's
                            Upright flip turns it back. Always drawn as splats (the layer's
                            isChunked, not isSplat: the 3DGS render mode does not apply)
-      run.ts               PhysicsRun (AssetLayer.physics): the Sim behind one chunked
-                           object, created + calibrated on first play/drop (in 30 ms slices,
-                           progress on the panel's line), stepped by Viewer.advancePhysics
-                           on a fixed clock (<= 3 steps a frame), bodies' transforms copied
-                           onto the chunk SplatObjects. While any body is awake the viewer
+      run.ts               PhysicsRuntime (the Viewer's): the scene's World, its clock (fixed
+                           steps, <= 3 a frame, times Speed), gravity, Play/Pause/Reset all.
+                           PhysicsRun (AssetLayer.physics, added to the runtime): one chunked
+                           object — on the first action every object calibrates (30 ms
+                           slices, progress on its line) and joins the World where its item
+                           is placed (pose = T⁻¹ M T, the group's turn T conjugating the
+                           item matrix M; scale not simulated; moving the item resets it
+                           there). Bodies' transforms are copied onto the chunk SplatObjects
+                           out of the World's frame. While any body is awake the viewer
                            draws and re-sorts the splats (SplatDrawer.requestSort: Radix
-                           re-sorts by itself only on camera motion); asleep, it idles.
-                           A run whose chunks moved < 1 cm / 2° in a second of sim time is
-                           put to sleep (box3d can keep a welded piece creeping for ever);
-                           a chunk past the ground's edge (Sim.lost) is hidden. Presets
-                           (drop/shatter/explode/volley/crumble) start from rest at the
-                           default glue; a click on the object shoots it, shift-click blasts
-                           (CameraInteraction.onMiss -> Viewer.physicsClick). The layer's box
-                           follows the pieces (extent); with Follow on the camera eases
-                           toward the median chunk and snaps back to rest on Reset/Drop/preset.
-                           UI: the Physics panel (controlPanel's buildPhysicsPanel), its
-                           status line updated in place through Viewer.onPhysics
+                           re-sorts by itself only on camera motion); asleep, it idles. A
+                           second of sim time in which no chunk moved 1 cm / turned 2° puts
+                           the World to sleep (box3d can keep a welded piece creeping for
+                           ever); a chunk past the ground's edge (Sim.lost) is hidden.
+                           Per object: Drop, Reset, glue, shatter, presets (shatter/explode/
+                           volley/crumble, from rest at the default glue); a click shoots the
+                           first chunk on the ray, shift-click blasts (CameraInteraction.onMiss
+                           -> Viewer.physicsClick). The layer's box follows the pieces;
+                           with Follow on the camera eases toward the median chunk of the
+                           object last acted on, and snaps back to rest on its Reset/Drop/
+                           preset. UI: the Physics panel (controlPanel's buildPhysicsPanel):
+                           Simulation section + one Object section (a <select> picks it when
+                           there are several); lines updated in place via Viewer.onPhysics
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,

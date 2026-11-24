@@ -119,6 +119,8 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
    .viewer-action, so labels and their controls line up down a section. */
 .viewer-slider{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr) 30px;align-items:center;gap:8px}
 .viewer-slider-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewer-select-row{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr);align-items:center;gap:8px}
+.viewer-select{min-width:0;padding:5px 6px;border:none;border-radius:8px;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);font:inherit;cursor:pointer}
 .viewer-slider-val{text-align:right;color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
 .viewer-slider input{width:100%;min-width:0;margin:0;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
 .viewer-colorrow{display:flex;align-items:center;justify-content:space-between;margin-top:12px;cursor:pointer}

@@ -1,5 +1,6 @@
-// Physics P2/P3: a chunked object (export_chunks.py's .npz) decoded and built at rest — one
-// SplatObject per chunk where its body starts — and its physics run (P3) moving those chunks.
+// Physics P2-P4b: a chunked object (export_chunks.py's .npz) decoded and built at rest — one
+// SplatObject per chunk where its body starts — and its physics run moving those chunks, alone or
+// with another object in one World (PhysicsRuntime).
 // The archive is made in memory from the synthetic blob, with SPV splats per voxel at its centre.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +14,7 @@ import {
   decodeChunkedObject,
   isChunkedObject,
 } from "../src/webview/physics/chunkedObject";
-import { PhysicsRun } from "../src/webview/physics/run";
+import { PhysicsRun, PhysicsRuntime } from "../src/webview/physics/run";
 import { presetScene } from "../src/webview/physics/voxelScene";
 
 const SPV = 2;
@@ -75,26 +76,95 @@ test("at rest: one SplatObject per chunk, at its body's rest pose, under the y-u
   assert.ok(bounds.max[1] <= 0 && bounds.min[1] > -1.01, JSON.stringify(bounds));
 });
 
-test("its physics: a drop calibrates first, then the chunks fall and the run says when it rests", async (t) => {
+/** A chunked blob built in its item group (as AssetLayer holds it), placed at ``x`` metres along
+ *  the data frame's x, with its run added to ``runtime``. */
+function blobAt(runtime: PhysicsRuntime, x = 0): { run: PhysicsRun; chunks: SplatObject[] } {
   const decoded = decodeChunkedObject(archive());
-  const { chunks } = buildChunkedObject(decoded);
+  const { object, chunks } = buildChunkedObject(decoded);
+  const item = new THREE.Group();
+  item.add(object);
+  item.position.x = x;
   const run = new PhysicsRun(decoded, chunks);
-  const seen: string[] = [];
-  run.onChange = () => seen.push(run.state);
+  runtime.add(run);
+  return { run, chunks };
+}
+/** Run the clock at 60 fps until nothing moves (or ``seconds`` pass); whether it came to rest. */
+function settle(runtime: PhysicsRuntime, seconds = 30): boolean {
+  let now = 0;
+  for (let frame = 0; frame < 60 * seconds; frame++) if (!runtime.tick((now += 1000 / 60))) return true;
+  return false;
+}
+const meanY = (chunks: SplatObject[]): number => chunks.reduce((s, c) => s + c.position.y, 0) / chunks.length;
+
+test("its physics: a drop calibrates first, then the chunks fall and the run says when it rests", async (t) => {
+  const runtime = new PhysicsRuntime();
+  const { run, chunks } = blobAt(runtime);
+  const seen: boolean[] = [];
+  runtime.onChange = () => seen.push(run.calibrating);
   const before = chunks.map((c) => c.position.y);
   await run.drop(1);
-  assert.ok(seen.includes("calibrating") && run.state === "running" && run.progress === 1, seen.join(","));
+  assert.ok(seen.includes(true) && !run.calibrating && runtime.running && run.progress === 1, seen.join(","));
   assert.ok(chunks.every((c, i) => c.position.y > before[i] + 0.9), "lifted by the drop height");
-  let now = 0, moving = true;
-  for (let frame = 0; frame < 60 * 30 && moving; frame++) moving = run.tick((now += 1000 / 60));
-  t.diagnostic(`${run.status} after ${(now / 1000).toFixed(1)} s`);
-  assert.ok(!moving, "comes to rest");
+  assert.ok(settle(runtime), "comes to rest");
+  t.diagnostic(run.status);
   assert.match(run.status, /at rest$/);
   // It fell back down: the centroid, lifted 1 m, is near its resting height (it may lie on its side).
-  const meanY = (ys: number[]) => ys.reduce((a, b) => a + b, 0) / ys.length;
-  assert.ok(meanY(chunks.map((c) => c.position.y)) < meanY(before) + 0.3, "it fell");
-  run.reset();
+  assert.ok(meanY(chunks) < before.reduce((a, b) => a + b, 0) / before.length + 0.3, "it fell");
+  runtime.resetAll();
   assert.ok(chunks.every((c, i) => Math.abs(c.position.y - before[i]) < 1e-6), "reset puts it back");
-  assert.equal(run.state, "paused");
-  run.dispose();
+  assert.ok(!runtime.running);
+  runtime.dispose();
+});
+
+test("two objects share one world: one dropped onto the other is stopped by it", async (t) => {
+  /** Seconds the upper blob, dropped 1.5 m, takes to fall 1.2 m: with the other blob below it or not. */
+  const fall = async (withBelow: boolean, gravity?: number): Promise<number> => {
+    const runtime = new PhysicsRuntime();
+    if (gravity !== undefined) runtime.setGravity(gravity);
+    if (withBelow) blobAt(runtime);
+    const above = blobAt(runtime);
+    await above.run.drop(1.5);
+    const start = meanY(above.chunks);
+    let now = 0, frame = 0;
+    for (; frame < 600 && meanY(above.chunks) > start - 1.2; frame++) runtime.tick((now += 1000 / 60));
+    runtime.dispose();
+    return frame / 60;
+  };
+  const free = await fall(false), blocked = await fall(true);
+  t.diagnostic(`falls 1.2 m in ${free.toFixed(2)} s alone, ${blocked.toFixed(2)} s onto the other`);
+  assert.ok(free < 0.6, "alone it falls freely");
+  assert.ok(blocked > free + 0.2, "the other one is in the way");
+  // At the Moon's gravity (1.62, against 9.81) a free fall takes sqrt(9.81 / 1.62) ~ 2.5x as long.
+  const moon = await fall(false, 1.62);
+  t.diagnostic(`at the Moon's gravity: ${moon.toFixed(2)} s`);
+  assert.ok(Math.abs(moon / free - 2.46) < 0.25);
+});
+
+test("an object rests where its item is placed; a reset leaves the others alone", async () => {
+  const runtime = new PhysicsRuntime();
+  const a = blobAt(runtime, 0), b = blobAt(runtime, 3);
+  const restB = b.chunks.map((c) => c.position.clone());
+  await a.run.drop(1);
+  settle(runtime);
+  // Three metres apart they never touch, so b, placed by its item, stays where it was built.
+  assert.ok(b.chunks.every((c, i) => c.position.distanceTo(restB[i]) < 0.01), "b stays put");
+  const fallenA = a.chunks.map((c) => c.position.clone());
+  b.run.reset();
+  assert.ok(a.chunks.every((c, i) => c.position.equals(fallenA[i])), "resetting b leaves a as it lies");
+  runtime.dispose();
+});
+
+test("a shot goes to the object whose chunk it meets first", async () => {
+  const runtime = new PhysicsRuntime();
+  const near = blobAt(runtime, 0), far = blobAt(runtime, 3);
+  await runtime.prepared();
+  // Along the data frame's +x from the left, at the blobs' mid-height (data y is down): `near` first.
+  const group = near.chunks[0].parent!;
+  group.updateWorldMatrix(true, false);
+  const ray = new THREE.Ray(new THREE.Vector3(-5, -0.5, 0), new THREE.Vector3(1, 0, 0));
+  assert.ok(await near.run.shoot(ray), "it hits");
+  settle(runtime);
+  assert.match(near.run.status, /pieces/);
+  assert.match(far.run.status, /^whole/);
+  runtime.dispose();
 });

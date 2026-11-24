@@ -34,7 +34,7 @@ import { TemporalLayer } from "./temporalLayer";
 import { SplatDrawer } from "./splatDrawer";
 import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
-import type { PhysicsPreset, PhysicsRun, PhysicsState } from "./physics/run";
+import { PhysicsRuntime, type PhysicsPreset, type PhysicsRun } from "./physics/run";
 import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 import { cameraPose, orderCameras, samplePath } from "./cameraPath";
@@ -159,17 +159,31 @@ export interface ViewerState {
   /** Which GPU backend draws the scene; null until the renderer is up. */
   backend: "WebGPU" | "WebGL2" | null;
   items: SceneItem[];
-  /** Every chunked object in the scene, for the Physics panel. */
-  physics: PhysicsItem[];
-  /** Whether the camera follows a chunked object while its pieces move. */
-  physicsFollow: boolean;
+  /** The scene's physics, for the Physics panel; null without a chunked object. */
+  physics: PhysicsView | null;
+}
+
+/** The scene's simulation, as the Physics panel shows it. */
+export interface PhysicsView {
+  /** Whether its clock runs. */
+  running: boolean;
+  /** Sim seconds per real second. */
+  speed: number;
+  /** m/s². */
+  gravity: number;
+  /** Whether the camera follows the object last acted on while its pieces move. */
+  follow: boolean;
+  /** "2 objects, moving", ... */
+  status: string;
+  objects: PhysicsItem[];
 }
 
 /** A chunked object's physics, as the Physics panel shows it. */
 export interface PhysicsItem {
   id: string;
   label: string;
-  state: PhysicsState;
+  /** Calibrating its welds (its actions wait). */
+  busy: boolean;
   /** "calibrating 40%", "3 pieces, largest 80%, moving", ... */
   status: string;
   /** Glue, x the load each weld carries at rest. */
@@ -178,8 +192,8 @@ export interface PhysicsItem {
   shatterSpeed: number;
 }
 
-/** What the Physics panel can ask of a chunked object. */
-export type PhysicsAction = "play" | "pause" | "reset" | "drop";
+/** What the Physics panel can ask of one chunked object. */
+export type PhysicsAction = "reset" | "drop";
 
 export class Viewer {
   /** Fired with the selected camera on POV entry, and with null on exit. */
@@ -193,9 +207,10 @@ export class Viewer {
   /** Fired as a temporal item plays, so the panel can move the playhead in place.
    *  Deliberately not onChange — that would rebuild the slider several times a second. */
   onFrame?: (id: string, frame: number) => void;
-  /** Fired with a chunked object's physics status as it changes (every step while it moves),
-   *  so the panel can update its line in place — not onChange, for the same reason as onFrame. */
-  onPhysics?: (id: string, status: string) => void;
+  /** Fired with a chunked object's physics status (``id`` null: the simulation's) as it changes
+   *  (every step while it moves), so the panel can update its lines in place — not onChange, for
+   *  the same reason as onFrame. */
+  onPhysics?: (id: string | null, status: string) => void;
   /** Fired when the "+" add action is invoked (the host opens a picker). */
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
@@ -255,10 +270,15 @@ export class Viewer {
   // several sequences advance together). Empty is the common case: the clock in
   // `animate` costs one Set size check per frame.
   private readonly playingLayers = new Set<TemporalLayer>();
-  /** Chunked objects whose bodies moved in the last frame (advancePhysics). */
-  private readonly movingPhysics = new Set<PhysicsRun>();
-  /** Whether the camera follows a chunked object while its pieces move. */
+  /** The scene's physics: every chunked object's run, in one World. */
+  private readonly physics = new PhysicsRuntime();
+  /** Whether something moved in the last frame (advancePhysics). */
+  private physicsMoving = false;
+  /** What the Physics panel was last built from (physicsChanged). */
+  private physicsShown = "";
+  /** Whether the camera follows ``followRun`` (the object last acted on) while its pieces move. */
   private followPhysics = true;
+  private followRun?: PhysicsRun;
   private playbackFps = 10;
   private lastStep = 0;
   // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
@@ -313,6 +333,7 @@ export class Viewer {
       requestRender: this.requestRender,
       onMiss: (ray, shiftKey) => this.physicsClick(ray, shiftKey),
     });
+    this.physics.onChange = () => this.physicsChanged();
 
     window.addEventListener("resize", () => this.onResize());
 
@@ -396,12 +417,18 @@ export class Viewer {
           ? "WebGPU"
           : "WebGL2"
         : null,
-      physics: this.assetLayers().flatMap((l) => {
-        const run = l.physics;
-        return run ? [{ id: l.id, label: l.label, state: run.state, status: run.status,
-          strength: run.strength, shatterSpeed: run.shatterSpeed }] : [];
-      }),
-      physicsFollow: this.followPhysics,
+      physics: this.physics.runs.length === 0 ? null : {
+        running: this.physics.running,
+        speed: this.physics.speed,
+        gravity: this.physics.gravity,
+        follow: this.followPhysics,
+        status: this.physics.status,
+        objects: this.assetLayers().flatMap((l) => {
+          const run = l.physics;
+          return run ? [{ id: l.id, label: l.label, busy: run.calibrating, status: run.status,
+            strength: run.strength, shatterSpeed: run.shatterSpeed }] : [];
+        }),
+      },
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -458,19 +485,8 @@ export class Viewer {
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
-        const run = layer.physics;
-        if (run) {
-          // The panel's line follows every change; the panel itself only a change of state.
-          let state = run.state;
-          run.onChange = () => {
-            layer.setBoxBounds(run.extent());
-            this.onPhysics?.(id, run.status);
-            if (run.state !== state) {
-              state = run.state;
-              this.onChange?.();
-            }
-            this.requestRender();
-          };
+        if (layer.physics) {
+          this.physics.add(layer.physics);
         }
         // The scene state may have changed while this was loading; a no-op otherwise.
         this.syncLayerState(layer);
@@ -701,12 +717,33 @@ export class Viewer {
     if (!run) {
       return;
     }
-    if (action === "reset" || action === "drop") this.recentre(run); // the pieces go back to rest
-    if (action === "play") void run.play();
-    else if (action === "pause") run.pause();
-    else if (action === "reset") run.reset();
+    this.followRun = run;
+    this.recentre(run); // the pieces go back to rest
+    if (action === "reset") run.reset();
     else void run.drop(height);
     this.requestRender();
+  }
+
+  /** Start or stop the simulation's clock (every object's). */
+  playPhysics(on: boolean): void {
+    if (on) void this.physics.play();
+    else this.physics.pause();
+  }
+
+  /** Every chunked object back to rest, whole; the clock stops. */
+  resetPhysics(): void {
+    if (this.followRun) this.recentre(this.followRun);
+    this.physics.resetAll();
+  }
+
+  /** Sim seconds per real second (slow motion below 1). */
+  setPhysicsSpeed(speed: number): void {
+    this.physics.setSpeed(speed);
+  }
+
+  /** m/s², down. */
+  setPhysicsGravity(g: number): void {
+    this.physics.setGravity(g);
   }
 
   /** Run a physics preset; a volley's five shots come from the camera, through the object's
@@ -716,6 +753,7 @@ export class Viewer {
     if (!run) {
       return;
     }
+    this.followRun = run;
     this.recentre(run); // a preset starts from rest
     void run.preset(name, (middle) => {
       const across = this.camera.getWorldDirection(new THREE.Vector3()).cross(this.camera.up).normalize();
@@ -760,7 +798,8 @@ export class Viewer {
   }
 
   /** A click on no camera: shoot (or, with shift, blast) the chunked object it points at, if
-   *  its ray crosses that object's current box — a click on empty space does nothing. */
+   *  its ray crosses that object's current box — a click on empty space does nothing. The shot
+   *  takes the first chunk on the ray, which may be another object's in front. */
   private physicsClick(ray: THREE.Ray, blast: boolean): void {
     const layer = this.assetLayers().find((l) => {
       if (!l.physics || !l.object.visible) {
@@ -772,8 +811,28 @@ export class Viewer {
     });
     const run = layer?.physics;
     if (run) {
+      this.followRun = run;
       void (blast ? run.blast(ray) : run.shoot(ray));
     }
+  }
+
+  /** The physics moved or changed: every object's box and line, and the simulation's line, in
+   *  place; the panel itself is rebuilt only when what it is built from changes (the clock
+   *  starting or stopping, a calibration starting or ending). */
+  private physicsChanged(): void {
+    for (const layer of this.assetLayers()) {
+      if (layer.physics) {
+        layer.setBoxBounds(layer.physics.extent());
+        this.onPhysics?.(layer.id, layer.physics.status);
+      }
+    }
+    this.onPhysics?.(null, this.physics.status);
+    const shown = `${this.physics.running} ${this.physics.runs.map((r) => r.calibrating).join()}`;
+    if (shown !== this.physicsShown) {
+      this.physicsShown = shown;
+      this.onChange?.();
+    }
+    this.requestRender();
   }
 
   /** How fast temporal items play back, in frames per second (shared by all of them). */
@@ -807,6 +866,9 @@ export class Viewer {
       layer.object.rotation.set(x, y, z);
     }
     layer.object.updateMatrix(); // bounds below read `matrix`, not the render-time one
+    if (layer instanceof AssetLayer) {
+      layer.physics?.reset(); // a chunked object rests where it is placed, whole
+    }
     this.recomputeBounds();
     this.rebuildHelpers(); // the grid + axes span the scene, so they follow
     this.refreshTextures();
@@ -831,6 +893,9 @@ export class Viewer {
     m.set(...(rowMajor as Parameters<THREE.Matrix4["set"]>));
     m.decompose(target.position, target.quaternion, target.scale);
     target.updateMatrix(); // bounds below read `matrix`, not the render-time one
+    if (target === layer.object && layer instanceof AssetLayer) {
+      layer.physics?.reset(); // a chunked object rests where it is placed, whole
+    }
     this.recomputeBounds();
     this.rebuildHelpers();
     this.refreshTextures();
@@ -864,7 +929,10 @@ export class Viewer {
       this.playingLayers.delete(layer);
     }
     if (layer instanceof AssetLayer && layer.physics) {
-      this.movingPhysics.delete(layer.physics);
+      this.physics.remove(layer.physics);
+      if (this.followRun === layer.physics) {
+        this.followRun = undefined;
+      }
     }
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
@@ -1432,25 +1500,18 @@ export class Viewer {
    * once every body sleeps the loop is idle again.
    */
   private advancePhysics(): void {
-    const now = performance.now();
-    for (const layer of this.assetLayers()) {
-      const run = layer.physics;
-      if (!run) {
-        continue;
+    if (this.physics.tick(performance.now())) {
+      this.splats?.requestSort();
+      this.needsRender = true;
+      this.physicsMoving = true;
+      this.physicsChanged();
+      if (this.followPhysics && this.followRun) {
+        // Ease the view toward its median piece, keeping the camera's offset (the prototype's).
+        this.shiftView(this.followRun.middleWorld().sub(this.controls.target).multiplyScalar(0.05));
       }
-      if (run.tick(now)) {
-        this.splats?.requestSort();
-        this.needsRender = true;
-        this.movingPhysics.add(run);
-        layer.setBoxBounds(run.extent());
-        this.onPhysics?.(layer.id, run.status);
-        if (this.followPhysics) {
-          // Ease the view toward the median piece, keeping the camera's offset (the prototype's).
-          this.shiftView(run.middleWorld().sub(this.controls.target).multiplyScalar(0.05));
-        }
-      } else if (this.movingPhysics.delete(run)) {
-        this.onPhysics?.(layer.id, run.status); // it just came to rest: say so once
-      }
+    } else if (this.physicsMoving) {
+      this.physicsMoving = false;
+      this.physicsChanged(); // it just came to rest: say so once
     }
   }
 

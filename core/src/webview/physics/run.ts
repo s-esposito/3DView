@@ -1,16 +1,17 @@
-// One chunked object's physics in the viewer: the Sim behind its chunk SplatObjects, created and
-// calibrated on first use, stepped on a fixed clock by the viewer's animation loop, its bodies'
-// transforms copied onto the chunks (which live in the physics frame, under the chunked object's
-// turn into the scene's data frame — chunkedObject.ts). Rays and points from the viewer arrive in
-// world space and are taken into the physics frame here.
+// The scene's physics in the viewer. One PhysicsRuntime (the Viewer's) owns the World — one box3d
+// world, one ground at the scene's y = 0, one clock — and every chunked object's PhysicsRun joins
+// it, so the objects collide. Each run calibrates its welds once, alone in a world of its own,
+// before it joins; then its Sim moves its chunk SplatObjects. The chunks live under the chunked
+// object's group (its turn into the scene's data frame — chunkedObject.ts — under the item's own
+// transform); the World's frame is that turn alone, so an object rests where its item is placed.
+// Rays and points from the viewer arrive in world space and are taken into the World's frame here.
 import * as THREE from "three";
 import type { Bounds } from "../../shared/messages";
 import type { ChunkedObject } from "./chunkedObject";
 import type { SplatObject } from "../splats";
 import { loadBox3d } from "./box3d";
-import { DEFAULTS, Sim, type V3 } from "./sim";
+import { DEFAULTS, EARTH_GRAVITY, Sim, World, type V3 } from "./sim";
 
-export type PhysicsState = "rest" | "calibrating" | "running" | "paused";
 export type PhysicsPreset = "shatter" | "explode" | "volley" | "crumble";
 
 /** Most steps one frame catches up: past that the simulation slows down rather than the page. */
@@ -29,29 +30,159 @@ const CREEP_WINDOW = 1;
 const CREEP_DISTANCE = 0.01;
 const CREEP_ANGLE = (2 * Math.PI) / 180;
 
+/** The scene's simulation: the World every chunked object joins, its clock and its settings. */
+export class PhysicsRuntime {
+  running = false;
+  /** Sim seconds per real second (slow motion below 1); the steps stay the same. */
+  speed = 1;
+  /** m/s². */
+  gravity = EARTH_GRAVITY;
+  readonly runs: PhysicsRun[] = [];
+  /** Called when the clock starts or stops, or a run's state, settings or progress move. */
+  onChange: () => void = () => {};
+
+  private world?: World;
+  private preparing?: Promise<World>;
+  private carry = 0;
+  private lastTick = 0;
+  /** Sim time since the clock started, and the time of the last creep check. */
+  private simTime = 0;
+  private markTime = 0;
+
+  add(run: PhysicsRun): void {
+    run.runtime = this;
+    this.runs.push(run);
+  }
+
+  remove(run: PhysicsRun): void {
+    run.dispose();
+    this.runs.splice(this.runs.indexOf(run), 1);
+  }
+
+  /** The World with every run in it: each not yet in calibrates first (in turn, with progress),
+   *  so nothing falls through an object that was never touched. Calls queue behind each other. */
+  prepared(): Promise<World> {
+    const prepare = async (): Promise<World> => {
+      const b3 = await loadBox3d();
+      this.world ??= new World(b3, { gravity: this.gravity });
+      for (const run of this.runs) await run.join(b3, this.world);
+      return this.world;
+    };
+    this.preparing = this.preparing ? this.preparing.then(prepare) : prepare();
+    return this.preparing;
+  }
+
+  async play(): Promise<void> {
+    await this.prepared();
+    this.start();
+  }
+
+  pause(): void {
+    this.setRunning(false);
+  }
+
+  /** Every object back to rest, whole; the clock stops. */
+  resetAll(): void {
+    for (const run of this.runs) run.reset();
+    this.setRunning(false);
+  }
+
+  setSpeed(speed: number): void {
+    this.speed = speed;
+    this.onChange();
+  }
+
+  setGravity(g: number): void {
+    this.gravity = g;
+    this.world?.setGravity(g);
+    this.onChange();
+  }
+
+  /** (Re)start the clock: after an action, so the creep check starts over. */
+  start(): void {
+    this.setRunning(true);
+  }
+
+  /**
+   * Advance by the time since the last tick, times the speed, in fixed steps (the viewer calls
+   * this every frame). Returns whether anything still moves: the frame needs drawing, and a frame
+   * too short for a step does not mean it came to rest.
+   */
+  tick(now: number): boolean {
+    const world = this.world;
+    if (!world || !this.running) {
+      this.lastTick = 0;
+      return false;
+    }
+    const elapsed = this.speed * (this.lastTick ? (now - this.lastTick) / 1000 : world.dt);
+    this.lastTick = now;
+    this.carry = Math.min(this.carry + elapsed, MAX_STEPS_PER_FRAME * world.dt);
+    let stepped = false;
+    while (this.carry >= world.dt) {
+      world.step();
+      this.carry -= world.dt;
+      this.simTime += world.dt;
+      stepped = true;
+    }
+    if (stepped) {
+      for (const run of this.runs) run.place();
+      if (this.simTime - this.markTime >= CREEP_WINDOW) {
+        // Every run compares and re-marks, so map before every().
+        const still = this.runs.map((run) => run.still()).every(Boolean);
+        if (still && this.markTime > 0) world.sleep();
+        this.markTime = this.simTime;
+      }
+    }
+    return world.awake > 0;
+  }
+
+  /** The Simulation section's line. */
+  get status(): string {
+    const n = this.runs.length;
+    const objects = `${n} object${n === 1 ? "" : "s"}`;
+    if (!this.running) return `${objects}, paused`;
+    return `${objects}, ${(this.world?.awake ?? 0) > 0 ? "moving" : "at rest"}`;
+  }
+
+  dispose(): void {
+    for (const run of this.runs) run.dispose();
+    this.world?.dispose();
+    this.world = undefined;
+  }
+
+  private setRunning(running: boolean): void {
+    this.running = running;
+    this.lastTick = 0;
+    this.carry = 0;
+    this.simTime = this.markTime = 0;
+    this.onChange();
+  }
+}
+
+/** One chunked object's physics: its Sim in the runtime's World, and its chunks on screen. */
 export class PhysicsRun {
-  state: PhysicsState = "rest";
+  /** Set by PhysicsRuntime.add. */
+  runtime?: PhysicsRuntime;
+  /** Calibrating (alone, before it joins the World). */
+  calibrating = false;
   /** Calibration progress, 0..1. */
   progress = 0;
   /** Glue: each weld breaks at this x the load it carries at rest (Sim.setStrength). */
   strength = DEFAULTS.strength;
   /** Shatter on impact: a chunk hit faster than this (m/s) comes loose; Infinity = off. */
   shatterSpeed = Number.POSITIVE_INFINITY;
-  /** Called when the state, the settings or the calibration progress move (the viewer sets it). */
-  onChange: () => void = () => {};
 
   private sim?: Sim;
-  private preparing?: Promise<Sim>;
-  private carry = 0;
-  private lastTick = 0;
-  /** Sim time since running, and the transforms and time of the last creep check. */
-  private simTime = 0;
-  private markTime = 0;
-  private readonly mark: Float32Array;
+  /** Its pose in the World (the item's placement, taken at each reset) and that turn's inverse. */
+  private readonly at = new THREE.Vector3();
+  private readonly turn = new THREE.Quaternion();
+  private readonly unturn = new THREE.Quaternion();
   private readonly xf: Float32Array;
+  /** The transforms at the last creep check. */
+  private readonly mark: Float32Array;
   /** Each chunk's reach from its body's origin (its farthest box corner), for the extent. */
   private readonly reach: number[];
-  /** The median chunk at rest (physics frame). */
+  /** The median chunk at rest (the group's frame). */
   private readonly restMiddle: V3;
 
   constructor(private readonly chunked: ChunkedObject, private readonly chunks: SplatObject[]) {
@@ -62,62 +193,77 @@ export class PhysicsRun {
     this.restMiddle = this.median(); // the chunks are built at rest
   }
 
-  /** Simulate from where it is (at first, the rest pose: it may settle or tip onto its side). */
-  async play(): Promise<void> {
-    await this.prepared();
-    this.setState("running");
-  }
-
-  pause(): void {
-    if (this.state === "running") this.setState("paused");
+  /** Calibrate alone (in slices, with progress), then join ``world`` where its item is placed.
+   *  A no-op once joined. */
+  async join(b3: Box3dModule, world: World): Promise<void> {
+    if (this.sim) return;
+    this.calibrating = true;
+    this.changed();
+    const probe = new Sim(b3, this.chunked.scene);
+    const run = probe.calibrating();
+    for (let done = false; !done;) {
+      const until = performance.now() + SLICE_MS;
+      while (performance.now() < until) {
+        const r = run.next();
+        if (r.done) { done = true; break; }
+        this.progress = r.value;
+      }
+      this.changed();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    this.sim = new Sim(b3, this.chunked.scene, { strength: this.strength, shatterSpeed: this.shatterSpeed }, world);
+    this.sim.base = probe.base;
+    this.sim.setStrength(this.strength);
+    probe.dispose();
+    this.calibrating = false;
+    this.reset();
   }
 
   /** Lift the object ``height`` metres, tilted, and let it fall. */
   async drop(height: number): Promise<void> {
     const sim = await this.prepared();
+    this.repose(sim);
     sim.reset({ lift: height, tilt: DROP_TILT });
-    this.start(sim);
+    this.start();
   }
 
-  /** Back to rest, whole; nothing moves until played again. */
+  /** Back to rest, whole, where its item is placed (the clock runs on for the others). */
   reset(): void {
-    if (this.sim) {
-      this.sim.reset();
-      this.place(this.sim);
-    }
-    this.setState(this.sim ? "paused" : "rest");
+    if (!this.sim) return;
+    this.repose(this.sim);
+    this.sim.reset();
+    this.place();
+    this.changed();
   }
 
   setStrength(k: number): void {
     this.strength = k;
     this.sim?.setStrength(k);
-    this.onChange();
+    this.changed();
   }
 
   setShatterSpeed(speed: number): void {
     this.shatterSpeed = speed;
     if (this.sim) this.sim.o.shatterSpeed = speed;
-    this.onChange();
+    this.changed();
   }
 
-  /** A shot along a world-space ray: knocks out the first chunk it hits. Whether it hit. */
+  /** A shot along a world-space ray: knocks out the first chunk it meets (of any object).
+   *  Whether it hit one. */
   async shoot(ray: THREE.Ray): Promise<boolean> {
     const sim = await this.prepared();
-    const hit = sim.shoot(...this.toLocal(ray)) >= 0;
-    if (hit) this.start(sim);
+    const hit = sim.world.shoot(...this.toWorldFrame(ray)) !== null;
+    if (hit) this.start();
     return hit;
   }
 
-  /** A blast where a world-space ray first meets the object. Whether it hit. */
+  /** A blast where a world-space ray first meets a chunk (of any object). Whether it hit one. */
   async blast(ray: THREE.Ray): Promise<boolean> {
     const sim = await this.prepared();
-    const [origin, dir] = this.toLocal(ray);
-    const hit = sim.world.castRayClosest(
-      { x: origin[0], y: origin[1], z: origin[2] },
-      { x: 100 * dir[0], y: 100 * dir[1], z: 100 * dir[2] });
-    if (!hit.hit) return false;
-    sim.explode([hit.point.x, hit.point.y, hit.point.z], { radius: 0.3 });
-    this.start(sim);
+    const hit = sim.world.cast(...this.toWorldFrame(ray));
+    if (!hit) return false;
+    hit.sim.explode(hit.point, { radius: 0.3 });
+    this.start();
     return true;
   }
 
@@ -134,51 +280,22 @@ export class PhysicsRun {
       : name === "volley" ? VOLLEY_SHATTER_SPEED : Number.POSITIVE_INFINITY);
     if (name === "shatter") return this.drop(3);
     const sim = await this.prepared();
-    sim.reset();
-    this.place(sim); // the blast's middle and the volley's aim are the rest pose's
-    if (name === "explode") sim.explode(this.middle(), { radius: 0.5 });
+    this.reset(); // the blast's middle and the volley's aim are the rest pose's
+    if (name === "explode") sim.explode(this.worldPoint(this.middle()), { radius: 0.5 });
     else if (name === "crumble") sim.unglue();
-    else for (const ray of aim(this.middleWorld())) sim.shoot(...this.toLocal(ray), { speed: 10 });
-    this.start(sim);
+    else for (const ray of aim(this.middleWorld())) sim.world.shoot(...this.toWorldFrame(ray), { speed: 10 });
+    this.start();
   }
 
-  /**
-   * Advance by the time since the last tick in fixed steps (the viewer calls this every frame).
-   * Returns whether it is still moving (running, a body awake): the frame needs drawing, and a
-   * frame too short for a step does not mean it came to rest.
-   */
-  tick(now: number): boolean {
-    const sim = this.sim;
-    if (!sim || this.state !== "running") {
-      this.lastTick = 0;
-      return false;
-    }
-    const elapsed = this.lastTick ? (now - this.lastTick) / 1000 : sim.o.dt;
-    this.lastTick = now;
-    this.carry = Math.min(this.carry + elapsed, MAX_STEPS_PER_FRAME * sim.o.dt);
-    let stepped = false;
-    while (this.carry >= sim.o.dt) {
-      sim.step();
-      this.carry -= sim.o.dt;
-      this.simTime += sim.o.dt;
-      stepped = true;
-    }
-    if (stepped) {
-      this.place(sim);
-      if (this.simTime - this.markTime >= CREEP_WINDOW) this.checkCreep(sim);
-    }
-    return sim.awake > 0;
-  }
-
-  /** What the panel shows: the pieces once anything broke, and whether it still moves. */
+  /** Its panel line: the pieces once anything broke, and whether it still moves. */
   get status(): string {
-    if (this.state === "calibrating") return `calibrating ${Math.round(100 * this.progress)}%`;
-    if (!this.sim || this.state === "rest") return "whole, at rest";
+    if (this.calibrating) return `calibrating ${Math.round(100 * this.progress)}%`;
+    if (!this.sim) return "whole, at rest";
     const sizes = this.sim.pieceSizes();
     const pieces = sizes.length === 1
       ? "whole"
       : `${sizes.length} pieces, largest ${Math.round((100 * sizes[0]) / this.chunks.length)}%`;
-    const motion = this.state === "paused" ? "paused" : this.sim.awake > 0 ? "moving" : "at rest";
+    const motion = !this.runtime?.running ? "paused" : this.sim.awake > 0 ? "moving" : "at rest";
     return `${pieces}, ${motion}`;
   }
 
@@ -204,17 +321,73 @@ export class PhysicsRun {
     return this.group.localToWorld(new THREE.Vector3(...(atRest ? this.restMiddle : this.median())));
   }
 
+  /** Copy the bodies' transforms onto the chunks, out of the World's frame into the group's; a
+   *  chunk that fell off the ground is hidden. */
+  place(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    sim.transforms(this.xf);
+    const p = new THREE.Vector3(), q = new THREE.Quaternion();
+    this.chunks.forEach((chunk, i) => {
+      const x = this.xf, k = 7 * i;
+      chunk.visible = !sim.lost.has(i);
+      chunk.position.copy(p.set(x[k], x[k + 1], x[k + 2]).sub(this.at).applyQuaternion(this.unturn));
+      chunk.quaternion.copy(this.unturn).multiply(q.set(x[k + 3], x[k + 4], x[k + 5], x[k + 6]));
+    });
+  }
+
+  /** Whether no chunk moved visibly since the last call (CREEP_*); re-marks. */
+  still(): boolean {
+    if (!this.sim) return true;
+    const a = this.mark, b = this.xf;
+    let still = true;
+    for (let k = 0; still && k < b.length; k += 7) {
+      const turn = 2 * Math.acos(Math.min(1, Math.abs(
+        a[k + 3] * b[k + 3] + a[k + 4] * b[k + 4] + a[k + 5] * b[k + 5] + a[k + 6] * b[k + 6])));
+      still = Math.hypot(b[k] - a[k], b[k + 1] - a[k + 1], b[k + 2] - a[k + 2]) < CREEP_DISTANCE
+        && turn < CREEP_ANGLE;
+    }
+    a.set(b);
+    return still;
+  }
+
   dispose(): void {
     this.sim?.dispose();
     this.sim = undefined;
   }
 
-  /** The group the chunks live in: the physics frame, under the object's turn. */
+  /** The group the chunks live in: the World's frame, under the item's placement. */
   private get group(): THREE.Object3D {
     return this.chunks[0].parent!;
   }
 
-  /** The median chunk position, per axis, in the physics frame. */
+  private prepared(): Promise<Sim> {
+    if (!this.runtime) throw new Error("PhysicsRun: not added to a PhysicsRuntime");
+    return this.runtime.prepared().then(() => this.sim!);
+  }
+
+  private start(): void {
+    this.place();
+    this.runtime?.start();
+  }
+
+  private changed(): void {
+    this.runtime?.onChange();
+  }
+
+  /** Take the item's placement as the pose in the World: the group's turn T conjugating the
+   *  item's matrix M (T⁻¹ M T). Its scale is not simulated. */
+  private repose(sim: Sim): void {
+    const group = this.group, item = group.parent!;
+    group.updateMatrix();
+    item.updateMatrix();
+    const pose = group.matrix.clone().invert().multiply(item.matrix).multiply(group.matrix);
+    pose.decompose(this.at, this.turn, new THREE.Vector3());
+    this.unturn.copy(this.turn).invert();
+    sim.pose = { position: this.at.toArray(), rotation: [this.turn.x, this.turn.y, this.turn.z, this.turn.w] };
+  }
+
+  /** The median chunk position, per axis, in the group's frame. */
   private median(): V3 {
     const at = (a: "x" | "y" | "z") => {
       const v = this.chunks.map((c) => c.position[a]).sort((p, q) => p - q);
@@ -223,7 +396,7 @@ export class PhysicsRun {
     return [at("x"), at("y"), at("z")];
   }
 
-  /** The chunks' centroid in the physics frame (a blast's centre). */
+  /** The chunks' centroid in the group's frame (a blast's centre). */
   private middle(): V3 {
     const c: V3 = [0, 0, 0];
     for (const chunk of this.chunks) {
@@ -234,77 +407,18 @@ export class PhysicsRun {
     return c;
   }
 
-  /** A world-space ray as an origin and a unit direction in the physics frame. */
-  private toLocal(ray: THREE.Ray): [V3, V3] {
+  /** A point of the group's frame in the World's. */
+  private worldPoint(p: V3): V3 {
+    return new THREE.Vector3(...p).applyQuaternion(this.turn).add(this.at).toArray();
+  }
+
+  /** A world-space ray as an origin and a unit direction in the World's frame (the group's
+   *  frame, then the pose). */
+  private toWorldFrame(ray: THREE.Ray): [V3, V3] {
     this.group.updateWorldMatrix(true, false);
     const inverse = this.group.matrixWorld.clone().invert();
-    const origin = ray.origin.clone().applyMatrix4(inverse);
-    const dir = ray.direction.clone().transformDirection(inverse);
+    const origin = ray.origin.clone().applyMatrix4(inverse).applyQuaternion(this.turn).add(this.at);
+    const dir = ray.direction.clone().transformDirection(inverse).applyQuaternion(this.turn);
     return [origin.toArray(), dir.toArray()];
-  }
-
-  /** The Sim, created and calibrated on first call, in slices with progress. */
-  private prepared(): Promise<Sim> {
-    this.preparing ??= (async () => {
-      this.setState("calibrating");
-      const sim = new Sim(await loadBox3d(), this.chunked.scene,
-        { strength: this.strength, shatterSpeed: this.shatterSpeed });
-      const run = sim.calibrating();
-      for (let done = false; !done;) {
-        const until = performance.now() + SLICE_MS;
-        while (performance.now() < until) {
-          const r = run.next();
-          if (r.done) { done = true; break; }
-          this.progress = r.value;
-        }
-        this.onChange();
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      this.sim = sim;
-      this.place(sim);
-      this.setState("paused");
-      return sim;
-    })();
-    return this.preparing;
-  }
-
-  /** Run from the Sim's current state, showing it. */
-  private start(sim: Sim): void {
-    this.place(sim);
-    this.setState("running");
-  }
-
-  /** Copy the bodies' transforms onto the chunks; a chunk that fell off the ground is hidden. */
-  private place(sim: Sim): void {
-    sim.transforms(this.xf);
-    this.chunks.forEach((chunk, i) => {
-      const x = this.xf, k = 7 * i;
-      chunk.visible = !sim.lost.has(i);
-      chunk.position.set(x[k], x[k + 1], x[k + 2]);
-      chunk.quaternion.set(x[k + 3], x[k + 4], x[k + 5], x[k + 6]);
-    });
-  }
-
-  /** Put the Sim to sleep if no chunk moved visibly since the last check (CREEP_*). */
-  private checkCreep(sim: Sim): void {
-    const a = this.mark, b = this.xf;
-    let still = this.markTime > 0;
-    for (let k = 0; still && k < b.length; k += 7) {
-      const turn = 2 * Math.acos(Math.min(1, Math.abs(
-        a[k + 3] * b[k + 3] + a[k + 4] * b[k + 4] + a[k + 5] * b[k + 5] + a[k + 6] * b[k + 6])));
-      still = Math.hypot(b[k] - a[k], b[k + 1] - a[k + 1], b[k + 2] - a[k + 2]) < CREEP_DISTANCE
-        && turn < CREEP_ANGLE;
-    }
-    if (still) sim.sleep();
-    a.set(b);
-    this.markTime = this.simTime;
-  }
-
-  private setState(state: PhysicsState): void {
-    this.state = state;
-    this.lastTick = 0;
-    this.carry = 0;
-    this.simTime = this.markTime = 0;
-    this.onChange();
   }
 }

@@ -1,6 +1,7 @@
-// The physics of a chunked voxel object (box3d-wasm): one rigid body per chunk made of its
-// boxes, a weld per pair of touching chunks, welds broken when their load per area passes the
-// glue. No DOM, so `node --test` runs it as the viewer does. Ported from GenerativeReconstruction's
+// The physics of chunked voxel objects (box3d-wasm): one rigid body per chunk made of its boxes,
+// a weld per pair of touching chunks, welds broken when their load per area passes the glue.
+// Objects (Sim) live in a World — one box3d world with the ground — so several collide with each
+// other. No DOM, so `node --test` runs it as the viewer does. Ported from GenerativeReconstruction's
 // prototype (scripts/visualization/physics_demo/app/sim.js), whose ROADMAP.md records why each
 // choice was made.
 
@@ -46,14 +47,18 @@ export const DEFAULTS = {
   restitution: 0.05,
   /** Each box shrunk by this fraction of a voxel on every side pair, so neighbours never rest in contact. */
   gap: 0.02,
+  /** The World's (a Sim's own World is made with these). */
   substeps: 4,
   dt: 1 / 60,
 };
+/** m/s², down -y. */
+export const EARTH_GRAVITY = 9.81;
 export type SimOptions = typeof DEFAULTS;
 
 const ROT0: Box3dQuat = { x: 0, y: 0, z: 0, w: 1 };
-// Shape and body tags: chunk i is i + 1; the ground is tagged too, since box3d-wasm gives an
-// untagged shape or body a tag from a global counter, which can land on a chunk's.
+// Shape and body tags: each Sim's chunks get a range of tags from its World (Sim.tag0 + chunk);
+// the ground is tagged too, since box3d-wasm gives an untagged shape or body a tag from a global
+// counter, which can land on a chunk's.
 const GROUND_TAG = 2 ** 30;
 /** m: a body below this went over the ground's edge (it is 100 m across); nothing would ever stop
  *  its fall, which would keep the world awake, so it is put to sleep there (Sim.lost). */
@@ -67,23 +72,121 @@ const qmul = (a: Box3dQuat, b: Box3dQuat): Box3dQuat => ({
   z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
   w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
 });
-/** ``v`` rotated by the inverse of ``q`` (a world offset into a body's frame). */
-const unrotate = (q: Box3dQuat, [x, y, z]: V3): Box3dVec3 => {
-  const p = qmul(qmul({ x: -q.x, y: -q.y, z: -q.z, w: q.w }, { x, y, z, w: 0 }), q);
-  return { x: p.x, y: p.y, z: p.z };
+const conj = (q: Box3dQuat): Box3dQuat => ({ x: -q.x, y: -q.y, z: -q.z, w: q.w });
+/** ``v`` rotated by ``q``. */
+const rotate = (q: Box3dQuat, [x, y, z]: V3): V3 => {
+  const p = qmul(qmul(q, { x, y, z, w: 0 }), conj(q));
+  return [p.x, p.y, p.z];
 };
+
+/** Where an object rests in its World: its rest pose (the scene's chunk positions and rotation)
+ *  turned by ``rotation`` [x, y, z, w] about the origin, then moved by ``position``. */
+export interface Pose { position: V3; rotation: [number, number, number, number] }
+
+/** What a ray met first: a chunk of one of the World's objects, and where. */
+export interface ChunkHit { sim: Sim; chunk: number; point: V3 }
 
 interface Weld { joint: Box3dJoint; area: number; alive: boolean }
 
+/**
+ * One box3d world with the ground (100 m across, its top at y = 0), stepped as one, holding any
+ * number of chunked objects (Sim), which collide with each other. Tags route the engine's hits,
+ * rays and blasts back to the object and chunk they met.
+ */
+export class World {
+  readonly box3d: Box3dWorld;
+  readonly objects: Sim[] = [];
+  /** Simulated seconds. */
+  time = 0;
+  gravity: number;
+  /** Seconds per step, and box3d substeps per step. */
+  readonly dt: number;
+  readonly substeps: number;
+  private nextTag = 1;
+
+  constructor(b3: Box3dModule, { gravity = EARTH_GRAVITY, friction = DEFAULTS.friction,
+    dt = DEFAULTS.dt, substeps = DEFAULTS.substeps } = {}) {
+    this.gravity = gravity;
+    this.dt = dt;
+    this.substeps = substeps;
+    this.box3d = new b3.World({ gravity: { x: 0, y: -gravity, z: 0 } });
+    const ground = this.box3d.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
+    ground.createBox({ halfExtents: { x: 50, y: 0.5, z: 50 }, friction, userData: GROUND_TAG });
+    ground.setUserData(GROUND_TAG);
+  }
+
+  /** ``n`` tags for a new object's chunks: the first. */
+  claim(n: number): number {
+    const tag = this.nextTag;
+    this.nextTag += n;
+    return tag;
+  }
+
+  /** Advance one fixed step; then each object breaks its overloaded welds and takes its hits. */
+  step(): void {
+    this.box3d.step(this.dt, this.substeps);
+    const hits = this.box3d.getContactEvents().hit;
+    for (const sim of this.objects) sim.afterStep(hits);
+    this.time += this.dt;
+  }
+
+  /** m/s², down -y. */
+  setGravity(g: number): void {
+    this.gravity = g;
+    this.box3d.setGravity({ x: 0, y: -g, z: 0 });
+    for (const sim of this.objects) for (const body of sim.bodies) body.setAwake(true);
+  }
+
+  /** The object and chunk a tag belongs to, if any. */
+  owner(tag: number): { sim: Sim; chunk: number } | null {
+    for (const sim of this.objects) {
+      const chunk = tag - sim.tag0;
+      if (chunk >= 0 && chunk < sim.bodies.length) return { sim, chunk };
+    }
+    return null;
+  }
+
+  /** The first chunk along ``dir`` (unit) from ``origin``, within ``range`` m. */
+  cast(origin: V3, dir: V3, range = 100): ChunkHit | null {
+    const hit = this.box3d.castRayClosest(v3(origin), v3(dir.map((d) => d * range)));
+    const owner = hit.hit ? this.owner(hit.bodyUserData) : null;
+    return owner && { ...owner, point: [hit.point.x, hit.point.y, hit.point.z] };
+  }
+
+  /** A shot along ``dir`` (unit) from ``origin``: the chunk it meets first, of whichever object,
+   *  is knocked out and kicked (Sim.knockOut). What it hit. */
+  shoot(origin: V3, dir: V3, { speed = 6, radius = 0.1, range = 100 } = {}): ChunkHit | null {
+    const hit = this.cast(origin, dir, range);
+    hit?.sim.knockOut(hit.chunk, hit.point, dir, speed, radius);
+    return hit;
+  }
+
+  /** A blast at ``point``: every object's welds within ``radius`` break, then every shape within
+   *  it is pushed away with ``impulsePerArea`` (Sim.explode picks it). */
+  explode(point: V3, radius: number, impulsePerArea: number): void {
+    for (const sim of this.objects) sim.breakNear(point, radius);
+    this.box3d.explode({ position: v3(point), radius, falloff: 0.5 * radius, impulsePerArea });
+  }
+
+  /** How many bodies still move (Box3D puts bodies at rest to sleep). */
+  get awake(): number { return this.box3d.getAwakeBodyCount(); }
+
+  /** Put every body to sleep (until something wakes it: a hit, a shot, a blast). */
+  sleep(): void { for (const sim of this.objects) sim.sleep(); }
+
+  dispose(): void { this.box3d.destroy(); }
+}
+
+/** One chunked object in a World. */
 export class Sim {
   readonly o: SimOptions;
-  world!: Box3dWorld;
+  readonly world: World;
+  /** The tag of chunk 0 (World.claim). */
+  readonly tag0: number;
   bodies: Box3dBody[] = [];
   welds: Weld[] = [];
   /** Welds broken since the last reset. */
   broken = 0;
-  /** Simulated seconds since the last reset. */
-  time = 0;
   /** Chunks that fell off the ground since the last reset (FALL_LIMIT), asleep where they went. */
   lost = new Set<number>();
   /** Each weld's load in the last step, Pa. */
@@ -92,64 +195,70 @@ export class Sim {
   limit = new Float32Array(0);
   /** Per-weld base loads from calibrate(); null until then (every weld at ``glue``). */
   base: Float32Array | null = null;
-  stats = { stepMs: 0, breakMs: 0 };
+  /** Where it rests (reset() places it there); identity = the scene's own rest pose. */
+  pose: Pose = { position: [0, 0, 0], rotation: [0, 0, 0, 1] };
   /** Each weld's anchor in its two bodies' frames (they share the scene's rest rotation). */
   private readonly anchors: [Box3dVec3, Box3dVec3][];
   private readonly restRotation: Box3dQuat;
   /** Each chunk's welds, for brittle breaks and shots. */
   private readonly weldsOf: number[][];
+  private readonly ownsWorld: boolean;
 
-  /** ``b3``: the engine (loadBox3d()); ``scene``: the chunked object. */
-  constructor(private readonly b3: Box3dModule, readonly scene: PhysicsScene, options: Partial<SimOptions> = {}) {
+  /** ``b3``: the engine (loadBox3d()); ``scene``: the chunked object; ``world``: the World it
+   *  joins (none: a World of its own, made with ``options``' dt and substeps). */
+  constructor(b3: Box3dModule, readonly scene: PhysicsScene, options: Partial<SimOptions> = {}, world?: World) {
     this.o = { ...DEFAULTS, ...options };
+    this.ownsWorld = !world;
+    this.world = world ?? new World(b3, { friction: this.o.friction, dt: this.o.dt, substeps: this.o.substeps });
+    this.tag0 = this.world.claim(scene.chunks.length);
+    this.world.objects.push(this);
     const r = scene.rotation;
     this.restRotation = r ? { x: r[0], y: r[1], z: r[2], w: r[3] } : ROT0;
-    this.anchors = scene.welds.map((w) => [w.a, w.b].map((c) => unrotate(this.restRotation,
-      w.anchor.map((x, k) => x - scene.chunks[c].position[k]) as V3)) as [Box3dVec3, Box3dVec3]);
+    this.anchors = scene.welds.map((w) => [w.a, w.b].map((c) => {
+      const [x, y, z] = rotate(conj(this.restRotation), w.anchor.map((x, k) => x - scene.chunks[c].position[k]) as V3);
+      return { x, y, z };
+    }) as [Box3dVec3, Box3dVec3]);
     this.weldsOf = scene.chunks.map(() => []);
     scene.welds.forEach((w, i) => { this.weldsOf[w.a].push(i); this.weldsOf[w.b].push(i); });
     this.reset();
   }
 
-  /** Rebuild the world: the object at rest, lifted by ``lift`` metres, turned ``tilt`` rad about z. */
+  /** Rebuild the object, whole, at its pose: lifted by ``lift`` metres, turned ``tilt`` rad about
+   *  its own z axis through its footprint's centre (its rest frame's origin). */
   reset({ lift = 0, tilt = 0 } = {}): void {
-    this.world?.destroy();
+    for (const body of this.bodies) body.destroy(); // its welds with it
     this.lost.clear();
-    const { b3, scene, o } = this;
-    this.world = new b3.World({ gravity: { x: 0, y: -9.81, z: 0 } });
-    const ground = this.world.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
-    ground.createBox({ halfExtents: { x: 50, y: 0.5, z: 50 }, friction: o.friction, userData: GROUND_TAG });
-    ground.setUserData(GROUND_TAG);
-    // The tilt turns the object about the z axis through its footprint's centre (the origin).
-    const c = Math.cos(tilt), s = Math.sin(tilt);
-    const place = ([x, y, z]: V3): V3 => [c * x - s * y, s * x + c * y + lift, z];
-    const rot = qmul({ x: 0, y: 0, z: Math.sin(tilt / 2), w: Math.cos(tilt / 2) }, this.restRotation);
+    const { scene, o } = this, [px, py, pz] = this.pose.position, [qx, qy, qz, qw] = this.pose.rotation;
+    const turn = qmul({ x: qx, y: qy, z: qz, w: qw }, { x: 0, y: 0, z: Math.sin(tilt / 2), w: Math.cos(tilt / 2) });
+    const place = (p: V3): V3 => {
+      const [x, y, z] = rotate(turn, p);
+      return [x + px, y + py + lift, z + pz];
+    };
+    const rot = qmul(turn, this.restRotation);
     const shrink = 0.5 * scene.voxelSize * o.gap;
     this.bodies = scene.chunks.map((chunk, i) => {
-      const body = this.world.createBody({ type: "dynamic", position: v3(place(chunk.position)), rotation: rot });
+      const body = this.world.box3d.createBody({ type: "dynamic", position: v3(place(chunk.position)), rotation: rot });
       for (const [cx, cy, cz, hx, hy, hz] of chunk.boxes)
         body.createBox({
           halfExtents: { x: hx - shrink, y: hy - shrink, z: hz - shrink }, offset: { x: cx, y: cy, z: cz },
           density: o.density, friction: o.friction, restitution: o.restitution,
-          userData: i + 1, enableHitEvents: true, // tagged as its chunk, for hits
+          userData: this.tag0 + i, enableHitEvents: true, // tagged as its chunk, for hits
         });
-      body.setUserData(i + 1); // shoot() reads the chunk off the body hit
+      body.setUserData(this.tag0 + i); // rays read the chunk off the body hit
       return body;
     });
     // Each weld's frame: the anchor in each body's frame (the bodies start with the same rotation).
     this.welds = scene.welds.map((w, i) => {
       const [anchorA, anchorB] = this.anchors[i];
-      const joint = this.world.createWeldJoint(this.bodies[w.a], this.bodies[w.b], {
+      const joint = this.world.box3d.createWeldJoint(this.bodies[w.a], this.bodies[w.b], {
         localFrameA: { position: anchorA, rotation: ROT0 },
         localFrameB: { position: anchorB, rotation: ROT0 },
       });
       return { joint, area: w.area, alive: true };
     });
     this.broken = 0;
-    this.time = 0;
     this.lastLoad = new Float32Array(this.welds.length);
     if (!this.base) this.limit = new Float32Array(this.welds.length).fill(o.glue);
-    this.stats = { stepMs: 0, breakMs: 0 };
   }
 
   /** Per-weld strengths from the object's own loads, with unbreakable welds left ``settle`` s at
@@ -158,7 +267,8 @@ export class Sim {
    *  and it breaks at ``setStrength(k)`` x that. So one glue holds most welds, the few that carry
    *  the object get their own margin, and the object stands for k > 1. A fixed glue does not
    *  carry over: loads concentrate (the sloth's settled p50/p90/max: 1.3/10/131 kPa, the blob's
-   *  0.4/2.2/21), and the most loaded weld would set it for all. Returns the p90 load. */
+   *  0.4/2.2/21), and the most loaded weld would set it for all. Returns the p90 load.
+   *  Steps the whole World, so calibrate a Sim alone in its own and hand its ``base`` on. */
   calibrate(options: { settle?: number; measure?: number } = {}): number {
     const run = this.calibrating(options);
     for (;;) {
@@ -174,7 +284,7 @@ export class Sim {
     this.base = null;
     this.reset();
     const whole = new Float32Array(this.welds.length), settled = new Float32Array(this.welds.length);
-    const steps = Math.round((settle + measure) / this.o.dt), from = Math.round(settle / this.o.dt);
+    const steps = Math.round((settle + measure) / this.world.dt), from = Math.round(settle / this.world.dt);
     for (let i = 0; i < steps; i++) {
       this.step();
       this.lastLoad.forEach((l, j) => {
@@ -205,11 +315,14 @@ export class Sim {
     this.welds.forEach((_, i) => this.breakWeld(i));
   }
 
-  /** Advance one fixed step, then break every weld whose load passes the glue. */
+  /** Step its World (with every object in it). */
   step(): void {
-    const t0 = performance.now();
-    this.world.step(this.o.dt, this.o.substeps);
-    const t1 = performance.now();
+    this.world.step();
+  }
+
+  /** After a World step: break every weld whose load passes the glue; brittle, loosen the chunks
+   *  hit too fast; put to sleep the chunks that fell off the ground. */
+  afterStep(hits: ReturnType<Box3dWorld["getContactEvents"]>["hit"]): void {
     this.welds.forEach((w, i) => {
       if (!w.alive) return;
       const load = Math.max(norm(w.joint.getConstraintForce()) / w.area,
@@ -221,13 +334,14 @@ export class Sim {
     // kicked away from the hit by ``burst`` x the excess speed, so the pieces separate rather
     // than lie where they broke.
     if (Number.isFinite(this.o.shatterSpeed))
-      for (const hit of this.world.getContactEvents().hit) {
+      for (const hit of hits) {
         const excess = hit.approachSpeed - this.o.shatterSpeed;
         if (excess <= 0) continue;
         for (const tag of [hit.shapeUserDataA, hit.shapeUserDataB]) {
-          if (tag === GROUND_TAG || !this.weldsOf[tag - 1].some((i) => this.welds[i].alive)) continue;
-          for (const i of this.weldsOf[tag - 1]) this.breakWeld(i);
-          const body = this.bodies[tag - 1], p = body.getPosition(), v = body.getLinearVelocity();
+          const chunk = tag - this.tag0;
+          if (chunk < 0 || chunk >= this.bodies.length || !this.weldsOf[chunk].some((i) => this.welds[i].alive)) continue;
+          for (const i of this.weldsOf[chunk]) this.breakWeld(i);
+          const body = this.bodies[chunk], p = body.getPosition(), v = body.getLinearVelocity();
           const away: V3 = [p.x - hit.point.x, p.y - hit.point.y, p.z - hit.point.z];
           const k = (this.o.burst * excess) / (Math.hypot(...away) || 1);
           body.setLinearVelocity({ x: v.x + k * away[0], y: v.y + k * away[1], z: v.z + k * away[2] });
@@ -239,11 +353,9 @@ export class Sim {
         this.lost.add(i);
       }
     });
-    this.time += this.o.dt;
-    this.stats = { stepMs: t1 - t0, breakMs: performance.now() - t1 };
   }
 
-  /** Each chunk's [x, y, z, qx, qy, qz, qw], packed. */
+  /** Each chunk's [x, y, z, qx, qy, qz, qw] in the World, packed. */
   transforms(out: Float32Array = new Float32Array(7 * this.bodies.length)): Float32Array {
     this.bodies.forEach((b, i) => {
       const p = b.getPosition(), q = b.getRotation();
@@ -252,28 +364,30 @@ export class Sim {
     return out;
   }
 
-  /** An explosion at ``point``: the welds within ``radius`` of it break, then every shape within
-   *  ``radius`` is pushed away, about ``speed`` m/s to a voxel-thick piece (Box3D pushes per m² of
-   *  shape, so the impulse per area is speed x density x voxel size: a thin shell's pieces fly as
-   *  fast as a solid's, not faster). Breaking first is what makes it local: whole, the welds pass
-   *  the push to the entire object. */
+  /** An explosion at ``point``: the welds within ``radius`` of it break (every object's), then
+   *  every shape within ``radius`` is pushed away, about ``speed`` m/s to a voxel-thick piece of
+   *  this object (Box3D pushes per m² of shape, so the impulse per area is speed x density x voxel
+   *  size: a thin shell's pieces fly as fast as a solid's, not faster). Breaking first is what makes
+   *  it local: whole, the welds pass the push to the entire object. */
   explode(point: V3, { radius = 0.3, speed = 4 } = {}): void {
-    this.breakNear(point, radius);
-    this.world.explode({ position: v3(point), radius, falloff: 0.5 * radius,
-      impulsePerArea: speed * this.o.density * this.scene.voxelSize });
+    this.world.explode(point, radius, speed * this.o.density * this.scene.voxelSize);
   }
 
-  /** A shot along ``dir`` (unit) from ``origin``: the chunk it hits first is knocked out (all its
-   *  welds break, and those within ``radius`` of the hit) and kicked to about ``speed`` m/s
-   *  there (impulse = speed x its mass). Returns the chunk, or -1 for a miss. */
-  shoot(origin: V3, dir: V3, { speed = 6, radius = 0.1, range = 100 } = {}): number {
-    const hit = this.world.castRayClosest(v3(origin), v3(dir.map((d) => d * range)));
-    if (!hit.hit || hit.bodyUserData === GROUND_TAG) return -1;
-    const chunk = hit.bodyUserData - 1, body = this.bodies[chunk];
+  /** A shot along ``dir`` (unit) from ``origin`` (World.shoot): the chunk of this object it
+   *  knocked out, or -1 when it missed it (another object's chunk may have taken it). */
+  shoot(origin: V3, dir: V3, options: { speed?: number; radius?: number; range?: number } = {}): number {
+    const hit = this.world.shoot(origin, dir, options);
+    return hit?.sim === this ? hit.chunk : -1;
+  }
+
+  /** Knock ``chunk`` out where ``point`` was hit along ``dir``: all its welds break, and those
+   *  within ``radius`` of the hit, and it is kicked to about ``speed`` m/s (impulse = speed x its
+   *  mass). */
+  knockOut(chunk: number, point: V3, dir: V3, speed: number, radius: number): void {
+    const body = this.bodies[chunk];
     for (const i of this.weldsOf[chunk]) this.breakWeld(i);
-    this.breakNear([hit.point.x, hit.point.y, hit.point.z], radius);
-    body.applyLinearImpulse(v3(dir.map((d) => d * speed * body.getMass())), hit.point, true);
-    return chunk;
+    this.breakNear(point, radius);
+    body.applyLinearImpulse(v3(dir.map((d) => d * speed * body.getMass())), v3(point), true);
   }
 
   /** Break every live weld whose anchor (as body A carries it now) lies within ``radius`` of ``point``. */
@@ -311,12 +425,19 @@ export class Sim {
 
   get aliveWelds(): number { return this.welds.length - this.broken; }
 
-  /** How many chunks still move (Box3D puts bodies at rest to sleep). */
-  get awake(): number { return this.world.getAwakeBodyCount(); }
+  /** How many of its chunks still move (Box3D puts bodies at rest to sleep). */
+  get awake(): number { return this.bodies.reduce((n, b) => n + (b.isAwake() ? 1 : 0), 0); }
 
-  /** Put every body to sleep (until something wakes it: a hit, a shot, a blast). */
+  /** Put its bodies to sleep (until something wakes them: a hit, a shot, a blast). */
   sleep(): void { for (const body of this.bodies) body.setAwake(false); }
 
-  /** Free the engine's world. */
-  dispose(): void { this.world.destroy(); }
+  /** Leave the World (its own: free it). */
+  dispose(): void {
+    if (this.ownsWorld) {
+      this.world.dispose();
+      return;
+    }
+    for (const body of this.bodies) body.destroy();
+    this.world.objects.splice(this.world.objects.indexOf(this), 1);
+  }
 }
