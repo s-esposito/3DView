@@ -1,16 +1,15 @@
 // The scene's physics in the viewer. One PhysicsRuntime (the Viewer's) owns the World — one box3d
-// world, one ground at the scene's y = 0, one clock — and every chunked object's PhysicsRun joins
-// it, so the objects collide. Each run calibrates its welds once, alone in a world of its own,
-// before it joins; then its Sim moves its chunk SplatObjects. The chunks live under the chunked
-// object's group (its turn into the scene's data frame — chunkedObject.ts — under the item's own
+// world, one ground at the scene's y = 0, one clock — and every physics object's PhysicsRun joins
+// it, so the objects collide. A breakable object calibrates its welds once, alone in a world of
+// its own, before it joins; then its Sim moves its nodes (a chunked object's chunk SplatObjects,
+// a rigid asset's one pivot — rigidObject.ts). The nodes live under a group (the turn into the
+// scene's data frame — chunkedObject.ts — under the item's own
 // transform); the World's frame is that turn alone, so an object rests where its item is placed.
 // Rays and points from the viewer arrive in world space and are taken into the World's frame here.
 import * as THREE from "three";
 import type { Bounds } from "../../shared/messages";
-import type { ChunkedObject } from "./chunkedObject";
-import type { SplatObject } from "../splats";
 import { loadBox3d } from "./box3d";
-import { DEFAULTS, EARTH_GRAVITY, Sim, World, type V3 } from "./sim";
+import { DEFAULTS, EARTH_GRAVITY, Sim, World, type PhysicsScene, type V3 } from "./sim";
 
 export type PhysicsPreset = "shatter" | "explode" | "volley" | "crumble";
 
@@ -29,8 +28,10 @@ const VOLLEY_SHATTER_SPEED = 6;
 const CREEP_WINDOW = 1;
 const CREEP_DISTANCE = 0.01;
 const CREEP_ANGLE = (2 * Math.PI) / 180;
+/** A box's 12 edges, as pairs of its corners (corner k: bit 0 = +x, bit 1 = +y, bit 2 = +z). */
+const BOX_EDGES = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
 
-/** The scene's simulation: the World every chunked object joins, its clock and its settings. */
+/** The scene's simulation: the World every physics object joins, its clock and its settings. */
 export class PhysicsRuntime {
   running = false;
   /** Sim seconds per real second (slow motion below 1); the steps stay the same. */
@@ -161,7 +162,7 @@ export class PhysicsRuntime {
   }
 }
 
-/** One chunked object's physics: its Sim in the runtime's World, and its chunks on screen. */
+/** One object's physics: its Sim in the runtime's World, and its nodes (one per body) on screen. */
 export class PhysicsRun {
   /** Set by PhysicsRuntime.add. */
   runtime?: PhysicsRuntime;
@@ -177,6 +178,16 @@ export class PhysicsRun {
   shatterSpeed = Number.POSITIVE_INFINITY;
 
   private sim?: Sim;
+
+  /** A chunked object (welds to break) rather than a rigid one. */
+  get breakable(): boolean {
+    return this.scene.welds.length > 0;
+  }
+
+  /** A dynamic body (it moves) rather than a static one (it only stops others). */
+  get dynamic(): boolean {
+    return this.body === "dynamic";
+  }
   /** Its pose in the World (the item's placement, taken at each reset) and that turn's inverse. */
   private readonly at = new THREE.Vector3();
   private readonly turn = new THREE.Quaternion();
@@ -189,21 +200,32 @@ export class PhysicsRun {
   /** The median chunk at rest (the group's frame). */
   private readonly restMiddle: V3;
 
-  constructor(private readonly chunked: ChunkedObject, private readonly chunks: SplatObject[]) {
-    this.xf = new Float32Array(7 * chunks.length);
-    this.mark = new Float32Array(7 * chunks.length);
-    this.reach = chunked.scene.chunks.map((c) => Math.max(...c.boxes.map(([x, y, z, hx, hy, hz]) =>
+  /** ``scene``: its bodies (a breakable object's chunks and welds, or a rigid asset's one chunk);
+   *  ``nodes``: what each body moves, at its rest pose, under one group in the World's frame;
+   *  ``body``: dynamic, or static (an environment: it only stops others). */
+  constructor(private readonly scene: PhysicsScene, private readonly nodes: THREE.Object3D[],
+    private readonly body: "dynamic" | "static" = "dynamic") {
+    this.xf = new Float32Array(7 * nodes.length);
+    this.mark = new Float32Array(7 * nodes.length);
+    this.reach = scene.chunks.map((c) => Math.max(...c.boxes.map(([x, y, z, hx, hy, hz]) =>
       Math.hypot(Math.abs(x) + hx, Math.abs(y) + hy, Math.abs(z) + hz))));
-    this.restMiddle = this.median(); // the chunks are built at rest
+    this.restMiddle = this.median(); // the nodes are built at rest
   }
 
-  /** Calibrate alone (in slices, with progress), then join ``world`` where its item is placed.
-   *  A no-op once joined, and once removed from its runtime (it may be, between two slices). */
+  /** Calibrate alone (in slices, with progress; only welds need it), then join ``world`` where its
+   *  item is placed. A no-op once joined, and once removed from its runtime (it may be, between
+   *  two slices). */
   async join(b3: Box3dModule, world: World): Promise<void> {
-    if (this.sim) return;
+    if (this.sim || !this.runtime?.runs.includes(this)) return; // joined, or removed meanwhile
+    if (!this.breakable) {
+      this.sim = new Sim(b3, this.scene, { body: this.body }, world);
+      this.sim.setEnabled(this.enabled);
+      this.reset();
+      return;
+    }
     this.calibrating = true;
     this.changed();
-    const probe = new Sim(b3, this.chunked.scene);
+    const probe = new Sim(b3, this.scene);
     try {
       const run = probe.calibrating();
       for (let done = false; !done;) {
@@ -217,7 +239,7 @@ export class PhysicsRun {
         await new Promise((resolve) => setTimeout(resolve, 0));
         if (!this.runtime?.runs.includes(this)) return; // removed meanwhile: never join
       }
-      this.sim = new Sim(b3, this.chunked.scene, { shatterSpeed: this.shatterSpeed }, world);
+      this.sim = new Sim(b3, this.scene, { shatterSpeed: this.shatterSpeed }, world);
       this.sim.base = probe.base;
       this.sim.setStrength(this.strength);
       this.sim.setEnabled(this.enabled);
@@ -226,6 +248,29 @@ export class PhysicsRun {
       this.calibrating = false;
     }
     this.reset();
+  }
+
+  /** Whether its collision shape is drawn (setShapeVisible). */
+  shapeShown = false;
+  private shapes?: THREE.LineSegments[];
+
+  /** Draw each body's boxes as a wireframe on its node, so they move with it: a check that the
+   *  collision shape follows the object. */
+  setShapeVisible(on: boolean): void {
+    this.shapeShown = on;
+    this.shapes ??= this.nodes.map((node, i) => {
+      const xyz: number[] = [];
+      for (const [x, y, z, hx, hy, hz] of this.scene.chunks[i].boxes) {
+        const c = (k: number) => [x + (k & 1 ? hx : -hx), y + (k & 2 ? hy : -hy), z + (k & 4 ? hz : -hz)];
+        for (const [a, b] of BOX_EDGES) xyz.push(...c(a), ...c(b));
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(xyz, 3));
+      const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xff8a1f }));
+      node.add(lines);
+      return lines;
+    });
+    for (const lines of this.shapes) lines.visible = on;
   }
 
   /** In or out of the World (its item shown or hidden). */
@@ -309,7 +354,7 @@ export class PhysicsRun {
     const sizes = this.sim.pieceSizes();
     const pieces = sizes.length === 1
       ? "whole"
-      : `${sizes.length} pieces, largest ${Math.round((100 * sizes[0]) / this.chunks.length)}%`;
+      : `${sizes.length} pieces, largest ${Math.round((100 * sizes[0]) / this.nodes.length)}%`;
     const motion = !this.runtime?.running ? "paused" : this.sim.awake > 0 ? "moving" : "at rest";
     return `${pieces}, ${motion}`;
   }
@@ -318,7 +363,7 @@ export class PhysicsRun {
    *  union of each chunk's reach around its body. */
   extent(): Bounds {
     const min: V3 = [Infinity, Infinity, Infinity], max: V3 = [-Infinity, -Infinity, -Infinity];
-    this.chunks.forEach((chunk, i) => {
+    this.nodes.forEach((chunk, i) => {
       if (!chunk.visible) return; // fell off the ground
       // The group's turn (180° about x) takes the physics frame's (x, y, z) to (x, -y, -z).
       const p = [chunk.position.x, -chunk.position.y, -chunk.position.z];
@@ -333,7 +378,8 @@ export class PhysicsRun {
   /** The median chunk in world space, now or at rest: what a camera following the object looks
    *  at (a few pieces thrown far must not drag it away). */
   middleWorld(atRest = false): THREE.Vector3 {
-    return this.group.localToWorld(new THREE.Vector3(...(atRest ? this.restMiddle : this.median())));
+    const middle = new THREE.Vector3(...(atRest ? this.restMiddle : this.median())).applyMatrix4(this.unscale());
+    return this.group.localToWorld(middle);
   }
 
   /** Copy the bodies' transforms onto the chunks, out of the World's frame into the group's; a
@@ -343,12 +389,24 @@ export class PhysicsRun {
     if (!sim) return;
     sim.transforms(this.xf);
     const p = new THREE.Vector3(), q = new THREE.Quaternion();
-    this.chunks.forEach((chunk, i) => {
+    // The item's scale sits above the group: undo it on each node, so a body moves in metres
+    // whatever the item's scale (exact per axis: the group's turn is diagonal, as a scale is).
+    const unscale = this.unscale();
+    this.nodes.forEach((node, i) => {
       const x = this.xf, k = 7 * i;
-      chunk.visible = !sim.lost.has(i);
-      chunk.position.copy(p.set(x[k], x[k + 1], x[k + 2]).sub(this.at).applyQuaternion(this.unturn));
-      chunk.quaternion.copy(this.unturn).multiply(q.set(x[k + 3], x[k + 4], x[k + 5], x[k + 6]));
+      node.visible = !sim.lost.has(i);
+      node.position.copy(p.set(x[k], x[k + 1], x[k + 2]).sub(this.at).applyQuaternion(this.unturn));
+      node.quaternion.copy(this.unturn).multiply(q.set(x[k + 3], x[k + 4], x[k + 5], x[k + 6]));
+      node.updateMatrix();
+      node.matrix.premultiply(unscale);
+      node.matrixAutoUpdate = false;
     });
+  }
+
+  /** The inverse of the item's scale (its layer's object, above the group). */
+  private unscale(): THREE.Matrix4 {
+    const s = this.group.parent!.scale;
+    return new THREE.Matrix4().makeScale(1 / s.x, 1 / s.y, 1 / s.z);
   }
 
   /** Whether no chunk moved visibly since the last call (CREEP_*); re-marks. */
@@ -369,11 +427,18 @@ export class PhysicsRun {
   dispose(): void {
     this.sim?.dispose();
     this.sim = undefined;
+    for (const lines of this.shapes ?? []) {
+      lines.removeFromParent();
+      lines.geometry.dispose();
+      (lines.material as THREE.Material).dispose();
+    }
+    this.shapes = undefined;
+    this.shapeShown = false;
   }
 
   /** The group the chunks live in: the World's frame, under the item's placement. */
   private get group(): THREE.Object3D {
-    return this.chunks[0].parent!;
+    return this.nodes[0].parent!;
   }
 
   private prepared(): Promise<Sim> {
@@ -405,7 +470,7 @@ export class PhysicsRun {
   /** The median chunk position, per axis, in the group's frame. */
   private median(): V3 {
     const at = (a: "x" | "y" | "z") => {
-      const v = this.chunks.map((c) => c.position[a]).sort((p, q) => p - q);
+      const v = this.nodes.map((c) => c.position[a]).sort((p, q) => p - q);
       return v[v.length >> 1];
     };
     return [at("x"), at("y"), at("z")];
@@ -414,10 +479,10 @@ export class PhysicsRun {
   /** The chunks' centroid in the group's frame (a blast's centre). */
   private middle(): V3 {
     const c: V3 = [0, 0, 0];
-    for (const chunk of this.chunks) {
-      c[0] += chunk.position.x / this.chunks.length;
-      c[1] += chunk.position.y / this.chunks.length;
-      c[2] += chunk.position.z / this.chunks.length;
+    for (const chunk of this.nodes) {
+      c[0] += chunk.position.x / this.nodes.length;
+      c[1] += chunk.position.y / this.nodes.length;
+      c[2] += chunk.position.z / this.nodes.length;
     }
     return c;
   }
@@ -431,9 +496,11 @@ export class PhysicsRun {
    *  frame, then the pose). */
   private toWorldFrame(ray: THREE.Ray): [V3, V3] {
     this.group.updateWorldMatrix(true, false);
+    // The group's frame carries the item's scale S; the World's is in metres: S · group⁻¹.
     const inverse = this.group.matrixWorld.clone().invert();
-    const origin = ray.origin.clone().applyMatrix4(inverse).applyQuaternion(this.turn).add(this.at);
-    const dir = ray.direction.clone().transformDirection(inverse).applyQuaternion(this.turn);
+    const scale = this.group.parent!.scale;
+    const origin = ray.origin.clone().applyMatrix4(inverse).multiply(scale).applyQuaternion(this.turn).add(this.at);
+    const dir = ray.direction.clone().transformDirection(inverse).multiply(scale).normalize().applyQuaternion(this.turn);
     return [origin.toArray(), dir.toArray()];
   }
 }

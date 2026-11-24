@@ -45,6 +45,8 @@ import {
 import type { TrackSet } from "./tracks";
 import { buildChunkedObject, decodeChunkedObject, isChunkedObject } from "./physics/chunkedObject";
 import { PhysicsRun } from "./physics/run";
+import type { CollisionGeometry } from "./physics/rigidObject";
+import { PointCloud } from "./builders";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
 
@@ -55,6 +57,9 @@ export class AssetLayer implements FrameSource {
   visible = true;
 
   private current?: THREE.Object3D;
+  /** Where the content (and the box) hang: the layer's group, or a rigid body's holder while
+   *  the item is a dynamic physics object (rigidObject.ts). */
+  private holder?: THREE.Object3D;
   private currentBounds?: Bounds;
   private box?: THREE.Box3Helper;
   /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splat points. */
@@ -286,7 +291,70 @@ export class AssetLayer implements FrameSource {
     this.currentBounds = bounds;
     this.attachCurrent(object);
     this.box = buildBox(bounds);
-    this.object.add(this.box);
+    (this.holder ?? this.object).add(this.box);
+  }
+
+  /** Hang the content and the box on a moving body's ``holder`` (rigidObject.ts), or back on
+   *  the layer's group (none); a rebuilt content goes where they are. */
+  mountOn(holder: THREE.Object3D | undefined): void {
+    this.holder = holder;
+    for (const o of [this.current, this.box]) if (o) (holder ?? this.object).add(o);
+  }
+
+  /** Its geometry for a collision shape, in the layer's frame: a 3DGS asset's splat centres (the
+   *  visibly opaque ones), else a mesh's triangles, else a cloud's points (asked only of those:
+   *  Viewer.physicsModes). */
+  collisionGeometry(): CollisionGeometry | null {
+    const current = this.current;
+    if (!current) return null;
+    this.object.updateWorldMatrix(true, true);
+    const toLayer = this.object.matrixWorld.clone().invert();
+    const v = new THREE.Vector3();
+    /** An attribute's xyz (read through it: interleaved or quantized glTF data too) into ``out``. */
+    const transform = (attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, m: THREE.Matrix4,
+      out: Float32Array, at: number) => {
+      for (let i = 0; i < attr.count; i++) out.set(v.fromBufferAttribute(attr, i).applyMatrix4(m).toArray(), at + 3 * i);
+    };
+    if (this.cloud) {
+      const { centers, opacities } = this.cloud;
+      const kept = centers.filter((_, k) => opacities[Math.floor(k / 3)] > 0.1);
+      const points = new Float32Array(kept.length);
+      transform(new THREE.BufferAttribute(kept, 3), toLayer.clone().multiply(current.matrixWorld), points, 0);
+      return { points };
+    }
+    const meshes: THREE.Mesh[] = [], clouds: THREE.BufferGeometry[] = [], cloudOwners: THREE.Object3D[] = [];
+    current.traverse((o) => {
+      if (o instanceof THREE.Mesh) meshes.push(o);
+      else if (o instanceof THREE.Points || o instanceof PointCloud) {
+        clouds.push(o instanceof PointCloud ? o.points : o.geometry);
+        cloudOwners.push(o);
+      }
+    });
+    if (meshes.length) {
+      const sizes = meshes.map((m) => m.geometry.getAttribute("position").count);
+      const positions = new Float32Array(3 * sizes.reduce((a, b) => a + b, 0));
+      const index: number[] = [];
+      let base = 0;
+      meshes.forEach((m, k) => {
+        const g = m.geometry;
+        transform(g.getAttribute("position"), toLayer.clone().multiply(m.matrixWorld), positions, 3 * base);
+        if (g.index) for (const i of g.index.array) index.push(base + i);
+        else for (let i = 0; i < sizes[k]; i++) index.push(base + i);
+        base += sizes[k];
+      });
+      return { positions, index };
+    }
+    if (clouds.length) {
+      const total = clouds.reduce((n, g) => n + g.getAttribute("position").count, 0);
+      const points = new Float32Array(3 * total);
+      let at = 0;
+      clouds.forEach((g, k) => {
+        transform(g.getAttribute("position"), toLayer.clone().multiply(cloudOwners[k].matrixWorld), points, at);
+        at += 3 * g.getAttribute("position").count;
+      });
+      return { points };
+    }
+    return null;
   }
 
   dispose(): void {
@@ -307,7 +375,7 @@ export class AssetLayer implements FrameSource {
   private attachCurrent(object: THREE.Object3D): void {
     this.current = object;
     this.shadingPairs = collectShadingPairs(object);
-    this.object.add(object);
+    (this.holder ?? this.object).add(object);
     this.setWireframe(this.wireframe);
     this.setShaded(this.shaded);
     setPointsSize(object, this.opts.pointSize);
@@ -547,7 +615,7 @@ async function loadNumpy(
   if (isChunkedObject(arrays)) {
     const chunked = decodeChunkedObject(arrays);
     const { object, bounds, chunks } = buildChunkedObject(chunked);
-    return { object, bounds, physics: new PhysicsRun(chunked, chunks) };
+    return { object, bounds, physics: new PhysicsRun(chunked.scene, chunks) };
   }
   const set = decodeTracks(arrays);
   return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };

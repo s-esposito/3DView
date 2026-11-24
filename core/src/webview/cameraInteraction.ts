@@ -32,6 +32,8 @@ export interface InteractionDeps {
   /** A click that hit no camera, as a world-space ray from the eye (it selects an item, or
    *  shoots / blasts a physics object, by the Viewer's click mode). */
   onMiss?: (ray: THREE.Ray) => void;
+  /** True when this click belongs to something else (the gizmo): it neither picks nor misses. */
+  ignoreClick?: () => boolean;
 }
 
 export class CameraInteraction {
@@ -99,8 +101,8 @@ export class CameraInteraction {
     const moved = Math.hypot(e.clientX - this.pointerDown.x, e.clientY - this.pointerDown.y);
     this.pointerDown = undefined;
     const tolerance = e.pointerType === "touch" ? TAP_DRAG_TOLERANCE_PX : CLICK_DRAG_TOLERANCE_PX;
-    if (moved > tolerance) {
-      return; // an orbit drag, not a click
+    if (moved > tolerance || this.deps.ignoreClick?.()) {
+      return; // an orbit drag, or a click on the gizmo — not a click here
     }
     const hit = this.pick(e.clientX, e.clientY);
     if (hit) {

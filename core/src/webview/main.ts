@@ -52,6 +52,7 @@ viewer.onProgress = (message) => showStatus(message, true);
 // place (a re-render would rebuild it several times a second, losing any drag).
 viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
 viewer.onPhysics = (id, status) => panel.setPhysicsStatus(id, status);
+viewer.onFps = (fps) => panel.setFps(fps);
 
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
@@ -124,8 +125,15 @@ window.addEventListener("keydown", (e) => {
     }
     return;
   }
-  if (key === "r") {
+  if (e.key === "Home") {
     viewer.resetView();
+    return;
+  }
+  // Blender's G / R / S: the gizmo on the selected item (nothing without one). Shift+G / Shift+S
+  // keep the grid and the mesh shading.
+  const gizmo: Record<string, "translate" | "rotate" | "scale"> = { g: "translate", r: "rotate", s: "scale" };
+  if (gizmo[key] && !e.shiftKey) {
+    if (viewer.getState().selected) viewer.setGizmoMode(gizmo[key]);
     return;
   }
   if (key === "?") {

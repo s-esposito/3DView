@@ -83,6 +83,7 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-scene-item .kind{display:inline-flex;opacity:.55;font-size:10px;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
 .viewer-foot{flex:none;align-self:flex-end;display:flex;align-items:center;gap:6px}
+.viewer-fps{font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;min-width:3.6em;text-align:right;cursor:default}
 .viewer-help{width:22px;height:22px;padding:0;border:none;border-radius:50%;cursor:pointer;font:600 12px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,0.14)) 55%,transparent)}
 .viewer-help:hover{color:var(--vscode-foreground,#ddd)}
 .viewer-shortcuts{display:flex;flex-direction:column;gap:6px;padding:4px 14px 14px}

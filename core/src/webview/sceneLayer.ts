@@ -146,6 +146,12 @@ export class ReconstructionLayer implements SceneLayer {
     this.applyOptions(opts);
   }
 
+  /** Its geometry for a collision shape (static only: a reconstruction is an environment): its
+   *  points, in the layer's frame. */
+  collisionGeometry(): { points: Float32Array } {
+    return { points: this.data.positions };
+  }
+
   get pointCount(): number {
     return this.data.count;
   }

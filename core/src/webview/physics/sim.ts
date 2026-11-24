@@ -47,6 +47,9 @@ export const DEFAULTS = {
   restitution: 0.05,
   /** Each box shrunk by this fraction of a voxel on every side pair, so neighbours never rest in contact. */
   gap: 0.02,
+  /** A dynamic body moves; a static one stays where reset() puts it (an environment: a table,
+   *  a room) and only stops others. */
+  body: "dynamic" as "dynamic" | "static",
   /** The World's (a Sim's own World is made with these). */
   substeps: 4,
   dt: 1 / 60,
@@ -218,6 +221,7 @@ export class Sim {
     }) as [Box3dVec3, Box3dVec3]);
     this.weldsOf = scene.chunks.map(() => []);
     scene.welds.forEach((w, i) => { this.weldsOf[w.a].push(i); this.weldsOf[w.b].push(i); });
+    if (scene.welds.length === 0) this.base = new Float32Array(0); // nothing to calibrate
     this.reset();
   }
 
@@ -235,7 +239,7 @@ export class Sim {
     const rot = qmul(turn, this.restRotation);
     const shrink = 0.5 * scene.voxelSize * o.gap;
     this.bodies = scene.chunks.map((chunk, i) => {
-      const body = this.world.box3d.createBody({ type: "dynamic", position: v3(place(chunk.position)), rotation: rot });
+      const body = this.world.box3d.createBody({ type: o.body, position: v3(place(chunk.position)), rotation: rot });
       for (const [cx, cy, cz, hx, hy, hz] of chunk.boxes)
         body.createBox({
           halfExtents: { x: hx - shrink, y: hy - shrink, z: hz - shrink }, offset: { x: cx, y: cy, z: cz },

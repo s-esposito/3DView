@@ -144,6 +144,21 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            brittle impacts, blasts, shots, unglue. PhysicsScene = the
                            chunked object (what GenerativeReconstruction's export_chunks.py
                            writes). No DOM: test/physics.test.ts runs it under node
+      voxelize.ts          any asset's collision shape (roadmap R1): triangles / points /
+                           splat centres -> a voxel grid (1.5-voxel margin, so faces sit
+                           mid-voxel) -> stray clumps (<1%) dropped -> inside filled (flood
+                           from the margin) -> boxes (mergeGrid, flat-array greedy merge) under
+                           a box budget (collisionShape coarsens 1.25x until it fits)
+                           Any item into the physics (R3): Viewer.setPhysicsMode(id, off /
+                           static / dynamic) -> the layer's collisionGeometry ->
+                           rigidObject.geometryShape -> mountRigid (dynamic: AssetLayer.mountOn
+                           hangs content + box on the body's holder) -> a PhysicsRun in the
+                           runtime; Viewer.runOf(layer) is the one accessor for "its run".
+      rigidObject.ts       a rigid asset on one body (roadmap R2): mountRigid puts its content
+                           under a node at its shape's centre of mass, under the same 180°
+                           turn a chunked object's group has, drawn where it was; the body is a
+                           PhysicsScene of one chunk, no welds (so no calibration). Sim's
+                           `body: "static"` makes an environment that only stops others
       voxelScene.ts        synthetic PhysicsScenes (blob/tower/wall) + the chunking
                            (farthest-point seeds, greedy box merge, welds per shared face)
       chunkedObject.ts     a chunked object as an asset: export_chunks.py's .npz (arrays
@@ -499,6 +514,14 @@ routinely carries `dense/fused.ply` and friends.
   because the host only ever builds URIs for opened content (mesh files; images
   under a model's dir, path-escape-guarded). Don't narrow `rootsFor` back to exact
   folders — it reintroduces the reload-on-add bug.
+- **The gizmo and an item's scale.** The selected item carries three's TransformControls
+  (Viewer.gizmo; G / R / S; drawn only by the live loop, never in a capture: `draw(camera, live)`);
+  a drag ends in `Viewer.placed`, the one path for "an item moved" (bounds, grid, physics reset or
+  a rigid body re-voxelized at its new scale). ItemTransform has `scale`, on the layer's object.
+  Physics under a scaled item: the group's turn is diagonal, as a scale is, so PhysicsRun.place
+  writes each node's matrix as S⁻¹·(its pose) — bodies move in metres, content keeps its scale —
+  and geometryShape scales the geometry first. A breakable object's scale is locked while its
+  physics is on (its welds are calibrated to its size).
 - **One panel at a time, scrolling in its body and nowhere else.** Every host sets
   `html,body{overflow:hidden}`, so anything a panel pushes past the viewport is
   unreachable. The rail opens one panel (`ControlPanel.open`); the column runs from top
@@ -510,7 +533,7 @@ routinely carries `dense/fused.ply` and friends.
   Viewer (`selectItem`, `ViewerState.selected`), so it survives the rebuild.
 - **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
   camera only when the scene was empty; adding to an existing scene keeps the
-  user's current view. `resetView()` (R) is the explicit re-fit. A host may set a
+  user's current view. `resetView()` (Home) is the explicit re-fit. A host may set a
   **home view** instead (`setView` message → `setHomeView`, in the scene's own
   COLMAP frame): every fit — first item, R, Upright, leaving a POV — then goes
   there rather than to the bounds' generic diagonal, so it can arrive before the

@@ -56,7 +56,8 @@ and a **browser demo**, over one shared core.
   **timeline** — scrub through the frames or play them back (shared **Playback FPS**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
-  **position / rotation** fields (click its row: the **Inspector** under the list), so sources that don't
+  **position / rotation / scale** (click its row — or it, in the view — for the **Inspector** under the
+  list, and a Blender-style **gizmo** on it: **G** / **R** / **S**), so sources that don't
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
@@ -125,13 +126,14 @@ flush the ten-entry list).
 | Orbit / zoom / pan | drag / scroll / right‑drag |
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
 | Cancel a video render | **Esc** |
-| Fit view | **R** |
+| Fit view | **Home** |
+| Move / rotate / scale the selected item (its gizmo) | **G** / **R** / **S**, then drag the gizmo |
 | Select an item / shoot / blast | click it (the playback bar's **Select** / **Shoot** / **Blast**; **Esc** back to Select) |
 | Type a slider's value / restore its default | double-click its value / its label |
 | All of these | **?** (or the footer's **?**) |
 | Toggle points / frustums / images | **P** / **F** / **I** |
-| Toggle shaded / wireframe / box | **S** / **W** / **B** |
-| Toggle grid / axes / upright | **G** / **A** / **U** |
+| Toggle shaded / wireframe / box | **Shift+S** / **W** / **B** |
+| Toggle grid / axes / upright | **Shift+G** / **A** / **U** |
 | Cycle Gaussians: splats → ellipsoids → points | **E** |
 
 ## Development

@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { PMREMGenerator, type WebGPURenderer } from "three/webgpu";
 import { createRenderer, getGpuCaps } from "@sparkjsdev/radix";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages";
@@ -34,7 +35,8 @@ import { TemporalLayer } from "./temporalLayer";
 import { SplatDrawer } from "./splatDrawer";
 import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
-import { PhysicsRuntime, type PhysicsPreset, type PhysicsRun } from "./physics/run";
+import { PhysicsRun, PhysicsRuntime, type PhysicsPreset } from "./physics/run";
+import { geometryShape, mountRigid, unmountRigid } from "./physics/rigidObject";
 import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 import { cameraPose, orderCameras, samplePath } from "./cameraPath";
@@ -64,7 +66,15 @@ export interface ItemTransform {
   position: Vec3;
   /** Euler XYZ in degrees (Three's default order), like Blender's rotation fields. */
   rotation: Vec3;
+  /** Per axis, about the item's origin; 1 is its own size. */
+  scale: Vec3;
 }
+
+/** The gizmo's size, as a share of three's default: Blender's is about half of it on screen. */
+const GIZMO_SIZE = 0.5;
+
+/** What the gizmo on the selected item does (Blender's G / R / S). */
+export type GizmoMode = "translate" | "rotate" | "scale";
 
 /** One frame of a temporal item, resolved to what a layer needs — the same two
  *  shapes the single-item add paths take. */
@@ -75,6 +85,10 @@ export type TemporalFrame =
 /** What a click in the view does: select the item under it, or (with a physics object in the
  *  scene) shoot the piece it hits / blow up a blast there. */
 export type ClickMode = "select" | "shoot" | "blast";
+
+/** Whether an item takes part in the physics: not at all, as a static body (an environment that
+ *  only stops others), or as a dynamic one that moves (a breakable object is always the last). */
+export type PhysicsMode = "off" | "static" | "dynamic";
 
 /** What a Scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
 export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
@@ -91,6 +105,9 @@ export interface SceneItem {
   label: string;
   kind: "reconstruction" | "asset";
   type: ItemType;
+  /** Its physics mode and the modes it can take; null when it cannot take part (tracks, a
+   *  sequence). Off by default, but for a breakable object. */
+  physics: { mode: PhysicsMode; modes: PhysicsMode[]; shape: boolean } | null;
   visible: boolean;
   /** Source location (e.g. asset file URI) for the hover tooltip; undefined when unknown. */
   source?: string;
@@ -173,12 +190,16 @@ export interface ViewerState {
   /** Which GPU backend draws the scene; null until the renderer is up. */
   backend: "WebGPU" | "WebGL2" | null;
   items: SceneItem[];
-  /** The scene's physics, for the Physics panel; null without a chunked object. */
+  /** The scene's physics, for the Physics panel; null while no item takes part. */
   physics: PhysicsView | null;
   /** The Scene item the Inspector shows; null when none is selected. */
   selected: string | null;
   /** What a click in the view does. */
   clickMode: ClickMode;
+  /** What the gizmo on the selected item does; scale is locked for a breakable object whose
+   *  physics is on (its welds are calibrated to its size). */
+  gizmoMode: GizmoMode;
+  scaleLocked: boolean;
 }
 
 /** The scene's simulation, as the Physics panel shows it. */
@@ -202,6 +223,10 @@ export interface PhysicsItem {
   label: string;
   /** Calibrating its welds (its actions wait). */
   busy: boolean;
+  /** A chunked object (welds, presets) rather than a rigid one. */
+  breakable: boolean;
+  /** A dynamic body (it moves) or a static one (it only stops others). */
+  dynamic: boolean;
   /** "calibrating 40%", "3 pieces, largest 80%, moving", ... */
   status: string;
   /** Glue, x the load each weld carries at rest. */
@@ -225,7 +250,10 @@ export class Viewer {
   /** Fired as a temporal item plays, so the panel can move the playhead in place.
    *  Deliberately not onChange — that would rebuild the slider several times a second. */
   onFrame?: (id: string, frame: number) => void;
-  /** Fired with a chunked object's physics status (``id`` null: the simulation's) as it changes
+  /** Fired about twice a second with the frames drawn per second, or null while nothing is
+   *  drawn (the loop renders on demand, so an idle scene draws no frames). */
+  onFps?: (fps: number | null) => void;
+  /** Fired with a physics object's status (``id`` null: the simulation's) as it changes
    *  (every step while it moves), so the panel can update its lines in place — not onChange, for
    *  the same reason as onFrame. */
   onPhysics?: (id: string | null, status: string) => void;
@@ -288,10 +316,13 @@ export class Viewer {
   // several sequences advance together). Empty is the common case: the clock in
   // `animate` costs one Set size check per frame.
   private readonly playingLayers = new Set<TemporalLayer>();
-  /** The scene's physics: every chunked object's run, in one World. */
+  /** The scene's physics: every physics object's run, in one World. */
   private readonly physics = new PhysicsRuntime();
   /** Whether something moved in the last frame (advancePhysics). */
   private physicsMoving = false;
+  /** Frames drawn since ``fpsSince`` (ms), for onFps. */
+  private fpsFrames = 0;
+  private fpsSince = 0;
   /** What the Physics panel was last built from (physicsChanged). */
   private physicsShown = "";
   /** Whether the camera follows ``followRun`` (the object last acted on) while its pieces move. */
@@ -299,7 +330,20 @@ export class Viewer {
   private followRun?: PhysicsRun;
   /** The Scene item the Inspector shows. */
   private selectedId: string | null = null;
+  /** Items given a body on demand (setPhysicsMode): its run, its node, its holder, its mode. */
+  private readonly rigid = new Map<string, { run: PhysicsRun; holder: THREE.Object3D }>();
+  /** Pending re-voxelizations of rescaled rigid items (reshapeSoon), by item id. */
+  private readonly reshapes = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Chunked objects switched off (they take part by default). */
+  private readonly physicsOff = new Set<string>();
   private clickMode: ClickMode = "select";
+  /** The gizmo on the selected item (three's TransformControls), what it does, and whether the
+   *  pointer went down on it (so the click it makes selects or shoots nothing). */
+  private readonly gizmo: TransformControls;
+  private gizmoMode: GizmoMode = "translate";
+  private gizmoPressed = false;
+  /** The item's scale when a gizmo drag began (a rigid body is re-voxelized if it changed). */
+  private readonly scaleBefore = new THREE.Vector3();
   private readonly canvas: HTMLCanvasElement;
   private playbackFps = 10;
   private lastStep = 0;
@@ -345,6 +389,26 @@ export class Viewer {
     this.controls.enableDamping = true;
     this.controls.addEventListener("end", () => this.refreshTextures());
 
+    this.gizmo = new TransformControls(this.camera, canvas);
+    this.gizmo.size = GIZMO_SIZE;
+    this.gizmo.addEventListener("change", () => this.requestRender());
+    this.gizmo.addEventListener("mouseDown", () => {
+      this.gizmoPressed = true;
+    });
+    this.gizmo.addEventListener("mouseUp", () => {
+      setTimeout(() => (this.gizmoPressed = false), 0); // after this pointerup's click handler
+    });
+    this.gizmo.addEventListener("dragging-changed", (e) => {
+      this.controls.enabled = !e.value; // the gizmo's drag is not an orbit
+      const object = this.gizmo.object;
+      if (e.value && object) {
+        this.scaleBefore.copy(object.scale);
+      } else if (this.selectedId) {
+        this.placed(this.selectedId, !this.scaleBefore.equals(object?.scale ?? this.scaleBefore));
+      }
+    });
+    this.scene.add(this.gizmo.getHelper());
+
     this.interaction = new CameraInteraction({
       dom: canvas,
       camera: this.camera,
@@ -355,6 +419,7 @@ export class Viewer {
       onSelect: (cam) => this.onSelect?.(cam),
       requestRender: this.requestRender,
       onMiss: (ray) => this.viewClick(ray),
+      ignoreClick: () => this.gizmoPressed, // a click on the gizmo selects, flies or shoots nothing
     });
     this.physics.onChange = () => this.physicsChanged();
 
@@ -446,19 +511,23 @@ export class Viewer {
         gravity: this.physics.gravity,
         follow: this.followPhysics,
         status: this.physics.status,
-        objects: this.assetLayers().flatMap((l) => {
-          const run = l.physics;
+        objects: this.layers.flatMap((l) => {
+          const run = this.runOf(l);
           return run ? [{ id: l.id, label: l.label, busy: run.calibrating, status: run.status,
+            breakable: run.breakable, dynamic: run.dynamic,
             strength: run.strength, shatterSpeed: run.shatterSpeed }] : [];
         }),
       },
       selected: this.selectedId,
       clickMode: this.clickMode,
+      gizmoMode: this.gizmoMode,
+      scaleLocked: this.scaleLocked(),
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
         kind: l.kind,
         type: itemType(l),
+        physics: this.physicsModes(l),
         visible: l.visible,
         source: l.source,
         transform: readTransform(l.object),
@@ -737,7 +806,7 @@ export class Viewer {
     this.requestRender();
   }
 
-  /** Drive a chunked object's physics (its Inspector). ``height``: a drop's, in metres. */
+  /** Drive an object's physics (its Inspector). ``height``: a drop's, in metres. */
   runPhysics(id: string, action: PhysicsAction, height = 3): void {
     const run = this.physicsOf(id);
     if (!run) {
@@ -758,6 +827,7 @@ export class Viewer {
       return; // e.g. a click on empty space with nothing selected: no panel rebuild
     }
     this.selectedId = next;
+    this.attachGizmo();
     const run = this.physicsOf(this.selectedId ?? "");
     if (run) {
       this.followRun = run;
@@ -771,6 +841,81 @@ export class Viewer {
     this.clickMode = this.physics.runs.length > 0 ? mode : "select";
     this.canvas.style.cursor = this.clickMode === "select" ? "" : "crosshair";
     this.onChange?.();
+  }
+
+  /** What the gizmo does: move, rotate or scale the selected item (scale is refused while it is
+   *  locked: a breakable object with its physics on). */
+  setGizmoMode(mode: GizmoMode): void {
+    if (mode === "scale" && this.scaleLocked()) {
+      return;
+    }
+    this.gizmoMode = mode;
+    this.gizmo.setMode(mode);
+    this.onChange?.();
+    this.requestRender();
+  }
+
+  /** The selected item's scale is locked (scaleLockedFor). */
+  private scaleLocked(): boolean {
+    return this.scaleLockedFor(this.selectedId ? this.byId.get(this.selectedId) : undefined);
+  }
+
+  /** A breakable object whose physics is on: its welds are calibrated to its size, and its chunks
+   *  are its bodies (no holder to carry a scale), so its scale stays 1. */
+  private scaleLockedFor(layer: SceneLayer | undefined): boolean {
+    return layer instanceof AssetLayer && layer.physics !== undefined && this.runOf(layer) !== undefined;
+  }
+
+  /** A rigid item's mode (off when it has no body). */
+  private rigidMode(id: string): PhysicsMode {
+    const rigid = this.rigid.get(id);
+    return !rigid ? "off" : rigid.run.dynamic ? "dynamic" : "static";
+  }
+
+  /** A rescaled rigid item gets its new collision shape once the scale stops changing (a field
+   *  typed in, a host streaming matrices): voxelizing is not per keystroke, and the panel is not
+   *  rebuilt, so the field keeps its focus. */
+  private reshapeSoon(id: string): void {
+    clearTimeout(this.reshapes.get(id));
+    this.reshapes.set(id, setTimeout(() => {
+      this.reshapes.delete(id);
+      if (this.rigid.has(id)) this.setPhysicsMode(id, this.rigidMode(id), false);
+    }, 300));
+  }
+
+  /** The gizmo on the selected item while it is shown, off otherwise; out of scale mode where
+   *  scale is locked. */
+  private attachGizmo(): void {
+    const layer = this.selectedId ? this.byId.get(this.selectedId) : undefined;
+    if (layer?.visible) this.gizmo.attach(layer.object);
+    else this.gizmo.detach();
+    if (this.gizmoMode === "scale" && this.scaleLocked()) {
+      this.gizmoMode = "translate";
+      this.gizmo.setMode("translate");
+    }
+    this.requestRender();
+  }
+
+  /** An item was moved (the gizmo, the Inspector's fields, a host): its bounds, the grid, and its
+   *  physics — a body rests where it is placed, whole; a rigid one rescaled gets a new shape. */
+  private placed(id: string, rescaled: boolean, notify = true): void {
+    const layer = this.byId.get(id);
+    if (!layer) {
+      return;
+    }
+    layer.object.updateMatrix(); // bounds below read `matrix`, not the render-time one
+    if (rescaled && this.rigid.has(id)) {
+      this.reshapeSoon(id); // voxelized again at the new scale
+    } else {
+      this.runOf(layer)?.reset();
+    }
+    this.recomputeBounds();
+    this.rebuildHelpers(); // the grid + axes span the scene, so they follow
+    this.refreshTextures();
+    if (notify) {
+      this.onChange?.(); // the Inspector's fields (not for a host streaming matrices)
+    }
+    this.requestRender();
   }
 
   /** Start or stop the simulation's clock (every object's). */
@@ -843,7 +988,104 @@ export class Viewer {
   }
 
   private physicsOf(id: string): PhysicsRun | undefined {
-    return this.assetLayers().find((l) => l.id === id)?.physics;
+    const layer = this.byId.get(id);
+    return layer && this.runOf(layer);
+  }
+
+  /** A layer's run while it takes part: a chunked object's own unless switched off, or the one
+   *  made for it (setPhysicsMode). */
+  private runOf(l: SceneLayer): PhysicsRun | undefined {
+    if (l instanceof AssetLayer && l.physics) return this.physicsOff.has(l.id) ? undefined : l.physics;
+    return this.rigid.get(l.id)?.run;
+  }
+
+  /** What the Inspector offers for a layer's physics (SceneItem.physics). */
+  private physicsModes(l: SceneLayer): SceneItem["physics"] {
+    const run = this.runOf(l);
+    const shape = run?.shapeShown ?? false;
+    if (l instanceof AssetLayer && l.physics) return { mode: run ? "dynamic" : "off", modes: ["off", "dynamic"], shape };
+    if (l instanceof ReconstructionLayer) return { mode: this.rigidMode(l.id), modes: ["off", "static"], shape };
+    if (l instanceof AssetLayer && (l.type === "mesh" || l.type === "points" || l.type === "splats") && l.frameCount === 0) {
+      return { mode: this.rigidMode(l.id), modes: ["off", "static", "dynamic"], shape };
+    }
+    return null;
+  }
+
+  /**
+   * Take an item into the physics or out of it. A breakable object goes in or out as it is (off:
+   * back to rest, out of the World; on: it calibrates again). Any other item gets a body from its
+   * own geometry (rigidObject.ts: voxelized, merged into boxes at the defaults for its mode);
+   * dynamic, its content hangs on the body; off, the body goes and the content is back where it
+   * was. Turning one on prepares the World, so it joins at once.
+   */
+  setPhysicsMode(id: string, mode: PhysicsMode, notify = true): void {
+    const layer = this.byId.get(id);
+    if (!layer) {
+      return;
+    }
+    if (layer instanceof AssetLayer && layer.physics) {
+      const run = layer.physics;
+      if (mode === "off" && !this.physicsOff.has(id)) {
+        run.reset();
+        this.physics.remove(run);
+        this.physicsOff.add(id);
+      } else if (mode !== "off" && this.physicsOff.delete(id)) {
+        if (!layer.object.scale.equals(new THREE.Vector3(1, 1, 1))) {
+          layer.object.scale.set(1, 1, 1); // scaled while off: back to its own size (scaleLockedFor)
+          this.placed(id, false, false);
+        }
+        this.physics.add(run);
+        run.setEnabled(layer.visible);
+      }
+    } else {
+      const old = this.rigid.get(id);
+      const shapeShown = old?.run.shapeShown ?? false;
+      if (old) {
+        if (layer instanceof AssetLayer) layer.mountOn(undefined);
+        this.physics.remove(old.run);
+        unmountRigid(old.holder);
+        this.rigid.delete(id);
+      }
+      const geometry = mode === "off" ? null
+        : layer instanceof AssetLayer || layer instanceof ReconstructionLayer ? layer.collisionGeometry() : null;
+      if (geometry) {
+        const body = mode === "dynamic" ? "dynamic" : "static";
+        const { scene, node, holder } = mountRigid(layer.object, geometryShape(geometry, body, layer.object.scale));
+        if (body === "dynamic" && layer instanceof AssetLayer) layer.mountOn(holder);
+        const run = new PhysicsRun(scene, [node], body);
+        run.setEnabled(layer.visible);
+        run.setShapeVisible(shapeShown); // a new shape (rescaled) keeps the wireframe if it was on
+        this.physics.add(run);
+        this.rigid.set(id, { run, holder });
+      }
+    }
+    this.physicsDropped();
+    if (mode !== "off") {
+      void this.physics.prepared(); // it joins the World at once
+    }
+    this.attachGizmo(); // a breakable object's scale locks while its physics is on
+    if (notify) {
+      this.onChange?.();
+    }
+    this.requestRender();
+  }
+
+  /** The physics may have lost a run: stop following one that is gone, and leave Shoot / Blast
+   *  once nothing is left to hit. */
+  private physicsDropped(): void {
+    if (this.followRun && !this.physics.runs.includes(this.followRun)) {
+      this.followRun = undefined;
+    }
+    if (this.physics.runs.length === 0 && this.clickMode !== "select") {
+      this.setClickMode("select");
+    }
+  }
+
+  /** Draw an item's collision shape (its bodies' boxes, as a wireframe) or not. */
+  setPhysicsShape(id: string, on: boolean): void {
+    this.physicsOf(id)?.setShapeVisible(on);
+    this.onChange?.();
+    this.requestRender();
   }
 
   /**
@@ -854,10 +1096,14 @@ export class Viewer {
    */
   private viewClick(ray: THREE.Ray): void {
     const hits = this.layers.flatMap((l) => {
-      const local = l instanceof AssetLayer && l.physics ? l.physics.extent() : l.bounds();
+      const chunked = l instanceof AssetLayer && l.physics ? l.physics : undefined;
+      const local = chunked ? chunked.extent() : l.bounds();
       if (!l.visible || !local) return [];
+      // A dynamic rigid item is drawn through its body's holder; its bounds move with it.
+      const frame = this.rigid.get(l.id)?.holder ?? l.object;
+      frame.updateWorldMatrix(true, false);
       const box = new THREE.Box3(new THREE.Vector3(...local.min), new THREE.Vector3(...local.max))
-        .applyMatrix4(l.object.matrixWorld);
+        .applyMatrix4(frame.matrixWorld);
       if (!ray.intersectsBox(box)) return [];
       const size = box.getSize(new THREE.Vector3());
       return [{ layer: l, volume: size.x * size.y * size.z }];
@@ -866,7 +1112,7 @@ export class Viewer {
       this.selectItem(hits[0]?.layer.id ?? null);
       return;
     }
-    const run = hits.map((h) => h.layer).find((l): l is AssetLayer => l instanceof AssetLayer && l.physics != null)?.physics;
+    const run = hits.map((h) => this.runOf(h.layer)).find((r) => r !== undefined);
     if (run) {
       this.followRun = run;
       void (this.clickMode === "blast" ? run.blast(ray) : run.shoot(ray));
@@ -877,10 +1123,13 @@ export class Viewer {
    *  place; the panel itself is rebuilt only when what it is built from changes (the clock
    *  starting or stopping, a calibration starting or ending). */
   private physicsChanged(): void {
-    for (const layer of this.assetLayers()) {
-      if (layer.physics) {
-        layer.setBoxBounds(layer.physics.extent());
-        this.onPhysics?.(layer.id, layer.physics.status);
+    for (const layer of this.layers) {
+      const run = this.runOf(layer);
+      if (run) {
+        if (layer instanceof AssetLayer && layer.physics === run) {
+          layer.setBoxBounds(run.extent()); // a rigid item's box rides on its body instead
+        }
+        this.onPhysics?.(layer.id, run.status);
       }
     }
     this.onPhysics?.(null, this.physics.status);
@@ -900,9 +1149,10 @@ export class Viewer {
   setItemVisible(id: string, visible: boolean): void {
     const layer = this.byId.get(id);
     layer?.setVisible(visible);
-    if (layer instanceof AssetLayer) {
-      layer.physics?.setEnabled(visible); // a hidden object leaves the World: nothing hits it
+    if (layer) {
+      this.runOf(layer)?.setEnabled(visible); // a hidden object leaves the World: nothing hits it
     }
+    this.attachGizmo();
     this.requestRender();
   }
 
@@ -926,14 +1176,11 @@ export class Viewer {
       const [x, y, z] = patch.rotation.map(THREE.MathUtils.degToRad);
       layer.object.rotation.set(x, y, z);
     }
-    layer.object.updateMatrix(); // bounds below read `matrix`, not the render-time one
-    if (layer instanceof AssetLayer) {
-      layer.physics?.reset(); // a chunked object rests where it is placed, whole
+    const rescaled = patch.scale !== undefined && !this.scaleLockedFor(layer);
+    if (rescaled) {
+      layer.object.scale.fromArray(patch.scale!.map((v) => Math.max(1e-3, v)));
     }
-    this.recomputeBounds();
-    this.rebuildHelpers(); // the grid + axes span the scene, so they follow
-    this.refreshTextures();
-    this.requestRender();
+    this.placed(id, rescaled, false); // no onChange: the field being typed in keeps its focus
   }
 
   /**
@@ -950,12 +1197,17 @@ export class Viewer {
       return;
     }
     target.userData.hostMatrix = key;
+    const scaleBefore = target.scale.clone();
     const m = new THREE.Matrix4();
     m.set(...(rowMajor as Parameters<THREE.Matrix4["set"]>));
     m.decompose(target.position, target.quaternion, target.scale);
+    if (target === layer.object && this.scaleLockedFor(layer)) {
+      target.scale.set(1, 1, 1); // a breakable object's scale stays 1 while its physics is on
+    }
     target.updateMatrix(); // bounds below read `matrix`, not the render-time one
-    if (target === layer.object && layer instanceof AssetLayer) {
-      layer.physics?.reset(); // a chunked object rests where it is placed, whole
+    if (target === layer.object) {
+      this.placed(id, !target.scale.equals(scaleBefore), false); // its physics: reset, or a new shape
+      return;
     }
     this.recomputeBounds();
     this.rebuildHelpers();
@@ -965,7 +1217,7 @@ export class Viewer {
 
   /** Put a scene item back at the origin, unrotated. */
   resetItemTransform(id: string): void {
-    this.setItemTransform(id, { position: [0, 0, 0], rotation: [0, 0, 0] });
+    this.setItemTransform(id, { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] });
   }
 
   /** Rename a scene item's display label; re-renders the Scene list via onChange. */
@@ -991,16 +1243,17 @@ export class Viewer {
     }
     if (this.selectedId === id) {
       this.selectedId = null;
+      this.gizmo.detach();
     }
-    if (layer instanceof AssetLayer && layer.physics) {
-      this.physics.remove(layer.physics);
-      if (this.followRun === layer.physics) {
-        this.followRun = undefined;
-      }
-      if (this.physics.runs.length === 0) {
-        this.setClickMode("select"); // nothing left to shoot
-      }
+    const run = this.runOf(layer);
+    if (run) {
+      this.physics.remove(run);
     }
+    this.rigid.delete(id);
+    this.physicsOff.delete(id);
+    this.physicsDropped();
+    clearTimeout(this.reshapes.get(id));
+    this.reshapes.delete(id);
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
     this.byId.delete(id);
@@ -1505,7 +1758,8 @@ export class Viewer {
   }
 
   /** Render `camera`'s view, handing the splat renderer what the scene shows first. */
-  private draw(camera: THREE.Camera): void {
+  private draw(camera: THREE.Camera, live = false): void {
+    this.gizmo.getHelper().visible = live && this.gizmo.object !== undefined; // never in a capture
     this.splats?.gather(this.scene);
     this.renderer!.render(this.scene, camera);
   }
@@ -1562,7 +1816,7 @@ export class Viewer {
   }
 
   /**
-   * Step every running chunked object (physics/run.ts keeps its own fixed clock). Draws, and
+   * Step the physics (physics/run.ts keeps its own fixed clock). Draws, and
    * re-sorts the splats (the chunks moved relative to each other), only while something moves:
    * once every body sleeps the loop is idle again.
    */
@@ -1600,8 +1854,15 @@ export class Viewer {
       this.camera.rotateZ(THREE.MathUtils.degToRad(this.rollDeg));
     }
     if (moving || this.needsRender) {
-      this.draw(this.camera);
+      this.draw(this.camera, true);
       this.needsRender = false;
+      this.fpsFrames++;
+    }
+    const now = performance.now();
+    if (now - this.fpsSince >= 500) {
+      this.onFps?.(this.fpsFrames ? Math.round((1000 * this.fpsFrames) / (now - this.fpsSince)) : null);
+      this.fpsFrames = 0;
+      this.fpsSince = now;
     }
   };
 }
@@ -1612,6 +1873,7 @@ function readTransform(object: THREE.Object3D): ItemTransform {
   return {
     position: object.position.toArray() as Vec3,
     rotation: [x, y, z].map(THREE.MathUtils.radToDeg) as Vec3,
+    scale: object.scale.toArray() as Vec3,
   };
 }
 

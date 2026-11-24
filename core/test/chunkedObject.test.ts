@@ -84,7 +84,7 @@ function blobAt(runtime: PhysicsRuntime, x = 0): { run: PhysicsRun; chunks: Spla
   const item = new THREE.Group();
   item.add(object);
   item.position.x = x;
-  const run = new PhysicsRun(decoded, chunks);
+  const run = new PhysicsRun(decoded.scene, chunks);
   runtime.add(run);
   return { run, chunks };
 }
@@ -173,7 +173,8 @@ test("an object removed while it calibrates never joins the World; the next one 
   const runtime = new PhysicsRuntime();
   const a = blobAt(runtime), b = blobAt(runtime);
   const ready = runtime.prepared();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Calibration yields between 30 ms slices: catch a in one of them, whatever the machine's speed.
+  for (let i = 0; i < 1000 && !a.run.calibrating; i++) await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(a.run.calibrating, "a is calibrating");
   runtime.remove(a.run);
   const world = await ready;

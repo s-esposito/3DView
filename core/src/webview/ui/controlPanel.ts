@@ -5,7 +5,7 @@
 // the simulation's playback bar while there is something to simulate. All are thin views over
 // the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
 // Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode } from "../viewer";
+import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode, PhysicsMode, GizmoMode } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
 import { EARTH_GRAVITY } from "../physics/sim";
 import { DEFAULT_FOV } from "../cameraInteraction";
@@ -72,6 +72,12 @@ const PANELS: Array<{ id: PanelId; label: string; icon: string; shown: (s: Viewe
 ];
 /** The playback bar's speeds (sim seconds per real second), in the order its button cycles. */
 const SPEEDS = [1, 0.5, 0.25, 0.1];
+/** The gizmo's modes, Blender's keys. */
+const GIZMO_MODES: Array<{ value: GizmoMode; label: string; title: string; key: string }> = [
+  { value: "translate", label: "Move", title: "Drag the gizmo's arrows or planes to move it", key: "G" },
+  { value: "rotate", label: "Rotate", title: "Drag the gizmo's rings to turn it", key: "R" },
+  { value: "scale", label: "Scale", title: "Drag the gizmo's handles to resize it", key: "S" },
+];
 /** The playback bar's click modes. */
 const CLICK_MODES: Array<{ value: ClickMode; label: string; title: string }> = [
   { value: "select", label: "Select", title: "A click selects the item under it (Esc returns here)" },
@@ -96,6 +102,8 @@ export class ControlPanel {
   /** The selection at the last render: a new one (a click in the view) opens Scene, where its
    *  Inspector is. */
   private selected: string | null = null;
+  /** The last frame rate reported (setFps). */
+  private fps: number | null = null;
   /** Each physics object's drop height, metres (3 unless set), kept across re-renders. */
   private readonly dropHeights = new Map<string, number>();
   /** How to rewrite each physics status line, by item id ("" = the simulation's) — repopulated
@@ -149,7 +157,7 @@ export class ControlPanel {
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(dock, buildFooter(s.backend, this.buildThemeSwitcher(s)));
+    ui.append(dock, buildFooter(s.backend, this.fps, this.buildThemeSwitcher(s)));
     document.body.appendChild(ui);
     const body = ui.querySelector<HTMLElement>(".viewer-body");
     if (body && this.open) {
@@ -233,10 +241,17 @@ export class ControlPanel {
     return panel;
   }
 
-  /** Rewrite a physics status line, a chunked object's or (``id`` null) the simulation's (the
+  /** Rewrite a physics status line, an object's or (``id`` null) the simulation's (the
    *  Viewer's onPhysics, while it runs). */
   setPhysicsStatus(id: string | null, status: string): void {
     this.physicsLines.get(id ?? "")?.(status);
+  }
+
+  /** The footer's frame rate (the Viewer's onFps); kept for the next rebuild. */
+  setFps(fps: number | null): void {
+    this.fps = fps;
+    const el = document.querySelector<HTMLElement>(".viewer-fps");
+    if (el) el.textContent = fpsText(fps);
   }
 
   /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
@@ -262,14 +277,14 @@ export class ControlPanel {
     if (s.hasPoints || s.hasAssets) {
       toggles.append(toggle("Box", "B", "box", s.box));
     }
-    toggles.append(toggle("Grid", "G", "grid", s.grid), toggle("Axes", "A", "axes", s.axes));
+    toggles.append(toggle("Grid", "Shift+G", "grid", s.grid), toggle("Axes", "A", "axes", s.axes));
     body.append(section("Show", [toggles]));
 
     // Meshes — how mesh assets are drawn (two independent switches).
     if (s.hasAssets) {
       const modes = document.createElement("div");
       modes.className = "viewer-toggles";
-      modes.append(toggle("Shaded", "S", "shaded", s.shaded), toggle("Wireframe", "W", "wireframe", s.wireframe));
+      modes.append(toggle("Shaded", "Shift+S", "shaded", s.shaded), toggle("Wireframe", "W", "wireframe", s.wireframe));
       body.append(section("Meshes", [modes]));
     }
 
@@ -346,7 +361,7 @@ export class ControlPanel {
       follow.title = "Keep the camera on the object last acted on while its pieces move";
       view.push(follow);
     }
-    view.push(withKey(button("Fit view", () => this.viewer.resetView(), true), "R"));
+    view.push(withKey(button("Fit view", () => this.viewer.resetView(), true), "Home"));
     body.append(section("View", view));
 
     // Camera — controls OrbitControls' drag can't reach: perspective FOV and a
@@ -426,10 +441,30 @@ export class ControlPanel {
     return bar;
   }
 
-  /** The Inspector's Physics section for a chunked object: its line (updated in place), Drop /
-   *  Restore, the drop height, glue, shatter and the presets. The first action calibrates every
+  /** The Inspector's Physics section: whether the item takes part (Off / Static / Dynamic, or a
+   *  breakable object's Off / Breakable) and, while it does, its line (updated in place), its
+   *  collision shape on demand, and — dynamic — Drop / Restore and the drop height, — breakable —
+   *  glue, shatter and the presets. The first action calibrates every
    *  object's welds (~7 simulated seconds each, with progress on its line). */
-  private buildPhysicsSection(item: PhysicsItem): HTMLElement {
+  private buildPhysicsSection(sceneItem: SceneItem, item: PhysicsItem | undefined): HTMLElement {
+    const { mode, modes, shape } = sceneItem.physics!;
+    const labels: Record<PhysicsMode, string> = {
+      off: "Off",
+      static: "Static",
+      dynamic: sceneItem.type === "physics" ? "Breakable" : "Dynamic",
+    };
+    const titles: Record<PhysicsMode, string> = {
+      off: "Not in the physics: nothing hits it",
+      static: "An environment: it stops what falls on it, and never moves",
+      dynamic: sceneItem.type === "physics" ? "Welded chunks that break apart" : "A solid body: it falls, and shots push it",
+    };
+    const modeRow = choiceRow(modes.map((m) => ({ value: m, label: labels[m], title: titles[m] })), mode,
+      (m) => this.viewer.setPhysicsMode(sceneItem.id, m));
+    if (!item) {
+      return section("Physics", [modeRow]);
+    }
+    const showShape = checkbox("Show collision shape", shape, (on) => this.viewer.setPhysicsShape(sceneItem.id, on));
+    showShape.title = "Its bodies' boxes, as a wireframe: what the physics collides with";
     const line = hint(item.status);
     this.physicsLines.set(item.id, (status) => {
       line.textContent = status;
@@ -480,7 +515,13 @@ export class ControlPanel {
     for (const b of actions) {
       b.disabled = item.busy;
     }
-    return section("Physics", [line, row, heightRow, glue, shatter, presets]);
+    if (!item.dynamic) {
+      return section("Physics", [modeRow, line, showShape]);
+    }
+    if (!item.breakable) {
+      return section("Physics", [modeRow, line, row, heightRow, showShape]);
+    }
+    return section("Physics", [modeRow, line, row, heightRow, glue, shatter, presets, showShape]);
   }
 
   /**
@@ -742,10 +783,16 @@ export class ControlPanel {
     what.textContent = itemDescription(item);
     head.title = item.source ? sourcePath(item.source) : item.label;
     head.append(name, what);
-    wrap.append(head, section("Placement", [this.buildTransformEditor(item, s.positionStep)]));
-    const physics = s.physics?.objects.find((o) => o.id === item.id);
-    if (physics) {
-      wrap.append(this.buildPhysicsSection(physics));
+    const gizmo = choiceRow(GIZMO_MODES.map((g) => ({ ...g, title: `${g.title} (${g.key})` })), s.gizmoMode,
+      (m) => this.viewer.setGizmoMode(m));
+    if (s.scaleLocked) {
+      const scale = gizmo.querySelector<HTMLButtonElement>("button:last-child")!;
+      scale.disabled = true;
+      scale.title = "A breakable object's welds are calibrated to its size: turn its physics Off to scale it";
+    }
+    wrap.append(head, section("Placement", [gizmo, this.buildTransformEditor(item, s.positionStep, s.scaleLocked)]));
+    if (item.physics) {
+      wrap.append(this.buildPhysicsSection(item, s.physics?.objects.find((o) => o.id === item.id)));
     }
     return wrap;
   }
@@ -809,14 +856,14 @@ export class ControlPanel {
    * the scene. Edits go straight to the Viewer and update nothing else in the panel,
    * so a field keeps focus while it is being typed in or nudged.
    */
-  private buildTransformEditor(item: SceneItem, positionStep: number): HTMLElement {
+  private buildTransformEditor(item: SceneItem, positionStep: number, scaleLocked: boolean): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "viewer-xform";
 
     const reset = document.createElement("button");
     reset.className = "viewer-xform-reset";
     reset.textContent = "Reset placement";
-    reset.title = "Back to the origin, unrotated";
+    reset.title = "Back to the origin, unrotated, its own size";
     reset.addEventListener("click", () => {
       this.viewer.resetItemTransform(item.id);
       this.render(); // a click, not a keystroke — re-reading the fields is safe here
@@ -829,6 +876,9 @@ export class ControlPanel {
       vectorRow("Rotation°", item.transform.rotation, 1, (v) =>
         this.viewer.setItemTransform(item.id, { rotation: v })
       ),
+      lockable(vectorRow("Scale", item.transform.scale, 0.1, (v) =>
+        this.viewer.setItemTransform(item.id, { scale: v })
+      ), scaleLocked),
       reset
     );
     return wrap;
@@ -923,9 +973,14 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
 
 /** The caption row under the panels: which GPU backend draws the scene (once the
  *  renderer is up), the build's version, and the theme switcher. */
-function buildFooter(backend: ViewerState["backend"], theme: HTMLElement): HTMLElement {
+function buildFooter(backend: ViewerState["backend"], fps: number | null, theme: HTMLElement): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "viewer-foot";
+  const rate = document.createElement("span");
+  rate.className = "viewer-fps";
+  rate.textContent = fpsText(fps);
+  rate.title = "Frames drawn per second; idle while nothing changes (the view redraws on demand)";
+  foot.append(rate);
   if (backend) {
     const el = document.createElement("span");
     el.className = "viewer-backend";
@@ -964,6 +1019,18 @@ function buildVersion(): HTMLElement {
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */
 function sourcePath(uri: string): string {
   return uri.replace(/^https?:\/\/[^/]+/i, "");
+}
+
+/** ``row`` with its inputs disabled when ``locked`` (a breakable object's scale). */
+function lockable(row: HTMLElement, locked: boolean): HTMLElement {
+  row.querySelectorAll("input").forEach((input) => (input.disabled = locked));
+  if (locked) row.title = "Locked while its physics is on (its welds are calibrated to its size)";
+  return row;
+}
+
+/** The footer's frame rate: "60 fps", or "idle" while nothing is drawn. */
+function fpsText(fps: number | null): string {
+  return fps === null ? "idle" : `${fps} fps`;
 }
 
 /** Each item type as the Inspector names it. */

@@ -49,9 +49,10 @@ export function showShortcuts(): void {
       ["Click an item", "Select it (Select mode)"], ["Click a piece", "Shoot / Blast (those modes)"]]);
   if (!isTouchOnly()) {
     group("Keys", [
-      ["P · F · I", "Points · frustums · images"], ["B · G · A", "Box · grid · axes"],
-      ["S · W", "Shaded · wireframe meshes"], ["E", "Next Gaussian mode"], ["U", "Upright Y-up"],
-      ["R", "Fit view"], ["Esc", "Back to Select; leave a camera's view; cancel a render"], ["?", "This list"],
+      ["G · R · S", "Move · rotate · scale the selected item (its gizmo)"],
+      ["P · F · I", "Points · frustums · images"], ["B · Shift+G · A", "Box · grid · axes"],
+      ["Shift+S · W", "Shaded · wireframe meshes"], ["E", "Next Gaussian mode"], ["U", "Upright Y-up"],
+      ["Home", "Fit view"], ["Esc", "Back to Select; leave a camera's view; cancel a render"], ["?", "This list"],
     ]);
   }
   const dismiss = () => {
