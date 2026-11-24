@@ -133,6 +133,16 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     splatDrawer.ts       SplatDrawer: the one Radix SplatRenderer, fed before each frame
                          with the scene's visible SplatObjects (uploaded to the GPU on
                          first draw, re-uploaded in place when a sequence swaps a frame)
+    physics/             (exp/physics, not yet in the UI) a chunked object breaking apart:
+      box3d.ts             loadBox3d(): the vendored box3d-wasm, compiled on first use
+      sim.ts               Sim: one rigid body per chunk (its voxels merged into boxes), a
+                           weld per pair of touching chunks broken by load per area, weld
+                           strengths calibrated from the object's own settled loads;
+                           brittle impacts, blasts, shots, unglue. PhysicsScene = the
+                           chunked object (what GenerativeReconstruction's export_chunks.py
+                           writes). No DOM: test/physics.test.ts runs it under node
+      voxelScene.ts        synthetic PhysicsScenes (blob/tower/wall) + the chunking
+                           (farthest-point seeds, greedy box merge, welds per shared face)
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,

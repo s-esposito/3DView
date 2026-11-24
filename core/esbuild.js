@@ -67,7 +67,11 @@ function testConfig() {
     format: "cjs",
     target: "node18",
     sourcemap: true,
-    define, // in case a test bundles a module referencing __APP_VERSION__
+    // __APP_VERSION__ in case a test bundles a module referencing it; import.meta.url for
+    // box3d's loader, which a CJS bundle does not have, from the banner below.
+    define: { ...define, "import.meta.url": "__importMetaUrl" },
+    banner: { js: 'const __importMetaUrl = require("url").pathToFileURL(__filename).href;' },
+    plugins: [box3dWasm],
   };
 }
 
