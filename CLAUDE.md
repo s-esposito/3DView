@@ -561,6 +561,14 @@ All viewer changes live in `core/src/webview/`; host changes in each host packag
   release repacked with `dependencies`/`devDependencies`/`scripts` and source maps
   removed — the code only imports `three`. Switch back to the registry once upstream
   publishes a clean package.
+- **box3d-wasm is vendored** as `core/vendor/box3d-wasm-0.2.0-noeval.tgz` (physics, branch
+  `exp/physics`): the published 0.2.0's embind bindings build their invokers with
+  `new Function`, which the VS Code panel's CSP (no `'unsafe-eval'`) blocks. The tarball is
+  its single-threaded `standard` flavour rebuilt with `-sDYNAMIC_EXECUTION=0` (no eval; same
+  physics, checked against the published build), by `core/vendor/box3d-wasm-noeval.sh`
+  (~2 min on a CPU). Its wasm is embedded in `webview.js` (esbuild's `box3d-wasm-binary`
+  plugin, binary loader) and compiled only on the first `loadBox3d()`
+  (`src/webview/physics/box3d.ts`): +0.74 MB of bundle, nothing at startup.
 - `core/esbuild.js`: webview entry `src/webview/main.ts` → `out/webview.js`
   (browser/iife); `--test` bundles `test/*.test.ts` → `out/test/`. `vscode/esbuild.js`:
   extension entry `src/host/extension.ts` → `out/extension.js` (node/cjs, `vscode`

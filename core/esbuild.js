@@ -19,6 +19,22 @@ const define = { __APP_VERSION__: JSON.stringify(version) };
 // production builds (`npm run build`, used for the VSIX + Pages demo) drop it.
 const prod = !watch;
 
+// box3d-wasm exports its JS entry points but not its .wasm: physics/box3d.ts imports the
+// bytes as "box3d-wasm-binary", read here from the package's own folder and embedded.
+const box3dWasm = {
+  name: "box3d-wasm-binary",
+  setup(build) {
+    build.onResolve({ filter: /^box3d-wasm-binary$/ }, () => ({
+      path: path.join(path.dirname(require.resolve("box3d-wasm/package.json")), "dist", "box3d.wasm"),
+      namespace: "box3d-wasm-binary",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "box3d-wasm-binary" }, (args) => ({
+      contents: fs.readFileSync(args.path),
+      loader: "binary",
+    }));
+  },
+};
+
 /** @type {import('esbuild').BuildOptions} */
 const webviewConfig = {
   entryPoints: ["src/webview/main.ts"],
@@ -30,6 +46,9 @@ const webviewConfig = {
   minify: true,
   sourcemap: !prod,
   define,
+  plugins: [box3dWasm],
+  // box3d's loader imports node's "module" only when it runs under Node, never here.
+  external: ["node:module"],
 };
 
 // Bundle each test/*.test.ts into out/test/ as a Node CJS module (node builtins

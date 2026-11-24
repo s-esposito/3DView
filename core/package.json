@@ -23,6 +23,7 @@
   "dependencies": {
     "@sparkjsdev/radix": "file:vendor/sparkjsdev-radix-0.0.1.tgz",
     "@sparkjsdev/spark": "^2.4.0",
+    "box3d-wasm": "file:vendor/box3d-wasm-0.2.0-noeval.tgz",
     "mediabunny": "1.61.3",
     "three": "^0.186.1"
   }
