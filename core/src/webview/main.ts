@@ -248,6 +248,9 @@ function handleHostMessage(msg: HostToWebview) {
     case "setView":
       viewer.setHomeView(msg.position, msg.target);
       break;
+    case "setTransform":
+      viewer.setItemMatrix(msg.id, msg.matrix, msg.node);
+      break;
     case "error":
       showStatus(`Error: ${msg.message}`);
       break;

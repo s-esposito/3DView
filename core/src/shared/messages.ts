@@ -193,6 +193,21 @@ export interface SetViewMsg {
   target: [number, number, number];
 }
 
+/**
+ * Place a scene item, or one named node inside it (a node of its glTF), by a full
+ * 4x4 matrix: rotation, translation AND scale, in the scene's own frame (the one
+ * items are loaded in, COLMAP's, +y down). `matrix` is the 16 entries row-major.
+ * For a host that owns an item's placement and moves it as it changes (an object's
+ * pose being optimised); it replaces the item's own move/rotate fields' placement.
+ * An unknown id or node is ignored: the item may still be loading.
+ */
+export interface SetTransformMsg {
+  type: "setTransform";
+  id: string;
+  node?: string;
+  matrix: number[];
+}
+
 /** The two ways a multi-item add can resolve. Named as the modal's own answers, so
  *  a host-supplied hint and a user's click are the same value downstream. */
 export type GroupingChoice = "temporal" | "separate";
@@ -212,6 +227,7 @@ export type HostToWebview =
   | { type: "chooseColmap"; models: ColmapModelRef[] }
   | AddGroupMsg
   | SetViewMsg
+  | SetTransformMsg
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */
