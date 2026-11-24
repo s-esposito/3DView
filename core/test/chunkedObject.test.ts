@@ -168,3 +168,16 @@ test("a shot goes to the object whose chunk it meets first", async () => {
   assert.match(far.run.status, /^whole/);
   runtime.dispose();
 });
+
+test("an object removed while it calibrates never joins the World; the next one still does", async () => {
+  const runtime = new PhysicsRuntime();
+  const a = blobAt(runtime), b = blobAt(runtime);
+  const ready = runtime.prepared();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.ok(a.run.calibrating, "a is calibrating");
+  runtime.remove(a.run);
+  const world = await ready;
+  assert.equal(world.objects.length, 1, "only b's bodies are in the World");
+  assert.ok(!b.run.calibrating && /^whole/.test(b.run.status), b.run.status);
+  runtime.dispose();
+});

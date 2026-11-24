@@ -25,7 +25,9 @@ function popupHead(
 /** What every key and pointer gesture does: the "?" overlay (the footer's "?" or the key).
  *  Closes on Esc (which then goes no further), a click outside or ✕. */
 export function showShortcuts(): void {
-  document.getElementById("viewer-modal")?.remove();
+  if (document.getElementById("viewer-modal")) {
+    return; // another dialog (or this one) is up: it must be answered first
+  }
   const backdrop = document.createElement("div");
   backdrop.id = "viewer-modal";
   backdrop.className = "viewer-modal-backdrop";

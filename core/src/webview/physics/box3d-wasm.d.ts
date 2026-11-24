@@ -35,6 +35,8 @@ interface Box3dBody {
   getMass(): number;
   setAwake(awake: boolean): void;
   isAwake(): boolean;
+  /** Take the body out of the simulation (collisions, rays, blasts) or back in, as it is. */
+  setEnabled(enabled: boolean): void;
   /** Remove the body, its shapes and joints from the world. */
   destroy(): void;
 }

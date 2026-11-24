@@ -18,7 +18,6 @@ import { ensureStyles } from "./ui/styles";
 import { isTouchOnly } from "./ui/components";
 import { loadColmapFromUrls } from "./colmapLoader";
 import { installDropZone } from "./dropZone";
-import { physicsSmokeTest } from "./physics/box3d";
 
 // The host (VS Code or PyCharm/JCEF) installs `window.__viewerHost` before this
 // bundle runs; we never reference a host-specific API directly.
@@ -26,9 +25,6 @@ const host = getHostBridge();
 const status = document.getElementById("status")!;
 
 ensureStyles();
-// Physics P0 (exp/physics): a debug entry, not UI — drops a box and reports where it lands,
-// to check box3d-wasm runs in this host (its CSP included).
-(window as unknown as { __3dviewPhysicsSmoke: typeof physicsSmokeTest }).__3dviewPhysicsSmoke = physicsSmokeTest;
 const viewer = new Viewer();
 const panel = new ControlPanel(viewer, { archives: host.opensArchives });
 const popup = new InfoPopup();

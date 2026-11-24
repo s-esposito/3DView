@@ -4,7 +4,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { loadBox3d, physicsSmokeTest } from "../src/webview/physics/box3d";
+import { loadBox3d } from "../src/webview/physics/box3d";
 import { DEFAULTS, Sim, type PhysicsScene } from "../src/webview/physics/sim";
 import { presetScene } from "../src/webview/physics/voxelScene";
 
@@ -40,9 +40,17 @@ const top = (sim: Sim): number => {
   return m;
 };
 
-test("the engine loads and a dropped box comes to rest on the ground", async () => {
-  const r = await physicsSmokeTest();
-  assert.ok(r.resting, JSON.stringify(r));
+test("the engine loads and a dropped box comes to rest on the ground", () => {
+  // A 10 cm box dropped from 1 m: after a second its centre is at its half height, still.
+  const world = new b3.World({ gravity: { x: 0, y: -9.81, z: 0 } });
+  const ground = world.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
+  ground.createBox({ halfExtents: { x: 5, y: 0.5, z: 5 } });
+  const box = world.createBody({ type: "dynamic", position: { x: 0, y: 1, z: 0 } });
+  box.createBox({ halfExtents: { x: 0.05, y: 0.05, z: 0.05 }, density: 500 });
+  for (let i = 0; i < 60; i++) world.step(1 / 60, 4);
+  const y = box.getPosition().y, v = box.getLinearVelocity();
+  world.destroy();
+  assert.ok(Math.abs(y - 0.05) < 0.005 && Math.hypot(v.x, v.y, v.z) < 0.01, `y ${y}`);
 });
 
 test("each chunk's boxes cover exactly its voxels", () => {
@@ -101,8 +109,8 @@ test("crumble: when the glue vanishes every chunk comes loose", (t) => {
   const before = top(sim);
   sim.unglue();
   run(sim, 4);
-  t.diagnostic(`${sim.pieces()} pieces; top ${before.toFixed(2)} -> ${top(sim).toFixed(2)} m (a solid blob stands)`);
-  assert.equal(sim.pieces(), scene.chunks.length);
+  t.diagnostic(`${sim.pieceSizes().length} pieces; top ${before.toFixed(2)} -> ${top(sim).toFixed(2)} m (a solid blob stands)`);
+  assert.equal(sim.pieceSizes().length, scene.chunks.length);
   sim.dispose();
 });
 
@@ -114,10 +122,10 @@ test("brittle: set down it stays one piece; from 3 m it breaks apart, more than 
     return sim;
   };
   const gentle = dropped(0.02, 0, 3), brittle = dropped(3, 0.3, 3), plain = dropped(3, 0.3, Number.POSITIVE_INFINITY);
-  t.diagnostic(`set down ${gentle.pieces()} piece(s); 3 m brittle ${brittle.pieces()} pieces, largest ` +
-    `${(100 * largest(brittle)).toFixed(0)}% (without: ${plain.pieces()}, ${(100 * largest(plain)).toFixed(0)}%)`);
-  assert.equal(gentle.pieces(), 1);
-  assert.ok(largest(brittle) <= 0.6 && brittle.pieces() > plain.pieces());
+  t.diagnostic(`set down ${gentle.pieceSizes().length} piece(s); 3 m brittle ${brittle.pieceSizes().length} pieces, largest ` +
+    `${(100 * largest(brittle)).toFixed(0)}% (without: ${plain.pieceSizes().length}, ${(100 * largest(plain)).toFixed(0)}%)`);
+  assert.equal(gentle.pieceSizes().length, 1);
+  assert.ok(largest(brittle) <= 0.6 && brittle.pieceSizes().length > plain.pieceSizes().length);
   for (const s of [gentle, brittle, plain]) s.dispose();
 });
 
@@ -175,8 +183,23 @@ test("sleep() stops every body mid-fall, and a shot wakes it again", () => {
   run(sim, 0.5);
   assert.deepEqual(sim.transforms(), before, "asleep, nothing moves");
   const y = sim.transforms().filter((_, k) => k % 7 === 1).reduce((a, b) => a + b, 0) / scene.chunks.length;
-  assert.ok(sim.shoot([0, y, -5], [0, 0, 1]) >= 0, "the shot hits");
+  assert.equal(sim.world.shoot([0, y, -5], [0, 0, 1])?.sim, sim, "the shot hits");
   run(sim, 0.1);
   assert.ok(sim.awake > 0, "and wakes it");
+  sim.dispose();
+});
+
+test("disabled (a hidden item), an object is out of the World: rays pass it, it does not fall", () => {
+  const sim = calibrated();
+  sim.reset({ lift: 1 });
+  sim.setEnabled(false);
+  const before = sim.transforms();
+  run(sim, 0.5);
+  assert.deepEqual(sim.transforms(), before, "held where it was");
+  const y = before.filter((_, k) => k % 7 === 1).reduce((a, b) => a + b, 0) / scene.chunks.length;
+  assert.equal(sim.world.shoot([0, y, -5], [0, 0, 1]), null, "a shot passes through");
+  sim.setEnabled(true);
+  run(sim, 0.5);
+  assert.ok(sim.transforms()[1] < before[1], "back in, it falls");
   sim.dispose();
 });

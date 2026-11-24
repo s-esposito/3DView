@@ -21,24 +21,3 @@ export function loadBox3d(): Promise<Box3dModule> {
   });
   return module;
 }
-
-/** P0 check that the engine runs in this host: a 10 cm box dropped from 1 m onto the
- *  ground, one simulated second at 60 steps. Resting means its centre is at its half
- *  height (5 cm) and it no longer moves. */
-export async function physicsSmokeTest(): Promise<{ y: number; speed: number; resting: boolean }> {
-  const b3 = await loadBox3d();
-  const world = new b3.World({ gravity: { x: 0, y: -9.81, z: 0 } });
-  try {
-    const ground = world.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
-    ground.createBox({ halfExtents: { x: 5, y: 0.5, z: 5 } });
-    const box = world.createBody({ type: "dynamic", position: { x: 0, y: 1, z: 0 } });
-    box.createBox({ halfExtents: { x: 0.05, y: 0.05, z: 0.05 }, density: 500 });
-    for (let i = 0; i < 60; i++) world.step(1 / 60, 4);
-    const y = box.getPosition().y;
-    const v = box.getLinearVelocity();
-    const speed = Math.hypot(v.x, v.y, v.z);
-    return { y, speed, resting: Math.abs(y - 0.05) < 0.005 && speed < 0.01 };
-  } finally {
-    world.destroy();
-  }
-}

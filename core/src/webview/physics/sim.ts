@@ -96,8 +96,6 @@ interface Weld { joint: Box3dJoint; area: number; alive: boolean }
 export class World {
   readonly box3d: Box3dWorld;
   readonly objects: Sim[] = [];
-  /** Simulated seconds. */
-  time = 0;
   gravity: number;
   /** Seconds per step, and box3d substeps per step. */
   readonly dt: number;
@@ -127,7 +125,6 @@ export class World {
     this.box3d.step(this.dt, this.substeps);
     const hits = this.box3d.getContactEvents().hit;
     for (const sim of this.objects) sim.afterStep(hits);
-    this.time += this.dt;
   }
 
   /** m/s², down -y. */
@@ -203,6 +200,7 @@ export class Sim {
   /** Each chunk's welds, for brittle breaks and shots. */
   private readonly weldsOf: number[][];
   private readonly ownsWorld: boolean;
+  private enabled = true;
 
   /** ``b3``: the engine (loadBox3d()); ``scene``: the chunked object; ``world``: the World it
    *  joins (none: a World of its own, made with ``options``' dt and substeps). */
@@ -245,6 +243,7 @@ export class Sim {
           userData: this.tag0 + i, enableHitEvents: true, // tagged as its chunk, for hits
         });
       body.setUserData(this.tag0 + i); // rays read the chunk off the body hit
+      if (!this.enabled) body.setEnabled(false);
       return body;
     });
     // Each weld's frame: the anchor in each body's frame (the bodies start with the same rotation).
@@ -373,13 +372,6 @@ export class Sim {
     this.world.explode(point, radius, speed * this.o.density * this.scene.voxelSize);
   }
 
-  /** A shot along ``dir`` (unit) from ``origin`` (World.shoot): the chunk of this object it
-   *  knocked out, or -1 when it missed it (another object's chunk may have taken it). */
-  shoot(origin: V3, dir: V3, options: { speed?: number; radius?: number; range?: number } = {}): number {
-    const hit = this.world.shoot(origin, dir, options);
-    return hit?.sim === this ? hit.chunk : -1;
-  }
-
   /** Knock ``chunk`` out where ``point`` was hit along ``dir``: all its welds break, and those
    *  within ``radius`` of the hit, and it is kicked to about ``speed`` m/s (impulse = speed x its
    *  mass). */
@@ -421,15 +413,18 @@ export class Sim {
     return [...size.values()].sort((a, b) => b - a);
   }
 
-  pieces(): number { return this.pieceSizes().length; }
-
-  get aliveWelds(): number { return this.welds.length - this.broken; }
-
   /** How many of its chunks still move (Box3D puts bodies at rest to sleep). */
   get awake(): number { return this.bodies.reduce((n, b) => n + (b.isAwake() ? 1 : 0), 0); }
 
   /** Put its bodies to sleep (until something wakes them: a hit, a shot, a blast). */
   sleep(): void { for (const body of this.bodies) body.setAwake(false); }
+
+  /** Take it out of the World (``false``: nothing collides with it, rays and blasts pass it, its
+   *  bodies keep where they are) or back in; reset() keeps the setting. */
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    for (const body of this.bodies) body.setEnabled(on);
+  }
 
   /** Leave the World (its own: free it). */
   dispose(): void {

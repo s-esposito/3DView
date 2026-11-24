@@ -160,14 +160,19 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            object — on the first action every object calibrates (30 ms
                            slices, progress on its line) and joins the World where its item
                            is placed (pose = T⁻¹ M T, the group's turn T conjugating the
-                           item matrix M; scale not simulated; moving the item resets it
+                           item matrix M; scale is not simulated — a host matrix with
+                           scale draws the pieces scaled about the item's origin, off
+                           their boxes; moving the item resets it
                            there). Bodies' transforms are copied onto the chunk SplatObjects
                            out of the World's frame. While any body is awake the viewer
                            draws and re-sorts the splats (SplatDrawer.requestSort: Radix
                            re-sorts by itself only on camera motion); asleep, it idles. A
                            second of sim time in which no chunk moved 1 cm / turned 2° puts
                            the World to sleep (box3d can keep a welded piece creeping for
-                           ever); a chunk past the ground's edge (Sim.lost) is hidden.
+                           ever); a chunk past the ground's edge (Sim.lost) is hidden. A
+                           hidden item leaves the World (Sim.setEnabled: box3d's body
+                           setEnabled, so it keeps its state); a run removed while it
+                           calibrates never joins (join checks its runtime between slices).
                            Per object: Drop, Reset, glue, shatter, presets (shatter/explode/
                            volley/crumble, from rest at the default glue); a click shoots the
                            first chunk on the ray in the Shoot click mode, Blast blows up there

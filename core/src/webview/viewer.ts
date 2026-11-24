@@ -196,7 +196,7 @@ export interface PhysicsView {
   objects: PhysicsItem[];
 }
 
-/** A chunked object's physics, as the Physics panel shows it. */
+/** A chunked object's physics, as its Inspector shows it. */
 export interface PhysicsItem {
   id: string;
   label: string;
@@ -210,7 +210,7 @@ export interface PhysicsItem {
   shatterSpeed: number;
 }
 
-/** What the Physics panel can ask of one chunked object. */
+/** What an object's Inspector can ask of its physics. */
 export type PhysicsAction = "reset" | "drop";
 
 export class Viewer {
@@ -511,8 +511,8 @@ export class Viewer {
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
-        if (layer.physics) {
-          this.physics.add(layer.physics);
+        if (layer.physics && this.byId.get(id) === layer) {
+          this.physics.add(layer.physics); // not if it was removed while loading
         }
         // The scene state may have changed while this was loading; a no-op otherwise.
         this.syncLayerState(layer);
@@ -737,7 +737,7 @@ export class Viewer {
     this.requestRender();
   }
 
-  /** Drive a chunked object's physics (the Physics panel). ``height``: a drop's, in metres. */
+  /** Drive a chunked object's physics (its Inspector). ``height``: a drop's, in metres. */
   runPhysics(id: string, action: PhysicsAction, height = 3): void {
     const run = this.physicsOf(id);
     if (!run) {
@@ -753,7 +753,11 @@ export class Viewer {
   /** Select a Scene item for the Inspector (null: none). A physics object becomes the one the
    *  camera follows. */
   selectItem(id: string | null): void {
-    this.selectedId = id && this.byId.has(id) ? id : null;
+    const next = id && this.byId.has(id) ? id : null;
+    if (next === this.selectedId) {
+      return; // e.g. a click on empty space with nothing selected: no panel rebuild
+    }
+    this.selectedId = next;
     const run = this.physicsOf(this.selectedId ?? "");
     if (run) {
       this.followRun = run;
@@ -894,7 +898,11 @@ export class Viewer {
   }
 
   setItemVisible(id: string, visible: boolean): void {
-    this.byId.get(id)?.setVisible(visible);
+    const layer = this.byId.get(id);
+    layer?.setVisible(visible);
+    if (layer instanceof AssetLayer) {
+      layer.physics?.setEnabled(visible); // a hidden object leaves the World: nothing hits it
+    }
     this.requestRender();
   }
 

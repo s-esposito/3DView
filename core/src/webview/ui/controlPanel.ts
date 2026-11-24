@@ -434,8 +434,8 @@ export class ControlPanel {
     this.physicsLines.set(item.id, (status) => {
       line.textContent = status;
     });
-    const height = this.dropHeights.get(item.id) ?? 3;
-    const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height);
+    const height = () => this.dropHeights.get(item.id) ?? 3;
+    const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height());
     const drop = button("Drop", run("drop"));
     drop.title = "Lift it to the drop height, tilted, and let it fall";
     const reset = button("Restore", run("reset"), true);
@@ -443,7 +443,7 @@ export class ControlPanel {
     const row = document.createElement("div");
     row.className = "viewer-scale-row";
     row.append(drop, reset);
-    const heightRow = slider("Drop height", 0, 4, 0.1, height, (v) => {
+    const heightRow = slider("Drop height", 0, 4, 0.1, height(), (v) => {
       this.dropHeights.set(item.id, v);
     }, { format: (v) => `${v} m`, reset: 3 });
     // Glue on a log scale (0.3x to 300x the load each weld carries at rest): the object

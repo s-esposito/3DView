@@ -39,6 +39,16 @@ and a **browser demo**, over one shared core.
   trajectories).
   Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
   `(steps, tracks)` visibility mask.
+- **Breakable objects (physics, experimental)** — a `.npz` holding `physics_scene` (a
+  3DGS object cut into voxel chunks: each chunk a rigid body of boxes, welded to the chunks
+  it touches) and `physics_splats` (each chunk's Gaussians) opens as an object that can be
+  **dropped, shattered, blown up, shot or dissolved**, its splats moving with their chunks
+  ([Box3D](https://github.com/erincatto/box3d) in WebAssembly). Every such object shares one
+  world, so they collide. The **playback bar** at the bottom runs the clock (play / pause,
+  restore all, speed down to 0.1×) and sets what a click does (**Select** / **Shoot** /
+  **Blast**); the **Physics** panel holds gravity; an object's own controls (drop height,
+  glue, shatter on impact, presets) are in its **Inspector**. The first action calibrates
+  each object's welds against its own weight (~1-2 s an object).
 - **Temporal items (4D)** — load several reconstructions, meshes, clouds or splats as the
   **timesteps of one capture** instead of that many scene items: when a folder holds
   more than one model, or you pick / drop several asset files at once, 3DView asks

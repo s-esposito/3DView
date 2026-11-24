@@ -56,19 +56,21 @@ export class PhysicsRuntime {
 
   remove(run: PhysicsRun): void {
     run.dispose();
-    this.runs.splice(this.runs.indexOf(run), 1);
+    const i = this.runs.indexOf(run);
+    if (i >= 0) this.runs.splice(i, 1);
   }
 
   /** The World with every run in it: each not yet in calibrates first (in turn, with progress),
-   *  so nothing falls through an object that was never touched. Calls queue behind each other. */
+   *  so nothing falls through an object that was never touched. Calls queue behind each other;
+   *  one that failed does not stop the next from trying again. */
   prepared(): Promise<World> {
     const prepare = async (): Promise<World> => {
       const b3 = await loadBox3d();
       this.world ??= new World(b3, { gravity: this.gravity });
-      for (const run of this.runs) await run.join(b3, this.world);
+      for (const run of [...this.runs]) await run.join(b3, this.world); // a run may go meanwhile
       return this.world;
     };
-    this.preparing = this.preparing ? this.preparing.then(prepare) : prepare();
+    this.preparing = (this.preparing?.catch(() => undefined) ?? Promise.resolve()).then(prepare);
     return this.preparing;
   }
 
@@ -136,7 +138,7 @@ export class PhysicsRuntime {
     return world.awake > 0;
   }
 
-  /** The Simulation section's line. */
+  /** The playback bar's line. */
   get status(): string {
     const n = this.runs.length;
     const objects = `${n} object${n === 1 ? "" : "s"}`;
@@ -167,6 +169,8 @@ export class PhysicsRun {
   calibrating = false;
   /** Calibration progress, 0..1. */
   progress = 0;
+  /** In the World (its item shown) or out of it (hidden): nothing collides with a hidden one. */
+  enabled = true;
   /** Glue: each weld breaks at this x the load it carries at rest (Sim.setStrength). */
   strength = DEFAULTS.strength;
   /** Shatter on impact: a chunk hit faster than this (m/s) comes loose; Infinity = off. */
@@ -194,29 +198,40 @@ export class PhysicsRun {
   }
 
   /** Calibrate alone (in slices, with progress), then join ``world`` where its item is placed.
-   *  A no-op once joined. */
+   *  A no-op once joined, and once removed from its runtime (it may be, between two slices). */
   async join(b3: Box3dModule, world: World): Promise<void> {
     if (this.sim) return;
     this.calibrating = true;
     this.changed();
     const probe = new Sim(b3, this.chunked.scene);
-    const run = probe.calibrating();
-    for (let done = false; !done;) {
-      const until = performance.now() + SLICE_MS;
-      while (performance.now() < until) {
-        const r = run.next();
-        if (r.done) { done = true; break; }
-        this.progress = r.value;
+    try {
+      const run = probe.calibrating();
+      for (let done = false; !done;) {
+        const until = performance.now() + SLICE_MS;
+        while (performance.now() < until) {
+          const r = run.next();
+          if (r.done) { done = true; break; }
+          this.progress = r.value;
+        }
+        this.changed();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (!this.runtime?.runs.includes(this)) return; // removed meanwhile: never join
       }
-      this.changed();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      this.sim = new Sim(b3, this.chunked.scene, { shatterSpeed: this.shatterSpeed }, world);
+      this.sim.base = probe.base;
+      this.sim.setStrength(this.strength);
+      this.sim.setEnabled(this.enabled);
+    } finally {
+      probe.dispose();
+      this.calibrating = false;
     }
-    this.sim = new Sim(b3, this.chunked.scene, { strength: this.strength, shatterSpeed: this.shatterSpeed }, world);
-    this.sim.base = probe.base;
-    this.sim.setStrength(this.strength);
-    probe.dispose();
-    this.calibrating = false;
     this.reset();
+  }
+
+  /** In or out of the World (its item shown or hidden). */
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    this.sim?.setEnabled(on);
   }
 
   /** Lift the object ``height`` metres, tilted, and let it fall. */
