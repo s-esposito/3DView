@@ -23,6 +23,8 @@ export interface PhysicsScene {
     boxes: Box[];
     /** Chunk colour, 0..1. */
     color: V3;
+    /** An exported object's [start, count] rows of its splats (chunkedObject.ts). */
+    splats?: [number, number];
   }[];
   /** One per pair of chunks sharing faces: anchor at their faces' centre (world), area in m². */
   welds: { a: number; b: number; anchor: V3; area: number }[];

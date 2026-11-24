@@ -43,6 +43,8 @@ import {
   trackSteps,
 } from "./tracks";
 import type { TrackSet } from "./tracks";
+import { buildChunkedObject, decodeChunkedObject, isChunkedObject } from "./physics/chunkedObject";
+import type { ChunkedObject } from "./physics/chunkedObject";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
 
@@ -70,6 +72,8 @@ export class AssetLayer implements FrameSource {
    *  `cloud`/`tracks` rather than read back off the built object, so the answer does
    *  not depend on the scene graph's shape or on the current 3DGS render mode. */
   private isCloud = false;
+  /** A chunked object's scene and splats (physics/chunkedObject.ts), for the physics. */
+  private chunked?: ChunkedObject;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
   // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
@@ -128,6 +132,11 @@ export class AssetLayer implements FrameSource {
   /** True once loaded, if this asset is a 3DGS cloud (so the render mode applies). */
   get isSplat(): boolean {
     return this.cloud != null;
+  }
+
+  /** True once loaded, if this asset is a chunked object: splats, always drawn as such. */
+  get isChunked(): boolean {
+    return this.chunked != null;
   }
 
   /** True once loaded, if this asset is a bare point cloud (so "Point size" applies).
@@ -243,7 +252,7 @@ export class AssetLayer implements FrameSource {
     opts: AssetOptions,
     onProgress?: Progress
   ): Promise<void> {
-    const { object, bounds, cloud, tracks, isCloud } = await loadAsset(
+    const { object, bounds, cloud, tracks, isCloud, chunked } = await loadAsset(
       uri,
       name,
       opts,
@@ -253,6 +262,7 @@ export class AssetLayer implements FrameSource {
     this.cloud = cloud;
     this.tracks = tracks;
     this.isCloud = isCloud ?? false;
+    this.chunked = chunked;
     this.opts = { ...opts };
     this.currentBounds = bounds;
     this.attachCurrent(object);
@@ -268,6 +278,7 @@ export class AssetLayer implements FrameSource {
     this.cloud = undefined;
     this.clouds = undefined;
     this.isCloud = false;
+    this.chunked = undefined;
     this.frameBuffer = undefined;
     this.tracks = undefined;
   }
@@ -356,6 +367,8 @@ interface LoadedAsset {
   tracks?: TrackSet;
   /** Set only for a PLY that turned out to be a bare point cloud rather than a mesh. */
   isCloud?: boolean;
+  /** Set only for a chunked object (an .npz from export_chunks.py), retained for physics. */
+  chunked?: ChunkedObject;
 }
 
 /** Reports a human-readable loading phase ("Downloading 45%", "Decoding"). */
@@ -394,7 +407,7 @@ function loadAsset(
       return loadSplat(uri, name, opts.splatMode, onProgress);
     case "npz":
     case "npy":
-      return loadTracks(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
+      return loadNumpy(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext}`));
   }
@@ -496,10 +509,11 @@ function isSplatPly(bytes: Uint8Array): boolean {
 }
 
 /**
- * Load 3D point tracks: a NumPy archive of trajectory arrays (`.npz`), or a single
- * (steps, tracks, 3) array (`.npy`). Both parse in-process — no worker, no wasm.
+ * Load a NumPy file: 3D point tracks — an archive of trajectory arrays (`.npz`) or a single
+ * (steps, tracks, 3) array (`.npy`) — or a chunked object, an `.npz` told apart by its keys
+ * (physics/chunkedObject.ts). All parse in-process — no worker, no wasm.
  */
-async function loadTracks(
+async function loadNumpy(
   uri: string,
   bare: boolean,
   density: number,
@@ -510,6 +524,11 @@ async function loadTracks(
   onProgress?.("Decoding");
   const bytes = new Uint8Array(buffer);
   const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
+  if (isChunkedObject(arrays)) {
+    const chunked = decodeChunkedObject(arrays);
+    const { object, bounds } = buildChunkedObject(chunked);
+    return { object, bounds, chunked };
+  }
   const set = decodeTracks(arrays);
   return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };
 }

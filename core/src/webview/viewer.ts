@@ -841,11 +841,13 @@ export class Viewer {
    * exactly when the last frame went stale.
    */
   private syncSplats(): void {
-    const hasSplat = this.assetLayers().some((l) => l.isSplat);
+    // A chunked object always draws as splats; a 3DGS cloud only in "splatting" mode.
+    const chunked = this.assetLayers().some((l) => l.isChunked);
+    const hasSplat = chunked || this.assetLayers().some((l) => l.isSplat);
     if (this.splats && !hasSplat) {
       this.splats.dispose();
       this.splats = undefined;
-    } else if (!this.splats && hasSplat && this.assetOpts.splatMode === "splatting" && this.renderer) {
+    } else if (!this.splats && hasSplat && (chunked || this.assetOpts.splatMode === "splatting") && this.renderer) {
       this.splats = new SplatDrawer(this.renderer, this.requestRender);
       this.scene.add(this.splats.mesh);
     }

@@ -143,6 +143,14 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            writes). No DOM: test/physics.test.ts runs it under node
       voxelScene.ts        synthetic PhysicsScenes (blob/tower/wall) + the chunking
                            (farthest-point seeds, greedy box merge, welds per shared face)
+      chunkedObject.ts     a chunked object as an asset: export_chunks.py's .npz (arrays
+                           physics_scene = the PhysicsScene as JSON bytes, physics_splats =
+                           float32 rows of 14), told apart from point tracks by those keys
+                           (assetLayer's loadNumpy). Built at rest as one SplatObject per
+                           chunk under a group turned 180° about x: the physics runs y-up,
+                           the scene's data frame is COLMAP's (y down) and the root's
+                           Upright flip turns it back. Always drawn as splats (the layer's
+                           isChunked, not isSplat: the 3DGS render mode does not apply)
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,
