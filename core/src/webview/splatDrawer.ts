@@ -46,6 +46,11 @@ export class SplatDrawer {
     return this.mesh.sortMode === "cpu";
   }
 
+  /** Re-sort before the next draw: splat objects moved relative to each other (physics). */
+  requestSort(): void {
+    this.mesh.requestSort();
+  }
+
   /** Resolves when the next sort lands, or after `ms` if none does. */
   nextSort(ms: number): Promise<void> {
     return new Promise((resolve) => {

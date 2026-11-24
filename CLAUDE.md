@@ -133,7 +133,7 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     splatDrawer.ts       SplatDrawer: the one Radix SplatRenderer, fed before each frame
                          with the scene's visible SplatObjects (uploaded to the GPU on
                          first draw, re-uploaded in place when a sequence swaps a frame)
-    physics/             (exp/physics, not yet in the UI) a chunked object breaking apart:
+    physics/             (exp/physics) a chunked object breaking apart:
       box3d.ts             loadBox3d(): the vendored box3d-wasm, compiled on first use
       sim.ts               Sim: one rigid body per chunk (its voxels merged into boxes), a
                            weld per pair of touching chunks broken by load per area, weld
@@ -151,6 +151,15 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            the scene's data frame is COLMAP's (y down) and the root's
                            Upright flip turns it back. Always drawn as splats (the layer's
                            isChunked, not isSplat: the 3DGS render mode does not apply)
+      run.ts               PhysicsRun (AssetLayer.physics): the Sim behind one chunked
+                           object, created + calibrated on first play/drop (in 30 ms slices,
+                           progress on the panel's line), stepped by Viewer.advancePhysics
+                           on a fixed clock (<= 3 steps a frame), bodies' transforms copied
+                           onto the chunk SplatObjects. While any body is awake the viewer
+                           draws and re-sorts the splats (SplatDrawer.requestSort: Radix
+                           re-sorts by itself only on camera motion); asleep, it idles.
+                           UI: the Physics panel (controlPanel's buildPhysicsPanel), its
+                           status line updated in place through Viewer.onPhysics
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,

@@ -50,6 +50,7 @@ interface Box3dWorld {
     localFrameB: { position: Box3dVec3; rotation: Box3dQuat };
   }): Box3dJoint;
   step(dt: number, substeps: number): void;
+  getAwakeBodyCount(): number;
   /** Hits (shapes created with enableHitEvents) in the last step, with their approach speed. */
   getContactEvents(): {
     hit: { shapeUserDataA: number; shapeUserDataB: number; point: Box3dVec3; approachSpeed: number }[];

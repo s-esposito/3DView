@@ -1,10 +1,11 @@
 // The control UI (top-right overlay): stacked, independently-collapsible panels
 // inside a #viewer-ui column — a "3DView" panel with scene-wide display controls
 // (Show / Appearance / View), a "Scene" panel below it (the item list + add menu),
-// and, once the scene holds something, a "Capture" panel (Image / Video
+// a "Physics" panel while the scene holds a chunked object, and, once the scene holds
+// something, a "Capture" panel (Image / Video
 // sub-menus). All are thin views over the Viewer: they read `getState()` to render
 // and call Viewer setters on interaction; the Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
+import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction } from "../viewer";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
@@ -54,6 +55,12 @@ export class ControlPanel {
   private collapsed = matchMedia("(max-width: 600px), (max-height: 500px)").matches;
   private sceneCollapsed = false; // the Scene panel
   private captureCollapsed = true; // the Capture panel: out of the way until wanted
+  private physicsCollapsed = false; // the Physics panel: what a chunked object is opened for
+  /** The Physics panel's drop height, metres, kept across re-renders. */
+  private dropHeight = 3;
+  /** How to rewrite each chunked object's status line, by item id — repopulated on every
+   *  render, so a running simulation updates the line instead of rebuilding the panel. */
+  private readonly physicsLines = new Map<string, (status: string) => void>();
   /** Which Capture sub-menus are open, kept across panel re-renders. */
   private readonly captureOpen = { image: true, video: true };
   /** Scene items whose transform fields are open, kept across panel re-renders. */
@@ -85,6 +92,10 @@ export class ControlPanel {
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
     ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
+    const physicsPanel = this.buildPhysicsPanel(s);
+    if (physicsPanel) {
+      ui.append(physicsPanel);
+    }
     const capturePanel = this.buildCapturePanel(s);
     if (capturePanel) {
       ui.append(capturePanel);
@@ -94,6 +105,11 @@ export class ControlPanel {
     ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
       body.scrollTop = scroll[i] ?? 0;
     });
+  }
+
+  /** Rewrite a chunked object's status line (the Viewer's onPhysics, while it runs). */
+  setPhysicsStatus(id: string, status: string): void {
+    this.physicsLines.get(id)?.(status);
   }
 
   /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
@@ -304,6 +320,58 @@ export class ControlPanel {
       );
     }
     return body;
+  }
+
+  /**
+   * The Physics panel, while the scene holds a chunked object (an .npz from
+   * GenerativeReconstruction's export_chunks.py): per object a live status line, then play /
+   * pause, a drop from the set height, and a reset to rest. The first play or drop calibrates
+   * the welds (~7 simulated seconds, with progress on the line).
+   */
+  private buildPhysicsPanel(s: ViewerState): HTMLElement | null {
+    this.physicsLines.clear();
+    if (s.physics.length === 0) {
+      return null;
+    }
+    const body = document.createElement("div");
+    body.className = "viewer-body";
+    for (const item of s.physics) {
+      body.append(this.buildPhysicsSection(item, s.physics.length > 1));
+    }
+    const panel = document.createElement("div");
+    panel.className = this.physicsCollapsed ? "viewer-panel collapsed" : "viewer-panel";
+    panel.append(
+      this.header(panel, "Physics", null, () => {
+        this.physicsCollapsed = !this.physicsCollapsed;
+      }),
+      collapseWrap(body)
+    );
+    return panel;
+  }
+
+  private buildPhysicsSection(item: PhysicsItem, named: boolean): HTMLElement {
+    const line = hint(item.status);
+    this.physicsLines.set(item.id, (status) => {
+      line.textContent = status;
+    });
+    const run = (action: PhysicsAction) => () =>
+      this.viewer.runPhysics(item.id, action, this.dropHeight);
+    const busy = item.state === "calibrating";
+    const play = item.state === "running" ? button("Pause", run("pause")) : button("Play", run("play"));
+    const drop = button("Drop", run("drop"));
+    drop.title = "Lift it to the drop height, tilted, and let it fall";
+    const reset = button("Reset", run("reset"));
+    reset.title = "Back to rest, whole";
+    for (const b of [play, drop, reset]) {
+      b.disabled = busy;
+    }
+    const row = document.createElement("div");
+    row.className = "viewer-scale-row";
+    row.append(play, drop, reset);
+    const height = slider("Drop height (m)", 0, 4, 0.1, this.dropHeight, (v) => {
+      this.dropHeight = v;
+    });
+    return section(named ? item.label : "Simulation", [line, row, height]);
   }
 
   /**

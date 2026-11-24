@@ -44,7 +44,7 @@ import {
 } from "./tracks";
 import type { TrackSet } from "./tracks";
 import { buildChunkedObject, decodeChunkedObject, isChunkedObject } from "./physics/chunkedObject";
-import type { ChunkedObject } from "./physics/chunkedObject";
+import { PhysicsRun } from "./physics/run";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
 
@@ -72,8 +72,8 @@ export class AssetLayer implements FrameSource {
    *  `cloud`/`tracks` rather than read back off the built object, so the answer does
    *  not depend on the scene graph's shape or on the current 3DGS render mode. */
   private isCloud = false;
-  /** A chunked object's scene and splats (physics/chunkedObject.ts), for the physics. */
-  private chunked?: ChunkedObject;
+  /** A chunked object's physics (physics/run.ts). */
+  private physicsRun?: PhysicsRun;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
   // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
@@ -136,7 +136,12 @@ export class AssetLayer implements FrameSource {
 
   /** True once loaded, if this asset is a chunked object: splats, always drawn as such. */
   get isChunked(): boolean {
-    return this.chunked != null;
+    return this.physicsRun != null;
+  }
+
+  /** A chunked object's physics; undefined for every other asset. */
+  get physics(): PhysicsRun | undefined {
+    return this.physicsRun;
   }
 
   /** True once loaded, if this asset is a bare point cloud (so "Point size" applies).
@@ -252,7 +257,7 @@ export class AssetLayer implements FrameSource {
     opts: AssetOptions,
     onProgress?: Progress
   ): Promise<void> {
-    const { object, bounds, cloud, tracks, isCloud, chunked } = await loadAsset(
+    const { object, bounds, cloud, tracks, isCloud, physics } = await loadAsset(
       uri,
       name,
       opts,
@@ -262,7 +267,7 @@ export class AssetLayer implements FrameSource {
     this.cloud = cloud;
     this.tracks = tracks;
     this.isCloud = isCloud ?? false;
-    this.chunked = chunked;
+    this.physicsRun = physics;
     this.opts = { ...opts };
     this.currentBounds = bounds;
     this.attachCurrent(object);
@@ -278,7 +283,8 @@ export class AssetLayer implements FrameSource {
     this.cloud = undefined;
     this.clouds = undefined;
     this.isCloud = false;
-    this.chunked = undefined;
+    this.physicsRun?.dispose();
+    this.physicsRun = undefined;
     this.frameBuffer = undefined;
     this.tracks = undefined;
   }
@@ -367,8 +373,8 @@ interface LoadedAsset {
   tracks?: TrackSet;
   /** Set only for a PLY that turned out to be a bare point cloud rather than a mesh. */
   isCloud?: boolean;
-  /** Set only for a chunked object (an .npz from export_chunks.py), retained for physics. */
-  chunked?: ChunkedObject;
+  /** Set only for a chunked object (an .npz from export_chunks.py): its physics. */
+  physics?: PhysicsRun;
 }
 
 /** Reports a human-readable loading phase ("Downloading 45%", "Decoding"). */
@@ -526,8 +532,8 @@ async function loadNumpy(
   const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
   if (isChunkedObject(arrays)) {
     const chunked = decodeChunkedObject(arrays);
-    const { object, bounds } = buildChunkedObject(chunked);
-    return { object, bounds, chunked };
+    const { object, bounds, chunks } = buildChunkedObject(chunked);
+    return { object, bounds, physics: new PhysicsRun(chunked, chunks) };
   }
   const set = decodeTracks(arrays);
   return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };

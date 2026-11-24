@@ -55,6 +55,7 @@ viewer.onProgress = (message) => showStatus(message, true);
 // Playback moves a temporal item's playhead; the panel updates that one slider in
 // place (a re-render would rebuild it several times a second, losing any drag).
 viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
+viewer.onPhysics = (id, status) => panel.setPhysicsStatus(id, status);
 
 // The Scene "+" asks the host to open a picker; removal tells the host to forget.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });

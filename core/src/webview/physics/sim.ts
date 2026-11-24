@@ -153,7 +153,17 @@ export class Sim {
    *  the object get their own margin, and the object stands for k > 1. A fixed glue does not
    *  carry over: loads concentrate (the sloth's settled p50/p90/max: 1.3/10/131 kPa, the blob's
    *  0.4/2.2/21), and the most loaded weld would set it for all. Returns the p90 load. */
-  calibrate({ settle = 6, measure = 1 } = {}): number {
+  calibrate(options: { settle?: number; measure?: number } = {}): number {
+    const run = this.calibrating(options);
+    for (;;) {
+      const r = run.next();
+      if (r.done) return r.value;
+    }
+  }
+
+  /** calibrate() one step at a time, yielding the fraction done, so a viewer can spread the
+   *  ~7 simulated seconds over several frames and show progress. Returns the p90 load. */
+  *calibrating({ settle = 6, measure = 1 } = {}): Generator<number, number> {
     this.o.glue = Number.POSITIVE_INFINITY;
     this.base = null;
     this.reset();
@@ -165,6 +175,7 @@ export class Sim {
         whole[j] = Math.max(whole[j], l);
         if (i >= from) settled[j] = Math.max(settled[j], l);
       });
+      yield (i + 1) / steps;
     }
     const typical = [...settled].sort((a, b) => a - b)[Math.floor(0.9 * (settled.length - 1))] ?? 0;
     this.base = whole.map((l) => Math.max(l, typical));
@@ -221,7 +232,7 @@ export class Sim {
   }
 
   /** Each chunk's [x, y, z, qx, qy, qz, qw], packed. */
-  transforms(out = new Float32Array(7 * this.bodies.length)): Float32Array {
+  transforms(out: Float32Array = new Float32Array(7 * this.bodies.length)): Float32Array {
     this.bodies.forEach((b, i) => {
       const p = b.getPosition(), q = b.getRotation();
       out.set([p.x, p.y, p.z, q.x, q.y, q.z, q.w], 7 * i);
@@ -287,6 +298,9 @@ export class Sim {
   pieces(): number { return this.pieceSizes().length; }
 
   get aliveWelds(): number { return this.welds.length - this.broken; }
+
+  /** How many chunks still move (Box3D puts bodies at rest to sleep). */
+  get awake(): number { return this.world.getAwakeBodyCount(); }
 
   /** Free the engine's world. */
   dispose(): void { this.world.destroy(); }

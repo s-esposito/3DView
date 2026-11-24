@@ -1,6 +1,6 @@
-// Physics P2: a chunked object (export_chunks.py's .npz) decoded and built at rest — one
-// SplatObject per chunk where its body starts. The archive is made in memory from the synthetic
-// blob, with SPV splats per voxel at its centre.
+// Physics P2/P3: a chunked object (export_chunks.py's .npz) decoded and built at rest — one
+// SplatObject per chunk where its body starts — and its physics run (P3) moving those chunks.
+// The archive is made in memory from the synthetic blob, with SPV splats per voxel at its centre.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -13,6 +13,7 @@ import {
   decodeChunkedObject,
   isChunkedObject,
 } from "../src/webview/physics/chunkedObject";
+import { PhysicsRun } from "../src/webview/physics/run";
 import { presetScene } from "../src/webview/physics/voxelScene";
 
 const SPV = 2;
@@ -72,4 +73,28 @@ test("at rest: one SplatObject per chunk, at its body's rest pose, under the y-u
   // The splats sit at the voxel centres, so the bounds are the voxels' centres in the data frame:
   // the blob stands on y = 0 and is 1 m tall, so after the turn y runs from about -1 to 0.
   assert.ok(bounds.max[1] <= 0 && bounds.min[1] > -1.01, JSON.stringify(bounds));
+});
+
+test("its physics: a drop calibrates first, then the chunks fall and the run says when it rests", async (t) => {
+  const decoded = decodeChunkedObject(archive());
+  const { chunks } = buildChunkedObject(decoded);
+  const run = new PhysicsRun(decoded, chunks);
+  const seen: string[] = [];
+  run.onChange = () => seen.push(run.state);
+  const before = chunks.map((c) => c.position.y);
+  await run.drop(1);
+  assert.ok(seen.includes("calibrating") && run.state === "running" && run.progress === 1, seen.join(","));
+  assert.ok(chunks.every((c, i) => c.position.y > before[i] + 0.9), "lifted by the drop height");
+  let now = 0, moving = true;
+  for (let frame = 0; frame < 60 * 30 && moving; frame++) moving = run.tick((now += 1000 / 60));
+  t.diagnostic(`${run.status} after ${(now / 1000).toFixed(1)} s`);
+  assert.ok(!moving, "comes to rest");
+  assert.match(run.status, /at rest$/);
+  // It fell back down: the centroid, lifted 1 m, is near its resting height (it may lie on its side).
+  const meanY = (ys: number[]) => ys.reduce((a, b) => a + b, 0) / ys.length;
+  assert.ok(meanY(chunks.map((c) => c.position.y)) < meanY(before) + 0.3, "it fell");
+  run.reset();
+  assert.ok(chunks.every((c, i) => Math.abs(c.position.y - before[i]) < 1e-6), "reset puts it back");
+  assert.equal(run.state, "paused");
+  run.dispose();
 });

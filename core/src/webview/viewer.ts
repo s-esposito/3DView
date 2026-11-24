@@ -34,6 +34,7 @@ import { TemporalLayer } from "./temporalLayer";
 import { SplatDrawer } from "./splatDrawer";
 import { SPLAT_RENDER_MODES, sameSplatLayout } from "./splats";
 import type { SplatCloud, SplatRenderMode } from "./splats";
+import type { PhysicsRun, PhysicsState } from "./physics/run";
 import { ASSET_KIND_EXTS, extOf } from "../shared/messages";
 import { CameraInteraction, DEFAULT_FOV } from "./cameraInteraction";
 import { cameraPose, orderCameras, samplePath } from "./cameraPath";
@@ -158,7 +159,21 @@ export interface ViewerState {
   /** Which GPU backend draws the scene; null until the renderer is up. */
   backend: "WebGPU" | "WebGL2" | null;
   items: SceneItem[];
+  /** Every chunked object in the scene, for the Physics panel. */
+  physics: PhysicsItem[];
 }
+
+/** A chunked object's physics, as the Physics panel shows it. */
+export interface PhysicsItem {
+  id: string;
+  label: string;
+  state: PhysicsState;
+  /** "calibrating 40%", "3 pieces, largest 80%, moving", ... */
+  status: string;
+}
+
+/** What the Physics panel can ask of a chunked object. */
+export type PhysicsAction = "play" | "pause" | "reset" | "drop";
 
 export class Viewer {
   /** Fired with the selected camera on POV entry, and with null on exit. */
@@ -172,6 +187,9 @@ export class Viewer {
   /** Fired as a temporal item plays, so the panel can move the playhead in place.
    *  Deliberately not onChange — that would rebuild the slider several times a second. */
   onFrame?: (id: string, frame: number) => void;
+  /** Fired with a chunked object's physics status as it changes (every step while it moves),
+   *  so the panel can update its line in place — not onChange, for the same reason as onFrame. */
+  onPhysics?: (id: string, status: string) => void;
   /** Fired when the "+" add action is invoked (the host opens a picker). */
   onRequestAdd?: (kind: AddKind) => void;
   /** Fired when an item is removed, so the host can forget it. */
@@ -231,6 +249,8 @@ export class Viewer {
   // several sequences advance together). Empty is the common case: the clock in
   // `animate` costs one Set size check per frame.
   private readonly playingLayers = new Set<TemporalLayer>();
+  /** Chunked objects whose bodies moved in the last frame (advancePhysics). */
+  private readonly movingPhysics = new Set<PhysicsRun>();
   private playbackFps = 10;
   private lastStep = 0;
   // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
@@ -367,6 +387,8 @@ export class Viewer {
           ? "WebGPU"
           : "WebGL2"
         : null,
+      physics: this.assetLayers().flatMap((l) =>
+        l.physics ? [{ id: l.id, label: l.label, state: l.physics.state, status: l.physics.status }] : []),
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -423,6 +445,19 @@ export class Viewer {
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
         layer.setVisible(true);
+        const run = layer.physics;
+        if (run) {
+          // The panel's line follows every change; the panel itself only a change of state.
+          let state = run.state;
+          run.onChange = () => {
+            this.onPhysics?.(id, run.status);
+            if (run.state !== state) {
+              state = run.state;
+              this.onChange?.();
+            }
+            this.requestRender();
+          };
+        }
         // The scene state may have changed while this was loading; a no-op otherwise.
         this.syncLayerState(layer);
         this.syncSplats(); // this asset may be the scene's first splat
@@ -646,6 +681,19 @@ export class Viewer {
     this.requestRender();
   }
 
+  /** Drive a chunked object's physics (the Physics panel). ``height``: a drop's, in metres. */
+  runPhysics(id: string, action: PhysicsAction, height = 3): void {
+    const run = this.assetLayers().find((l) => l.id === id)?.physics;
+    if (!run) {
+      return;
+    }
+    if (action === "play") void run.play();
+    else if (action === "pause") run.pause();
+    else if (action === "reset") run.reset();
+    else void run.drop(height);
+    this.requestRender();
+  }
+
   /** How fast temporal items play back, in frames per second (shared by all of them). */
   setPlaybackFps(fps: number): void {
     this.playbackFps = fps;
@@ -732,6 +780,9 @@ export class Viewer {
       // Hover/selection belong to a FRAME's id, never the container's.
       layer.frames.forEach((f) => this.interaction.handleRemoved(f.id));
       this.playingLayers.delete(layer);
+    }
+    if (layer instanceof AssetLayer && layer.physics) {
+      this.movingPhysics.delete(layer.physics);
     }
     layer.dispose();
     this.layers = this.layers.filter((l) => l !== layer);
@@ -1293,12 +1344,36 @@ export class Viewer {
     }
   }
 
+  /**
+   * Step every running chunked object (physics/run.ts keeps its own fixed clock). Draws, and
+   * re-sorts the splats (the chunks moved relative to each other), only while something moves:
+   * once every body sleeps the loop is idle again.
+   */
+  private advancePhysics(): void {
+    const now = performance.now();
+    for (const layer of this.assetLayers()) {
+      const run = layer.physics;
+      if (!run) {
+        continue;
+      }
+      if (run.tick(now)) {
+        this.splats?.requestSort();
+        this.needsRender = true;
+        this.movingPhysics.add(run);
+        this.onPhysics?.(layer.id, run.status);
+      } else if (this.movingPhysics.delete(run)) {
+        this.onPhysics?.(layer.id, run.status); // it just came to rest: say so once
+      }
+    }
+  }
+
   private animate = (): void => {
     requestAnimationFrame(this.animate);
     if (this.videoRender) {
       return; // renderCameraPath owns the canvas until it's done
     }
     this.advancePlayback();
+    this.advancePhysics();
     // OrbitControls.update() returns true while the camera is still moving
     // (incl. damping glide); render then, or whenever a redraw was requested.
     const moving = this.controls.update();
