@@ -134,6 +134,14 @@ export class AssetLayer implements FrameSource {
     return this.cloud != null;
   }
 
+  /** What it holds, once loaded (the Scene list's type). */
+  get type(): "physics" | "splats" | "points" | "tracks" | "mesh" {
+    if (this.physicsRun) return "physics";
+    if (this.cloud) return "splats";
+    if (this.isCloud) return "points";
+    return this.trackSteps > 0 ? "tracks" : "mesh";
+  }
+
   /** True once loaded, if this asset is a chunked object: splats, always drawn as such. */
   get isChunked(): boolean {
     return this.physicsRun != null;

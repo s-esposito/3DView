@@ -132,33 +132,6 @@ export function slider(
   return wrap;
 }
 
-/** One row: caption · a native dropdown of ``options``, firing ``onChange`` with the value picked. */
-export function selectRow<T extends string>(
-  label: string,
-  options: Array<{ label: string; value: T }>,
-  value: T,
-  onChange: (value: T) => void
-): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "viewer-select-row";
-  const caption = document.createElement("span");
-  caption.className = "viewer-slider-label";
-  caption.textContent = label;
-  const select = document.createElement("select");
-  select.className = "viewer-select";
-  select.setAttribute("aria-label", label);
-  for (const opt of options) {
-    const option = document.createElement("option");
-    option.value = opt.value;
-    option.textContent = opt.label;
-    option.selected = opt.value === value;
-    select.append(option);
-  }
-  select.addEventListener("change", () => onChange(select.value as T));
-  wrap.append(caption, select);
-  return wrap;
-}
-
 /**
  * A label + native color swatch. Works in numbers (0xRRGGBB) so the Viewer's
  * contract stays numeric; the hex-string conversion the `<input type=color>`

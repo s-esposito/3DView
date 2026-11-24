@@ -72,11 +72,21 @@ export type TemporalFrame =
   | { kind: "reconstruction"; id: string; label: string; data: ModelData; source?: string }
   | { kind: "asset"; id: string; label: string; uri: string; name: string };
 
+/** What a Scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
+export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
+
+/** A layer's ItemType: a lone asset says what it holds; several frames are a sequence. */
+function itemType(l: SceneLayer): ItemType {
+  if (l instanceof ReconstructionLayer) return "reconstruction";
+  return l instanceof AssetLayer && l.frameCount === 0 ? l.type : "sequence";
+}
+
 /** One entry in the Scene list. */
 export interface SceneItem {
   id: string;
   label: string;
   kind: "reconstruction" | "asset";
+  type: ItemType;
   visible: boolean;
   /** Source location (e.g. asset file URI) for the hover tooltip; undefined when unknown. */
   source?: string;
@@ -161,6 +171,8 @@ export interface ViewerState {
   items: SceneItem[];
   /** The scene's physics, for the Physics panel; null without a chunked object. */
   physics: PhysicsView | null;
+  /** The Scene item the Inspector shows; null when none is selected. */
+  selected: string | null;
 }
 
 /** The scene's simulation, as the Physics panel shows it. */
@@ -279,6 +291,8 @@ export class Viewer {
   /** Whether the camera follows ``followRun`` (the object last acted on) while its pieces move. */
   private followPhysics = true;
   private followRun?: PhysicsRun;
+  /** The Scene item the Inspector shows. */
+  private selectedId: string | null = null;
   private playbackFps = 10;
   private lastStep = 0;
   // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
@@ -429,10 +443,12 @@ export class Viewer {
             strength: run.strength, shatterSpeed: run.shatterSpeed }] : [];
         }),
       },
+      selected: this.selectedId,
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
         kind: l.kind,
+        type: itemType(l),
         visible: l.visible,
         source: l.source,
         transform: readTransform(l.object),
@@ -724,6 +740,17 @@ export class Viewer {
     this.requestRender();
   }
 
+  /** Select a Scene item for the Inspector (null: none). A physics object becomes the one the
+   *  camera follows. */
+  selectItem(id: string | null): void {
+    this.selectedId = id && this.byId.has(id) ? id : null;
+    const run = this.physicsOf(this.selectedId ?? "");
+    if (run) {
+      this.followRun = run;
+    }
+    this.onChange?.();
+  }
+
   /** Start or stop the simulation's clock (every object's). */
   playPhysics(on: boolean): void {
     if (on) void this.physics.play();
@@ -927,6 +954,9 @@ export class Viewer {
       // Hover/selection belong to a FRAME's id, never the container's.
       layer.frames.forEach((f) => this.interaction.handleRemoved(f.id));
       this.playingLayers.delete(layer);
+    }
+    if (this.selectedId === id) {
+      this.selectedId = null;
     }
     if (layer instanceof AssetLayer && layer.physics) {
       this.physics.remove(layer.physics);

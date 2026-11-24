@@ -175,10 +175,11 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            with Follow on the camera eases toward the median chunk of the
                            object last acted on, and snaps back to rest on its Reset/Drop/
                            preset. UI: the playback bar (controlPanel's buildTransport:
-                           Play/Pause, Restore all, the line, speed) and the Physics panel
-                           (buildPhysicsBody: World — gravity — + one Object section, a
-                           <select> picking it when there are several); Follow is in
-                           Display's View; lines updated in place via Viewer.onPhysics
+                           Play/Pause, Restore all, the line, speed), the Physics panel
+                           (buildPhysicsBody: the World — gravity) and, per object, the
+                           Scene Inspector's Physics section (buildPhysicsSection); Follow
+                           is in Display's View and follows the selected object; lines
+                           updated in place via Viewer.onPhysics
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,
@@ -199,7 +200,8 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
     theme.ts             theme CSS var → THREE.Color (fallback when the var is unset)
     globals.d.ts         ambient types the bundle needs (__APP_VERSION__)
     ui/                  styles.ts, components.ts, controlPanel.ts (the icon rail +
-                         the ONE panel it has open — Scene list + per-item timeline,
+                         the ONE panel it has open — Scene list + per-item timeline + the
+                         Inspector of the selected item (what it is, Placement, Physics),
                          Display, Physics, Capture — the footer with the theme, and
                          the simulation's playback bar), overlays.ts (InfoPopup, model
                          chooser, temporal-grouping prompt)
@@ -498,7 +500,8 @@ routinely carries `dense/fused.ply` and friends.
   `.viewer-body` is its only scroller (a flex child with `min-height:0`). Don't bring
   back stacked panels with a shared height budget: four of them pushed Capture
   off-screen at 1100x800. `ControlPanel.render()` rebuilds the whole UI, so it carries
-  each panel's `scrollTop` across — like `transformOpen` and `playheads`.
+  each panel's `scrollTop` across — like `playheads` — and the selection lives in the
+  Viewer (`selectItem`, `ViewerState.selected`), so it survives the rebuild.
 - **Fit-to-view only on the first item.** `Viewer.refreshScene(fit)` re-fits the
   camera only when the scene was empty; adding to an existing scene keeps the
   user's current view. `resetView()` (R) is the explicit re-fit. A host may set a

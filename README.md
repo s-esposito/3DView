@@ -46,7 +46,7 @@ and a **browser demo**, over one shared core.
   **timeline** — scrub through the frames or play them back (shared **Playback FPS**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
-  **position / rotation** fields (the move-arrows button on its row), so sources that don't
+  **position / rotation** fields (click its row: the **Inspector** under the list), so sources that don't
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.

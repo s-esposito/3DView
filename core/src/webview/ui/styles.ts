@@ -66,12 +66,19 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-menu-item{display:block;width:100%;text-align:left;padding:7px 12px;cursor:pointer;border:none;background:transparent;color:var(--vscode-menu-foreground,var(--vscode-foreground,#ddd));font:inherit;transition:background .12s ease}
 .viewer-menu-item:hover{background:var(--vscode-menu-selectionBackground,var(--vscode-list-hoverBackground,rgba(255,255,255,0.08)))}
 .viewer-scene-item{display:flex;align-items:center;gap:6px;margin-top:2px;padding:3px 5px;border-radius:6px;transition:background .15s ease}
+.viewer-scene-item{cursor:pointer}
 .viewer-scene-item:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 45%,transparent)}
+.viewer-scene-item.selected{background:color-mix(in srgb,var(--vscode-focusBorder,#0e639c) 20%,transparent)}
+.viewer-scene-item .label:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:1px;border-radius:3px}
+/* The Inspector: the selected item's settings, under the list. */
+.viewer-inspector{margin-top:12px;padding-top:10px;border-top:1px solid color-mix(in srgb,var(--vscode-widget-border,#ffffff) 25%,transparent)}
+.viewer-inspector-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewer-inspector-type{color:var(--vscode-descriptionForeground,#999);font-size:11px}
 .viewer-scene-item .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Row actions (move / rename / remove) appear on hover or keyboard focus, and stay
    while the item's transform fields are open; always shown where nothing hovers. */
 .viewer-scene-actions{display:flex;align-items:center;opacity:0;transition:opacity .15s ease}
-.viewer-scene-item:hover .viewer-scene-actions,.viewer-scene-item:focus-within .viewer-scene-actions,.viewer-scene-actions:has([aria-expanded="true"]){opacity:1}
+.viewer-scene-item:hover .viewer-scene-actions,.viewer-scene-item:focus-within .viewer-scene-actions,.viewer-scene-item.selected .viewer-scene-actions{opacity:1}
 @media (hover:none){.viewer-scene-actions{opacity:1}}
 .viewer-scene-item .kind{opacity:.45;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
@@ -92,13 +99,12 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-backend[data-backend="WebGPU"]::before{background:var(--vscode-focusBorder,#03d5ff)}
 .viewer-version{padding:0 4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;font-variant-numeric:tabular-nums;user-select:text;text-decoration:none}
 .viewer-version:hover{opacity:1;text-decoration:underline}
-.viewer-xform{display:flex;flex-direction:column;gap:4px;margin:4px 0 8px 22px;padding:6px 6px 7px;border-radius:7px;background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,.14)) 45%,transparent);box-shadow:var(--glass-shadow-sm)}
-.viewer-xform[hidden]{display:none}
+.viewer-xform{display:flex;flex-direction:column;gap:4px;padding:6px 6px 7px;border-radius:7px;background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,.14)) 45%,transparent);box-shadow:var(--glass-shadow-sm)}
 .viewer-scene-item .kind.temporal{opacity:.7;letter-spacing:0}
 .viewer-timeline{display:flex;align-items:center;gap:6px;margin:2px 0 6px 22px}
 .viewer-timeline input[type=range]{flex:1;min-width:0}
 .viewer-timeline-at{color:var(--vscode-descriptionForeground,#999);font-size:10px;font-variant-numeric:tabular-nums}
-.viewer-xform-row{display:grid;grid-template-columns:52px repeat(3,1fr);align-items:center;gap:4px}
+.viewer-xform-row{display:grid;grid-template-columns:64px repeat(3,1fr);align-items:center;gap:4px}
 .viewer-xform-label{color:var(--vscode-descriptionForeground,#999);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
 .viewer-xform-num{min-width:0;font:inherit;font-variant-numeric:tabular-nums;color:var(--vscode-input-foreground,inherit);background:var(--vscode-input-background,rgba(255,255,255,.08));border:1px solid transparent;border-radius:4px;padding:2px 4px}
 .viewer-xform-num:focus{outline:none;border-color:var(--vscode-focusBorder,#0e639c)}
@@ -126,8 +132,6 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
    .viewer-action, so labels and their controls line up down a section. */
 .viewer-slider{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr) 30px;align-items:center;gap:8px}
 .viewer-slider-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.viewer-select-row{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr);align-items:center;gap:8px}
-.viewer-select{min-width:0;padding:5px 6px;border:none;border-radius:8px;color:var(--vscode-foreground,#ddd);background:color-mix(in srgb,var(--vscode-button-secondaryBackground,#3a3d41) 70%,transparent);box-shadow:var(--glass-shadow-sm);font:inherit;cursor:pointer}
 .viewer-slider-val{text-align:right;color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
 .viewer-slider input{width:100%;min-width:0;margin:0;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
 .viewer-colorrow{display:flex;align-items:center;justify-content:space-between;margin-top:12px;cursor:pointer}

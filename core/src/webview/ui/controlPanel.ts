@@ -5,7 +5,7 @@
 // the simulation's playback bar while there is something to simulate. All are thin views over
 // the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
 // Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction, PhysicsView } from "../viewer";
+import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
@@ -14,7 +14,6 @@ import {
   subsection,
   hint,
   checkbox,
-  selectRow,
   slider,
   colorRow,
   button,
@@ -34,9 +33,6 @@ const EYE_CLOSED = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" 
 const ICON_LIGHT = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M18 12a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M17 6.038a1 1 0 1 1 2 0v3a1 1 0 0 1-2 0v-3ZM24.244 7.742a1 1 0 1 1 1.618 1.176L24.1 11.345a1 1 0 1 1-1.618-1.176l1.763-2.427ZM29.104 13.379a1 1 0 0 1 .618 1.902l-2.854.927a1 1 0 1 1-.618-1.902l2.854-.927ZM29.722 20.795a1 1 0 0 1-.619 1.902l-2.853-.927a1 1 0 1 1 .618-1.902l2.854.927ZM25.862 27.159a1 1 0 0 1-1.618 1.175l-1.763-2.427a1 1 0 1 1 1.618-1.175l1.763 2.427ZM19 30.038a1 1 0 0 1-2 0v-3a1 1 0 1 1 2 0v3ZM11.755 28.334a1 1 0 0 1-1.618-1.175l1.764-2.427a1 1 0 1 1 1.618 1.175l-1.764 2.427ZM6.896 22.697a1 1 0 1 1-.618-1.902l2.853-.927a1 1 0 1 1 .618 1.902l-2.853.927ZM6.278 15.28a1 1 0 1 1 .618-1.901l2.853.927a1 1 0 1 1-.618 1.902l-2.853-.927ZM10.137 8.918a1 1 0 0 1 1.618-1.176l1.764 2.427a1 1 0 0 1-1.618 1.176l-1.764-2.427Z"/></svg>`;
 const ICON_DARK = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M12.5 8.473a10.968 10.968 0 0 1 8.785-.97 7.435 7.435 0 0 0-3.737 4.672l-.09.373A7.454 7.454 0 0 0 28.732 20.4a10.97 10.97 0 0 1-5.232 7.125l-.497.27c-5.014 2.566-11.175.916-14.234-3.813l-.295-.483C5.53 18.403 7.13 11.93 12.017 8.77l.483-.297Zm4.234.616a8.946 8.946 0 0 0-2.805.883l-.429.234A9 9 0 0 0 10.206 22.5l.241.395A9 9 0 0 0 22.5 25.794l.416-.255a8.94 8.94 0 0 0 2.167-1.99 9.433 9.433 0 0 1-2.782-.313c-5.043-1.352-8.036-6.535-6.686-11.578l.147-.491c.242-.745.573-1.44.972-2.078Z"/></svg>`;
 const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M5 21a1 1 0 0 1 1-1h24a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1ZM12 25a1 1 0 0 1 1-1h10a1 1 0 1 1 0 2H13a1 1 0 0 1-1-1ZM15 29a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2h-4a1 1 0 0 1-1-1ZM18 13a6 6 0 0 1 5.915 7h-2.041A4.005 4.005 0 0 0 18 15a4 4 0 0 0-3.874 5h-2.041A6 6 0 0 1 18 13ZM17 7.038a1 1 0 1 1 2 0v3a1 1 0 0 1-2 0v-3ZM24.244 8.742a1 1 0 1 1 1.618 1.176L24.1 12.345a1 1 0 1 1-1.618-1.176l1.763-2.427ZM29.104 14.379a1 1 0 0 1 .618 1.902l-2.854.927a1 1 0 1 1-.618-1.902l2.854-.927ZM6.278 16.28a1 1 0 1 1 .618-1.901l2.853.927a1 1 0 1 1-.618 1.902l-2.853-.927ZM10.137 9.918a1 1 0 0 1 1.618-1.176l1.764 2.427a1 1 0 0 1-1.618 1.176l-1.764-2.427Z"/></svg>`;
-
-// Four-way move arrows: the per-item transform (position + rotation) disclosure.
-const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
 
 // The rail's panels: layers (Scene), sliders (Display), a ball over the ground (Physics), a
 // camera (Capture); and the playback bar's "restore" (an arrow turning back).
@@ -76,17 +72,13 @@ export class ControlPanel {
   private open: PanelId | null = "scene";
   /** Each panel's scroll offset, kept across re-renders and panel switches. */
   private readonly scrollTops = new Map<PanelId, number>();
-  /** The Physics panel's drop height per object, metres (3 unless set), and the object it
-   *  shows, kept across re-renders. */
+  /** Each physics object's drop height, metres (3 unless set), kept across re-renders. */
   private readonly dropHeights = new Map<string, number>();
-  private physicsObject = "";
   /** How to rewrite each physics status line, by item id ("" = the simulation's) — repopulated
    *  on every render, so a running simulation updates the lines instead of rebuilding the panel. */
   private readonly physicsLines = new Map<string, (status: string) => void>();
   /** Which Capture sub-menus are open, kept across panel re-renders. */
   private readonly captureOpen = { image: true, video: true };
-  /** Scene items whose transform fields are open, kept across panel re-renders. */
-  private readonly transformOpen = new Set<string>();
   /** How to move each temporal item's playhead, by item id — repopulated on every
    *  render, so playback updates the live slider instead of rebuilding the panel. */
   private readonly playheads = new Map<string, (frame: number) => void>();
@@ -103,7 +95,7 @@ export class ControlPanel {
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
     // This rebuilds the UI wholesale — on every rename, remove and load — so a scrolled
-    // body would jump back to the top. Carry its offset across, like transformOpen.
+    // body would jump back to the top. Carry its offset across.
     const shown = document.querySelector<HTMLElement>("#viewer-ui .viewer-panel");
     if (shown) {
       this.scrollTops.set(shown.dataset.panel as PanelId, shown.querySelector(".viewer-body")!.scrollTop);
@@ -358,23 +350,18 @@ export class ControlPanel {
 
   /**
    * The Physics panel, while the scene holds a chunked object (an .npz from
-   * GenerativeReconstruction's export_chunks.py). World: what every object shares (they are
-   * in one world, so they collide); its clock is the playback bar. Object: one object's line
-   * and actions, picked from a dropdown when there are several. The first action calibrates
-   * every object's welds (~7 simulated seconds each, with progress on its line).
+   * GenerativeReconstruction's export_chunks.py): the World every object shares (they are in
+   * one world, so they collide). Its clock is the playback bar; each object's own controls
+   * are in its Inspector (Scene).
    */
   private buildPhysicsBody(p: PhysicsView): HTMLElement {
-    const item = p.objects.find((o) => o.id === this.physicsObject) ?? p.objects[0];
-    this.physicsObject = item.id;
     const gravity = slider("Gravity (m/s²)", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
       (v) => v.toFixed(1));
     gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
     const body = document.createElement("div");
     body.className = "viewer-body";
-    body.append(
-      section("World", [gravity, hint("Click a piece to shoot it · shift-click to blast there")]),
-      this.buildPhysicsObject(item, p.objects)
-    );
+    body.append(section("World", [gravity,
+      hint("Click a piece to shoot it · shift-click to blast there. Select an object in Scene to drop or break it.")]));
     return body;
   }
 
@@ -414,7 +401,10 @@ export class ControlPanel {
     return bar;
   }
 
-  private buildPhysicsObject(item: PhysicsItem, objects: PhysicsItem[]): HTMLElement {
+  /** The Inspector's Physics section for a chunked object: its line (updated in place), Drop /
+   *  Restore, the drop height, glue, shatter and the presets. The first action calibrates every
+   *  object's welds (~7 simulated seconds each, with progress on its line). */
+  private buildPhysicsSection(item: PhysicsItem): HTMLElement {
     const line = hint(item.status);
     this.physicsLines.set(item.id, (status) => {
       line.textContent = status;
@@ -423,7 +413,7 @@ export class ControlPanel {
     const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height);
     const drop = button("Drop", run("drop"));
     drop.title = "Lift it to the drop height, tilted, and let it fall";
-    const reset = button("Reset", run("reset"));
+    const reset = button("Restore", run("reset"));
     reset.title = "This object back to rest, whole, where it is placed";
     const row = document.createElement("div");
     row.className = "viewer-scale-row";
@@ -460,14 +450,7 @@ export class ControlPanel {
     for (const b of actions) {
       b.disabled = item.busy;
     }
-    const picker = objects.length > 1
-      ? [selectRow("Object", objects.map((o) => ({ label: o.label, value: o.id })), item.id, (id) => {
-        this.physicsObject = id;
-        this.render();
-      })]
-      : [];
-    return section(objects.length > 1 ? "Object" : item.label,
-      [...picker, line, row, heightRow, glue, shatter, presets]);
+    return section("Physics", [line, row, heightRow, glue, shatter, presets]);
   }
 
   /**
@@ -656,8 +639,25 @@ export class ControlPanel {
       kind.className = "kind";
       kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
 
-      const editor = this.buildTransformEditor(item, s.positionStep);
-      editor.hidden = !this.transformOpen.has(item.id);
+      // A click on the row (not on one of its buttons) selects it for the Inspector, or
+      // deselects it; so does Enter on the focused label.
+      const selected = item.id === s.selected;
+      row.classList.toggle("selected", selected);
+      label.tabIndex = 0;
+      label.setAttribute("role", "button");
+      label.setAttribute("aria-pressed", String(selected));
+      const select = () => this.viewer.selectItem(selected ? null : item.id);
+      row.addEventListener("click", (e) => {
+        if (!(e.target as HTMLElement).closest("button, input")) {
+          select();
+        }
+      });
+      label.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          select();
+        }
+      });
 
       row.append(this.visibilityToggle(item), label, kind);
       if (item.frameCount > 0) {
@@ -672,7 +672,6 @@ export class ControlPanel {
       const actions = document.createElement("span");
       actions.className = "viewer-scene-actions";
       actions.append(
-        this.transformToggle(item, editor),
         iconButton("✎", "Rename", () => this.startRename(label, item)),
         iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
       );
@@ -681,9 +680,39 @@ export class ControlPanel {
       if (item.frameCount > 1) {
         body.append(this.buildTimeline(item));
       }
-      body.append(editor);
+    }
+    const selected = s.items.find((i) => i.id === s.selected);
+    if (selected) {
+      body.append(this.buildInspector(selected, s));
     }
     return body;
+  }
+
+  /**
+   * The Inspector, under the Scene list: what the selected item is, its placement, and (a
+   * chunked object) its physics. Every per-item setting lives here.
+   */
+  private buildInspector(item: SceneItem, s: ViewerState): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "viewer-inspector";
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", `${item.label}: inspector`);
+    const head = document.createElement("div");
+    head.className = "viewer-inspector-head";
+    const name = document.createElement("div");
+    name.className = "viewer-inspector-name";
+    name.textContent = item.label;
+    const what = document.createElement("div");
+    what.className = "viewer-inspector-type";
+    what.textContent = itemDescription(item);
+    head.title = item.source ? sourcePath(item.source) : item.label;
+    head.append(name, what);
+    wrap.append(head, section("Placement", [this.buildTransformEditor(item, s.positionStep)]));
+    const physics = s.physics?.objects.find((o) => o.id === item.id);
+    if (physics) {
+      wrap.append(this.buildPhysicsSection(physics));
+    }
+    return wrap;
   }
 
   /**
@@ -740,25 +769,6 @@ export class ControlPanel {
     return wrap;
   }
 
-  /** Move-arrows button that shows/hides an item's transform fields in place. */
-  private transformToggle(item: SceneItem, editor: HTMLElement): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.className = "viewer-iconbtn";
-    btn.innerHTML = ICON_MOVE;
-    btn.title = "Position / rotation";
-    btn.setAttribute("aria-expanded", String(!editor.hidden));
-    btn.addEventListener("click", () => {
-      editor.hidden = !editor.hidden;
-      if (editor.hidden) {
-        this.transformOpen.delete(item.id);
-      } else {
-        this.transformOpen.add(item.id);
-      }
-      btn.setAttribute("aria-expanded", String(!editor.hidden));
-    });
-    return btn;
-  }
-
   /**
    * Per-item position + rotation fields, Blender-style: the item's own placement in
    * the scene. Edits go straight to the Viewer and update nothing else in the panel,
@@ -770,7 +780,7 @@ export class ControlPanel {
 
     const reset = document.createElement("button");
     reset.className = "viewer-xform-reset";
-    reset.textContent = "Reset";
+    reset.textContent = "Reset placement";
     reset.title = "Back to the origin, unrotated";
     reset.addEventListener("click", () => {
       this.viewer.resetItemTransform(item.id);
@@ -914,6 +924,25 @@ function buildVersion(): HTMLElement {
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */
 function sourcePath(uri: string): string {
   return uri.replace(/^https?:\/\/[^/]+/i, "");
+}
+
+/** Each item type as the Inspector names it. */
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  reconstruction: "COLMAP reconstruction",
+  sequence: "Sequence",
+  mesh: "Mesh",
+  splats: "3D Gaussian splats",
+  points: "Point cloud",
+  tracks: "Point tracks",
+  physics: "Breakable object (physics)",
+};
+
+/** What a Scene item is, for the Inspector: its type and, where known, its size. */
+function itemDescription(item: SceneItem): string {
+  const type = ITEM_TYPE_LABELS[item.type];
+  if (item.cameraCount > 0) return `${type} · ${item.cameraCount} cameras`;
+  if (item.frameCount > 0) return `${type} · ${item.frameCount} frames`;
+  return type;
 }
 
 /** Human-readable scene summary, e.g. "1 reconstruction · 2 assets". */
