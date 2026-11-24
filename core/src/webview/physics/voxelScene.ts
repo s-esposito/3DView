@@ -3,6 +3,7 @@
 // DOM, no physics). Ported from GenerativeReconstruction's prototype
 // (scripts/visualization/physics_demo/app/voxel_scene.js).
 import type { Box, PhysicsScene, V3 } from "./sim";
+import { mergeGrid } from "./voxelize";
 
 export type Shape = "blob" | "tower" | "wall";
 
@@ -116,30 +117,20 @@ export function buildScene(voxels: V3[], labels: Int32Array, size: number): Phys
 }
 
 /** Voxels (integer coords) merged into boxes ``[lo, hi)`` that cover exactly them, greedily:
- *  each unclaimed voxel grows along x, then y, then z while the whole face is unclaimed voxels. */
+ *  each unclaimed voxel grows along x, then y, then z while the whole face is unclaimed voxels
+ *  (voxelize.ts's mergeGrid, on a grid around them). */
 export function mergeBoxes(voxels: V3[]): [V3, V3][] {
-  const free = new Set(voxels.map((v) => v.join(",")));
-  const has = (x: number, y: number, z: number): boolean => free.has(`${x},${y},${z}`);
-  const sorted = [...voxels].sort((a, b) => a[2] - b[2] || a[1] - b[1] || a[0] - b[0]);
-  const boxes: [V3, V3][] = [];
-  for (const [x0, y0, z0] of sorted) {
-    if (!has(x0, y0, z0)) continue;
-    let x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
-    while (has(x1, y0, z0)) x1++;
-    const rowFree = (y: number, z: number): boolean => {
-      for (let x = x0; x < x1; x++) if (!has(x, y, z)) return false;
-      return true;
-    };
-    while (rowFree(y1, z0)) y1++;
-    const slabFree = (z: number): boolean => {
-      for (let y = y0; y < y1; y++) if (!rowFree(y, z)) return false;
-      return true;
-    };
-    while (slabFree(z1)) z1++;
-    for (let z = z0; z < z1; z++) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) free.delete(`${x},${y},${z}`);
-    boxes.push([[x0, y0, z0], [x1, y1, z1]]);
+  if (voxels.length === 0) return [];
+  const lo: V3 = [Infinity, Infinity, Infinity], hi: V3 = [-Infinity, -Infinity, -Infinity];
+  for (const v of voxels) for (let a = 0; a < 3; a++) {
+    lo[a] = Math.min(lo[a], v[a]);
+    hi[a] = Math.max(hi[a], v[a]);
   }
-  return boxes;
+  const size = hi.map((h, a) => h - lo[a] + 1) as V3;
+  const occ = new Uint8Array(size[0] * size[1] * size[2]);
+  for (const [x, y, z] of voxels) occ[x - lo[0] + size[0] * (y - lo[1] + size[1] * (z - lo[2]))] = 1;
+  return mergeGrid({ origin: [0, 0, 0], voxel: 1, size, occ }).map(([a, b]) =>
+    [a.map((v, k) => v + lo[k]) as V3, b.map((v, k) => v + lo[k]) as V3]);
 }
 
 function hsl(h: number, s: number, l: number): V3 {
