@@ -1,7 +1,7 @@
 // Transient overlays: the per-camera info popup (point-of-view mode) and the
 // modal model chooser (multiple COLMAP models in one drop / picked folder).
 import type { CameraView } from "../../shared/messages";
-import { hint, keyValue } from "./components";
+import { hint, isTouchOnly, keyValue } from "./components";
 
 /** Build the shared popup/modal header (title + ✕ close button); the caller wires
  *  the close click. Returns the header element and its close button. */
@@ -20,6 +20,59 @@ function popupHead(
   close.textContent = "✕";
   head.append(title, close);
   return { head, close };
+}
+
+/** What every key and pointer gesture does: the "?" overlay (the footer's "?" or the key).
+ *  Closes on Esc (which then goes no further), a click outside or ✕. */
+export function showShortcuts(): void {
+  document.getElementById("viewer-modal")?.remove();
+  const backdrop = document.createElement("div");
+  backdrop.id = "viewer-modal";
+  backdrop.className = "viewer-modal-backdrop";
+  const box = document.createElement("div");
+  box.className = "viewer-modal";
+  const { head, close } = popupHead("Shortcuts", "Close");
+  const list = document.createElement("div");
+  list.className = "viewer-modal-list viewer-shortcuts";
+  const group = (title: string, rows: Array<[string, string]>) => {
+    const heading = document.createElement("div");
+    heading.className = "viewer-section-title";
+    heading.textContent = title;
+    list.append(heading, ...rows.map(([k, v]) => keyValue(k, v)));
+  };
+  group(isTouchOnly() ? "Gestures" : "Mouse", isTouchOnly()
+    ? [["One finger", "Orbit"], ["Two fingers", "Zoom and pan"], ["Tap a frustum", "View from that camera"],
+      ["Tap an item", "Select it (Select mode)"], ["Tap a piece", "Shoot / Blast (those modes)"]]
+    : [["Drag", "Orbit"], ["Right-drag", "Pan"], ["Wheel", "Zoom"], ["Click a frustum", "View from that camera"],
+      ["Click an item", "Select it (Select mode)"], ["Click a piece", "Shoot / Blast (those modes)"]]);
+  if (!isTouchOnly()) {
+    group("Keys", [
+      ["P · F · I", "Points · frustums · images"], ["B · G · A", "Box · grid · axes"],
+      ["S · W", "Shaded · wireframe meshes"], ["E", "Next Gaussian mode"], ["U", "Upright Y-up"],
+      ["R", "Fit view"], ["Esc", "Back to Select; leave a camera's view; cancel a render"], ["?", "This list"],
+    ]);
+  }
+  const dismiss = () => {
+    document.removeEventListener("keydown", onKey);
+    backdrop.remove();
+  };
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation(); // the page's own Esc would also act
+      dismiss();
+    }
+  }
+  close.addEventListener("click", dismiss);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) {
+      dismiss();
+    }
+  });
+  document.addEventListener("keydown", onKey);
+  box.append(head, list);
+  backdrop.append(box);
+  document.body.append(backdrop);
 }
 
 /** Bottom-left popup describing the selected camera and its image. */

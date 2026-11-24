@@ -7,6 +7,8 @@
 // Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
+import { EARTH_GRAVITY } from "../physics/sim";
+import { DEFAULT_FOV } from "../cameraInteraction";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
@@ -22,8 +24,9 @@ import {
   iconButton,
   menuButton,
   isTouchOnly,
-  keyed,
+  withKey,
 } from "./components";
+import { showShortcuts } from "./overlays";
 
 // Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
 const EYE_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -42,6 +45,18 @@ const ICON_DISPLAY = `<svg ${RAIL_SVG}><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 1
 const ICON_PHYSICS = `<svg ${RAIL_SVG}><circle cx="12" cy="8" r="4"/><path d="M4 20h16M9 14.5l-1 2.5M15 14.5l1 2.5M12 15v2.5"/></svg>`;
 const ICON_CAPTURE = `<svg ${RAIL_SVG}><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_RESTORE = `<svg ${RAIL_SVG}><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg>`;
+
+// A Scene row's type, by ItemType (14 px, drawn like the rail's icons).
+const TYPE_SVG = `viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const TYPE_ICONS: Record<ItemType, string> = {
+  reconstruction: `<svg ${TYPE_SVG}><path d="M4 18L12 5l8 13z"/><path d="M12 5v13"/></svg>`,
+  sequence: `<svg ${TYPE_SVG}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>`,
+  mesh: `<svg ${TYPE_SVG}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>`,
+  splats: `<svg ${TYPE_SVG}><ellipse cx="9" cy="10" rx="5.5" ry="3" transform="rotate(-25 9 10)"/><ellipse cx="15.5" cy="15.5" rx="4" ry="2.5" transform="rotate(20 15.5 15.5)"/></svg>`,
+  points: `<svg ${TYPE_SVG}><circle cx="6" cy="8" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="17" cy="10" r="1"/><circle cx="8" cy="15" r="1"/><circle cx="14" cy="17" r="1"/><circle cx="19" cy="18" r="1"/></svg>`,
+  tracks: `<svg ${TYPE_SVG}><path d="M4 18c4-10 8 2 15-10"/><circle cx="19.5" cy="7.5" r="1.5"/></svg>`,
+  physics: `<svg ${TYPE_SVG}><circle cx="12" cy="8" r="4"/><path d="M4 20h16M9 14.5l-1 2.5M15 14.5l1 2.5M12 15v2.5"/></svg>`,
+};
 
 // Play / pause, for a temporal item's timeline and the playback bar.
 const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -236,29 +251,27 @@ export class ControlPanel {
     // Show — scene-wide visibility toggles, only for content that exists.
     const toggles = document.createElement("div");
     toggles.className = "viewer-toggles";
+    const toggle = (label: string, key: string, name: Parameters<Viewer["setGlobal"]>[0], on: boolean) =>
+      withKey(checkbox(label, on, (v) => this.viewer.setGlobal(name, v)), key);
     if (s.hasPoints) {
-      toggles.append(checkbox(keyed("Points", "P"), s.points, (on) => this.viewer.setGlobal("points", on)));
+      toggles.append(toggle("Points", "P", "points", s.points));
     }
     if (s.hasCameras) {
-      toggles.append(
-        checkbox(keyed("Frustums", "F"), s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
-        checkbox(keyed("Images", "I"), s.images, (on) => this.viewer.setGlobal("images", on))
-      );
+      toggles.append(toggle("Frustums", "F", "frustums", s.frustums), toggle("Images", "I", "images", s.images));
     }
     if (s.hasPoints || s.hasAssets) {
-      toggles.append(checkbox(keyed("Box", "B"), s.box, (on) => this.viewer.setGlobal("box", on)));
+      toggles.append(toggle("Box", "B", "box", s.box));
     }
-    if (s.hasAssets) {
-      toggles.append(
-        checkbox(keyed("Shaded", "S"), s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
-        checkbox(keyed("Wireframe", "W"), s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
-      );
-    }
-    toggles.append(
-      checkbox(keyed("Grid", "G"), s.grid, (on) => this.viewer.setGlobal("grid", on)),
-      checkbox(keyed("Axes", "A"), s.axes, (on) => this.viewer.setGlobal("axes", on))
-    );
+    toggles.append(toggle("Grid", "G", "grid", s.grid), toggle("Axes", "A", "axes", s.axes));
     body.append(section("Show", [toggles]));
+
+    // Meshes — how mesh assets are drawn (two independent switches).
+    if (s.hasAssets) {
+      const modes = document.createElement("div");
+      modes.className = "viewer-toggles";
+      modes.append(toggle("Shaded", "S", "shaded", s.shaded), toggle("Wireframe", "W", "wireframe", s.wireframe));
+      body.append(section("Meshes", [modes]));
+    }
 
     // Gaussians — how 3DGS assets are drawn; only when the scene holds one.
     if (s.hasSplat) {
@@ -275,7 +288,8 @@ export class ControlPanel {
     // One slider for every bare point cloud in the scene: a reconstruction's own
     // cloud and a point-cloud asset alike.
     if (s.hasPoints || s.hasPointCloud) {
-      appearance.push(slider("Point size", 0.5, 6, 0.5, s.pointSize, (v) => this.viewer.setPointSize(v)));
+      appearance.push(slider("Point size", 0.5, 6, 0.5, s.pointSize, (v) => this.viewer.setPointSize(v),
+        { format: (v) => `${v} px` }));
     }
     if (s.hasCameras) {
       appearance.push(
@@ -283,7 +297,7 @@ export class ControlPanel {
           this.viewer.setFrustumScale(v)
         ),
         slider("Frustum line width", 1, 10, 0.5, s.frustumLineWidth, (v) =>
-          this.viewer.setFrustumLineWidth(v)
+          this.viewer.setFrustumLineWidth(v), { format: (v) => `${v} px` }
         ),
         colorRow("Frustum color", s.frustumColor, (v) => this.viewer.setFrustumColor(v))
       );
@@ -303,7 +317,8 @@ export class ControlPanel {
         slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
           this.viewer.setTrackDensity(v)
         ),
-        slider("Track line width", 1, 10, 0.5, s.trackLineWidth, (v) => this.viewer.setTrackLineWidth(v)),
+        slider("Track line width", 1, 10, 0.5, s.trackLineWidth, (v) => this.viewer.setTrackLineWidth(v),
+          { format: (v) => `${v} px` }),
         slider("Track smoothing", 0, 5, 0.25, s.trackSmoothing, (v) =>
           this.viewer.setTrackSmoothing(v)
         )
@@ -322,26 +337,27 @@ export class ControlPanel {
 
     // View — orientation, following a simulation, reset.
     const view: HTMLElement[] = [
-      checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
+      withKey(checkbox("Upright Y-up", s.orientation === "upright", (on) =>
         this.viewer.setOrientation(on ? "upright" : "raw")
-      ),
+      ), "U"),
     ];
     if (s.physics) {
       const follow = checkbox("Follow the pieces", s.physics.follow, (on) => this.viewer.setPhysicsFollow(on));
       follow.title = "Keep the camera on the object last acted on while its pieces move";
       view.push(follow);
     }
-    view.push(button(keyed("Reset view", "R"), () => this.viewer.resetView(), true));
+    view.push(withKey(button("Fit view", () => this.viewer.resetView(), true), "R"));
     body.append(section("View", view));
 
     // Camera — controls OrbitControls' drag can't reach: perspective FOV and a
     // roll (tilt) about the view axis. Reset snaps both sliders back to default.
     body.append(
       section("Camera", [
-        slider("Field of view°", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
-        slider("Roll°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
+        slider("Field of view", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v),
+          { format: (v) => `${v}°`, reset: DEFAULT_FOV }),
+        slider("Roll", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v), { format: (v) => `${v}°`, reset: 0 }),
         button(
-          "Reset camera",
+          "Default lens",
           () => {
             this.viewer.resetCamera();
             this.render(); // a click, not a keystroke — re-reading the sliders is safe
@@ -351,15 +367,6 @@ export class ControlPanel {
       ])
     );
 
-    if (s.hasCameras) {
-      body.append(
-        hint(
-          isTouchOnly()
-            ? "Tap a frustum to view from it · Reset view to exit"
-            : "Hover a frustum to highlight it · click to view from it (Esc to exit)"
-        )
-      );
-    }
     return body;
   }
 
@@ -370,13 +377,12 @@ export class ControlPanel {
    * are in its Inspector (Scene).
    */
   private buildPhysicsBody(p: PhysicsView): HTMLElement {
-    const gravity = slider("Gravity (m/s²)", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
-      (v) => v.toFixed(1));
+    const gravity = slider("Gravity", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
+      { format: (v) => `${v.toFixed(1)} m/s²`, reset: EARTH_GRAVITY });
     gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
     const body = document.createElement("div");
     body.className = "viewer-body";
-    body.append(section("World", [gravity,
-      hint("Shoot or Blast (the playback bar) and a click breaks what it hits; Esc goes back to Select. Select an object for its own controls.")]));
+    body.append(section("World", [gravity]));
     return body;
   }
 
@@ -432,24 +438,26 @@ export class ControlPanel {
     const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height);
     const drop = button("Drop", run("drop"));
     drop.title = "Lift it to the drop height, tilted, and let it fall";
-    const reset = button("Restore", run("reset"));
+    const reset = button("Restore", run("reset"), true);
     reset.title = "This object back to rest, whole, where it is placed";
     const row = document.createElement("div");
     row.className = "viewer-scale-row";
     row.append(drop, reset);
-    const heightRow = slider("Drop height (m)", 0, 4, 0.1, height, (v) => {
+    const heightRow = slider("Drop height", 0, 4, 0.1, height, (v) => {
       this.dropHeights.set(item.id, v);
-    });
+    }, { format: (v) => `${v} m`, reset: 3 });
     // Glue on a log scale (0.3x to 300x the load each weld carries at rest): the object
     // stands above 1x; shatter's top step is "off".
     const glue = slider("Glue", -0.5, 2.5, 0.05, Math.log10(item.strength),
-      (v) => this.viewer.setPhysicsStrength(item.id, 10 ** v), (v) => `${fmtGlue(10 ** v)}×`);
+      (v) => this.viewer.setPhysicsStrength(item.id, 10 ** v),
+      { format: (v) => `${fmtGlue(10 ** v)}×`, parse: (t) => Math.log10(parseFloat(t)), reset: 1 });
     glue.title = "Each weld breaks at this multiple of the load it carries at rest";
     const shatterTop = 10.5;
     const shatter = slider("Shatter above", 1, shatterTop,
       0.5, Math.min(item.shatterSpeed, shatterTop),
       (v) => this.viewer.setPhysicsShatterSpeed(item.id, v >= shatterTop ? Number.POSITIVE_INFINITY : v),
-      (v) => (v >= shatterTop ? "off" : `${v} m/s`));
+      { format: (v) => (v >= shatterTop ? "off" : `${v} m/s`),
+        parse: (t) => (/off/i.test(t) ? shatterTop : parseFloat(t)), reset: shatterTop });
     shatter.title = "A piece hit faster than this comes loose (brittle)";
     const presets = document.createElement("div");
     presets.className = "viewer-scale-row";
@@ -461,7 +469,10 @@ export class ControlPanel {
     ];
     const actions = [drop, reset];
     for (const [name, label, title] of presetCopy) {
-      const b = button(label, () => this.viewer.physicsPreset(item.id, name));
+      const b = document.createElement("button");
+      b.className = "viewer-scale-btn";
+      b.textContent = label;
+      b.addEventListener("click", () => this.viewer.physicsPreset(item.id, name));
       b.title = `${title} (from rest, default glue)`;
       presets.append(b);
       actions.push(b);
@@ -540,7 +551,7 @@ export class ControlPanel {
       })
     );
     if (v.overrideFov) {
-      const fov = slider("Field of view°", 10, 120, 1, v.fov, (n) => (v.fov = n));
+      const fov = slider("Field of view", 10, 120, 1, v.fov, (n) => (v.fov = n), { format: (n) => `${n}°` });
       fov.title = "Vertical field of view of the video";
       rows.push(fov);
     }
@@ -656,7 +667,10 @@ export class ControlPanel {
       label.title = item.source ? sourcePath(item.source) : item.label;
       const kind = document.createElement("span");
       kind.className = "kind";
-      kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
+      kind.innerHTML = TYPE_ICONS[item.type];
+      kind.title = ITEM_TYPE_LABELS[item.type];
+      kind.setAttribute("role", "img");
+      kind.setAttribute("aria-label", ITEM_TYPE_LABELS[item.type]);
 
       // A click on the row (not on one of its buttons) selects it for the Inspector, or
       // deselects it; so does Enter on the focused label.
@@ -921,7 +935,12 @@ function buildFooter(backend: ViewerState["backend"], theme: HTMLElement): HTMLE
         : "WebGPU isn't available here — rendering with the WebGL2 fallback";
     foot.append(el);
   }
-  foot.append(buildVersion(), theme);
+  const help = document.createElement("button");
+  help.className = "viewer-help";
+  help.textContent = "?";
+  help.title = "Shortcuts and mouse controls (?)";
+  help.addEventListener("click", showShortcuts);
+  foot.append(buildVersion(), help, theme);
   return foot;
 }
 

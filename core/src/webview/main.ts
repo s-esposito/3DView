@@ -13,7 +13,7 @@ import { Viewer, GlobalToggle } from "./viewer";
 import type { TemporalFrame } from "./viewer";
 import { compareNatural, sharedFolderName } from "../shared/naming";
 import { ControlPanel } from "./ui/controlPanel";
-import { InfoPopup, showColmapChooser, askTemporalGrouping } from "./ui/overlays";
+import { InfoPopup, showColmapChooser, askTemporalGrouping, showShortcuts } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 import { isTouchOnly } from "./ui/components";
 import { loadColmapFromUrls } from "./colmapLoader";
@@ -130,6 +130,10 @@ window.addEventListener("keydown", (e) => {
   }
   if (key === "r") {
     viewer.resetView();
+    return;
+  }
+  if (key === "?") {
+    showShortcuts();
     return;
   }
   if (key === "escape") {

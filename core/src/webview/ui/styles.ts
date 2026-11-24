@@ -80,9 +80,13 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-scene-actions{display:flex;align-items:center;opacity:0;transition:opacity .15s ease}
 .viewer-scene-item:hover .viewer-scene-actions,.viewer-scene-item:focus-within .viewer-scene-actions,.viewer-scene-item.selected .viewer-scene-actions{opacity:1}
 @media (hover:none){.viewer-scene-actions{opacity:1}}
-.viewer-scene-item .kind{opacity:.45;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+.viewer-scene-item .kind{display:inline-flex;opacity:.55;font-size:10px;letter-spacing:.4px}
 .viewer-scene-empty{color:var(--vscode-descriptionForeground,#999);font-style:italic;margin-top:6px}
 .viewer-foot{flex:none;align-self:flex-end;display:flex;align-items:center;gap:6px}
+.viewer-help{width:22px;height:22px;padding:0;border:none;border-radius:50%;cursor:pointer;font:600 12px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);background:color-mix(in srgb,var(--vscode-input-background,rgba(255,255,255,0.14)) 55%,transparent)}
+.viewer-help:hover{color:var(--vscode-foreground,#ddd)}
+.viewer-shortcuts{display:flex;flex-direction:column;gap:6px;padding:4px 14px 14px}
+.viewer-shortcuts .viewer-section-title{margin-top:8px}
 .viewer-foot .viewer-seg{width:84px;padding:2px}
 .viewer-foot .viewer-seg-thumb{top:2px;bottom:2px;left:2px;width:calc((100% - 4px)/3)}
 .viewer-foot .viewer-seg-opt{height:20px}
@@ -131,9 +135,11 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-seg-opt[aria-checked="true"] svg{scale:1}
 /* One row per slider: caption · track · readout. The caption column is shared with
    .viewer-action, so labels and their controls line up down a section. */
-.viewer-slider{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr) 30px;align-items:center;gap:8px}
+.viewer-slider{display:grid;grid-template-columns:var(--viewer-label-w) minmax(0,1fr) minmax(30px,max-content);align-items:center;gap:8px}
+.viewer-slider-label{cursor:default}
+.viewer-slider-edit{width:5.5em;box-sizing:border-box;font:inherit;font-variant-numeric:tabular-nums;text-align:right;color:var(--vscode-input-foreground,inherit);background:var(--vscode-input-background,rgba(255,255,255,.08));border:1px solid var(--vscode-focusBorder,#0e639c);border-radius:4px;padding:1px 4px;outline:none}
 .viewer-slider-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.viewer-slider-val{text-align:right;color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums}
+.viewer-slider-val{text-align:right;color:var(--vscode-descriptionForeground,#999);font-variant-numeric:tabular-nums;cursor:text}
 .viewer-slider input{width:100%;min-width:0;margin:0;accent-color:var(--vscode-focusBorder,#0e639c);cursor:pointer}
 .viewer-colorrow{display:flex;align-items:center;justify-content:space-between;margin-top:12px;cursor:pointer}
 .viewer-color{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;padding:0;background:none;border:1px solid color-mix(in srgb,var(--vscode-widget-border,#fff) 55%,transparent);border-radius:6px;box-shadow:var(--glass-shadow-sm);cursor:pointer}

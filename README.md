@@ -115,7 +115,10 @@ flush the ten-entry list).
 | Orbit / zoom / pan | drag / scroll / right‑drag |
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
 | Cancel a video render | **Esc** |
-| Reset view | **R** |
+| Fit view | **R** |
+| Select an item / shoot / blast | click it (the playback bar's **Select** / **Shoot** / **Blast**; **Esc** back to Select) |
+| Type a slider's value / restore its default | double-click its value / its label |
+| All of these | **?** (or the footer's **?**) |
 | Toggle points / frustums / images | **P** / **F** / **I** |
 | Toggle shaded / wireframe / box | **S** / **W** / **B** |
 | Toggle grid / axes / upright | **G** / **A** / **U** |
