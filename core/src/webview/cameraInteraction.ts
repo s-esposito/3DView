@@ -29,6 +29,8 @@ export interface InteractionDeps {
   onSelect: (cam: CameraView | null) => void;
   /** Request a redraw (hover/selection change colors without moving the camera). */
   requestRender: () => void;
+  /** A click that hit no camera, as a world-space ray from the eye (physics shoots along it). */
+  onMiss?: (ray: THREE.Ray, shiftKey: boolean) => void;
 }
 
 export class CameraInteraction {
@@ -102,7 +104,18 @@ export class CameraInteraction {
     const hit = this.pick(e.clientX, e.clientY);
     if (hit) {
       this.select(hit);
+    } else if (this.deps.onMiss) {
+      this.aim(e.clientX, e.clientY);
+      this.deps.onMiss(this.raycaster.ray.clone(), e.shiftKey);
     }
+  }
+
+  /** Point the raycaster from the eye through a pixel of the canvas. */
+  private aim(clientX: number, clientY: number): void {
+    const rect = this.deps.dom.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.deps.camera);
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -121,11 +134,7 @@ export class CameraInteraction {
     if (objects.length === 0) {
       return null;
     }
-    const rect = this.deps.dom.getBoundingClientRect();
-    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera(this.pointer, this.deps.camera);
-
+    this.aim(clientX, clientY);
     for (const hit of this.raycaster.intersectObjects(objects, true)) {
       let obj: THREE.Object3D | null = hit.object;
       while (obj && obj.userData.cameraIndex === undefined) {

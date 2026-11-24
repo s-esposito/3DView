@@ -55,6 +55,9 @@ const ROT0: Box3dQuat = { x: 0, y: 0, z: 0, w: 1 };
 // Shape and body tags: chunk i is i + 1; the ground is tagged too, since box3d-wasm gives an
 // untagged shape or body a tag from a global counter, which can land on a chunk's.
 const GROUND_TAG = 2 ** 30;
+/** m: a body below this went over the ground's edge (it is 100 m across); nothing would ever stop
+ *  its fall, which would keep the world awake, so it is put to sleep there (Sim.lost). */
+const FALL_LIMIT = -10;
 const v3 = ([x, y, z]: readonly number[]): Box3dVec3 => ({ x, y, z });
 const norm = (v: Box3dVec3): number => Math.hypot(v.x, v.y, v.z);
 /** Quaternion product a * b. */
@@ -81,6 +84,8 @@ export class Sim {
   broken = 0;
   /** Simulated seconds since the last reset. */
   time = 0;
+  /** Chunks that fell off the ground since the last reset (FALL_LIMIT), asleep where they went. */
+  lost = new Set<number>();
   /** Each weld's load in the last step, Pa. */
   lastLoad = new Float32Array(0);
   /** Each weld's breaking load, Pa. */
@@ -109,6 +114,7 @@ export class Sim {
   /** Rebuild the world: the object at rest, lifted by ``lift`` metres, turned ``tilt`` rad about z. */
   reset({ lift = 0, tilt = 0 } = {}): void {
     this.world?.destroy();
+    this.lost.clear();
     const { b3, scene, o } = this;
     this.world = new b3.World({ gravity: { x: 0, y: -9.81, z: 0 } });
     const ground = this.world.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
@@ -227,6 +233,12 @@ export class Sim {
           body.setLinearVelocity({ x: v.x + k * away[0], y: v.y + k * away[1], z: v.z + k * away[2] });
         }
       }
+    this.bodies.forEach((body, i) => {
+      if (!this.lost.has(i) && body.getPosition().y < FALL_LIMIT) {
+        body.setAwake(false);
+        this.lost.add(i);
+      }
+    });
     this.time += this.o.dt;
     this.stats = { stepMs: t1 - t0, breakMs: performance.now() - t1 };
   }
@@ -301,6 +313,9 @@ export class Sim {
 
   /** How many chunks still move (Box3D puts bodies at rest to sleep). */
   get awake(): number { return this.world.getAwakeBodyCount(); }
+
+  /** Put every body to sleep (until something wakes it: a hit, a shot, a blast). */
+  sleep(): void { for (const body of this.bodies) body.setAwake(false); }
 
   /** Free the engine's world. */
   dispose(): void { this.world.destroy(); }

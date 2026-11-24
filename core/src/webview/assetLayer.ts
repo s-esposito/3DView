@@ -144,6 +144,12 @@ export class AssetLayer implements FrameSource {
     return this.physicsRun;
   }
 
+  /** Move the box to ``bounds`` (a chunked object's pieces, as they move). */
+  setBoxBounds(bounds: Bounds): void {
+    this.box?.box.min.fromArray(bounds.min);
+    this.box?.box.max.fromArray(bounds.max);
+  }
+
   /** True once loaded, if this asset is a bare point cloud (so "Point size" applies).
    *  A 3DGS asset in the "points" mode follows the same size, but is not this: the
    *  flag must not turn over as the render mode cycles. */

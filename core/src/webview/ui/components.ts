@@ -100,11 +100,13 @@ export function slider(
   max: number,
   step: number,
   value: number,
-  onInput: (v: number) => void
+  onInput: (v: number) => void,
+  format?: (v: number) => string
 ): HTMLElement {
   // One row: caption · track · readout. A whole-number step reads as an integer
-  // ("24", not "24.0"); anything finer keeps the adaptive precision.
-  const fmt = Number.isInteger(step) ? (v: number) => String(Math.round(v)) : fmtNum;
+  // ("24", not "24.0"); anything finer keeps the adaptive precision; `format` overrides
+  // both (a log-scale slider reading out what it stands for).
+  const fmt = format ?? (Number.isInteger(step) ? (v: number) => String(Math.round(v)) : fmtNum);
   const wrap = document.createElement("div");
   wrap.className = "viewer-slider";
   const caption = document.createElement("span");

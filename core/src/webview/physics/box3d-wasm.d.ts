@@ -33,6 +33,7 @@ interface Box3dBody {
   applyLinearImpulse(impulse: Box3dVec3, point: Box3dVec3, wake: boolean): void;
   getWorldPoint(local: Box3dVec3): Box3dVec3;
   getMass(): number;
+  setAwake(awake: boolean): void;
 }
 
 interface Box3dJoint {

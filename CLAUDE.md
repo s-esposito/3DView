@@ -158,6 +158,14 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            onto the chunk SplatObjects. While any body is awake the viewer
                            draws and re-sorts the splats (SplatDrawer.requestSort: Radix
                            re-sorts by itself only on camera motion); asleep, it idles.
+                           A run whose chunks moved < 1 cm / 2° in a second of sim time is
+                           put to sleep (box3d can keep a welded piece creeping for ever);
+                           a chunk past the ground's edge (Sim.lost) is hidden. Presets
+                           (drop/shatter/explode/volley/crumble) start from rest at the
+                           default glue; a click on the object shoots it, shift-click blasts
+                           (CameraInteraction.onMiss -> Viewer.physicsClick). The layer's box
+                           follows the pieces (extent); with Follow on the camera eases
+                           toward the median chunk and snaps back to rest on Reset/Drop/preset.
                            UI: the Physics panel (controlPanel's buildPhysicsPanel), its
                            status line updated in place through Viewer.onPhysics
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset

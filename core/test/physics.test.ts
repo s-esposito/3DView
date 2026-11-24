@@ -163,3 +163,20 @@ test("a blast beside breaks the object there, not across it", (t) => {
   assert.ok(farBroken < 0.1);
   sim.dispose();
 });
+
+test("sleep() stops every body mid-fall, and a shot wakes it again", () => {
+  const sim = calibrated();
+  sim.reset({ lift: 1 });
+  run(sim, 0.2);
+  assert.ok(sim.awake > 0);
+  sim.sleep();
+  assert.equal(sim.awake, 0);
+  const before = sim.transforms();
+  run(sim, 0.5);
+  assert.deepEqual(sim.transforms(), before, "asleep, nothing moves");
+  const y = sim.transforms().filter((_, k) => k % 7 === 1).reduce((a, b) => a + b, 0) / scene.chunks.length;
+  assert.ok(sim.shoot([0, y, -5], [0, 0, 1]) >= 0, "the shot hits");
+  run(sim, 0.1);
+  assert.ok(sim.awake > 0, "and wakes it");
+  sim.dispose();
+});

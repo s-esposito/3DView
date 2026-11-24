@@ -6,6 +6,7 @@
 // sub-menus). All are thin views over the Viewer: they read `getState()` to render
 // and call Viewer setters on interaction; the Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ThemeName, PhysicsItem, PhysicsAction } from "../viewer";
+import type { PhysicsPreset } from "../physics/run";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
@@ -338,6 +339,9 @@ export class ControlPanel {
     for (const item of s.physics) {
       body.append(this.buildPhysicsSection(item, s.physics.length > 1));
     }
+    const follow = checkbox("Follow the pieces", s.physicsFollow, (on) => this.viewer.setPhysicsFollow(on));
+    follow.title = "Keep the camera on the object as its pieces move";
+    body.append(section("View", [follow, hint("Click a piece to shoot it · shift-click to blast there")]));
     const panel = document.createElement("div");
     panel.className = this.physicsCollapsed ? "viewer-panel collapsed" : "viewer-panel";
     panel.append(
@@ -371,7 +375,32 @@ export class ControlPanel {
     const height = slider("Drop height (m)", 0, 4, 0.1, this.dropHeight, (v) => {
       this.dropHeight = v;
     });
-    return section(named ? item.label : "Simulation", [line, row, height]);
+    // Glue on a log scale (0.3x to 300x the load each weld carries at rest): the object
+    // stands above 1x; shatter's top step is "off".
+    const glue = slider("Glue", -0.5, 2.5, 0.05, Math.log10(item.strength),
+      (v) => this.viewer.setPhysicsStrength(item.id, 10 ** v), (v) => `${fmtGlue(10 ** v)}×`);
+    glue.title = "Each weld breaks at this multiple of the load it carries at rest";
+    const shatterTop = 10.5;
+    const shatter = slider("Shatter above", 1, shatterTop,
+      0.5, Math.min(item.shatterSpeed, shatterTop),
+      (v) => this.viewer.setPhysicsShatterSpeed(item.id, v >= shatterTop ? Number.POSITIVE_INFINITY : v),
+      (v) => (v >= shatterTop ? "off" : `${v} m/s`));
+    shatter.title = "A piece hit faster than this comes loose (brittle)";
+    const presets = document.createElement("div");
+    presets.className = "viewer-scale-row";
+    const presetCopy: Array<[PhysicsPreset, string, string]> = [
+      ["shatter", "Shatter", "Brittle, dropped from 3 m"],
+      ["explode", "Explode", "A blast at its middle"],
+      ["volley", "Volley", "Five shots through it from here"],
+      ["crumble", "Crumble", "The glue vanishes"],
+    ];
+    for (const [name, label, title] of presetCopy) {
+      const b = button(label, () => this.viewer.physicsPreset(item.id, name));
+      b.title = `${title} (from rest, default glue)`;
+      b.disabled = busy;
+      presets.append(b);
+    }
+    return section(named ? item.label : "Simulation", [line, row, height, glue, shatter, presets]);
   }
 
   /**
@@ -776,6 +805,11 @@ export class ControlPanel {
     input.focus();
     input.select();
   }
+}
+
+/** A glue multiple as the slider reads it: "0.5", "3", "30". */
+function fmtGlue(k: number): string {
+  return k < 1 ? k.toFixed(1) : k < 10 ? k.toFixed(1).replace(/\.0$/, "") : String(Math.round(k));
 }
 
 /**
