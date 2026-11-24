@@ -57,7 +57,7 @@ and a **browser demo**, over one shared core.
 - **Export** — from the **Capture** panel: a transparent PNG of the current view at
   **1× / 2× / 4×** (**Image**), and a video flying through a reconstruction's
   cameras in image-name order, with optional in-between frames, a loop back to the
-  start and a field-of-view override (**Video**, for a reconstruction with two cameras
+  start and a field-of-view override (**Camera fly-through**, for a reconstruction with two cameras
   or more; MP4, or WebM where the host has no
   H.264 encoder). Renders size points by each cloud's own spacing, so surfaces stay
   filled at high resolution (**Fill point gaps**).

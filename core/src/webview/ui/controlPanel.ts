@@ -493,15 +493,17 @@ export class ControlPanel {
     const body = document.createElement("div");
     body.className = "viewer-body";
 
-    const fill = checkbox("Fill point gaps", s.adaptivePointSize, (on) =>
-      this.viewer.setAdaptivePointSize(on)
-    );
-    fill.title =
-      "Size points by each cloud's own spacing in image and video captures, so surfaces stay filled at high resolution";
-    const top = document.createElement("div");
-    top.className = "viewer-section";
-    top.append(fill);
-    body.append(top);
+    // "Fill point gaps" changes both captures, and only where there are points to fill: one
+    // setting, shown in each capture it affects.
+    const hasPoints = s.hasPoints || s.hasPointCloud;
+    const fill = (): HTMLElement[] => {
+      if (!hasPoints) {
+        return [];
+      }
+      const row = checkbox("Fill point gaps", s.adaptivePointSize, (on) => this.viewer.setAdaptivePointSize(on));
+      row.title = "Size points by each cloud's own spacing, so surfaces stay filled at high resolution";
+      return [row];
+    };
 
     // Image — save a PNG of the current view at 1×/2×/4× resolution.
     const scales = scaleButtons(
@@ -511,20 +513,21 @@ export class ControlPanel {
     );
     const open = this.captureOpen;
     body.append(
-      subsection("Image", open.image, (o) => (open.image = o), [actionRow("Save PNG", scales)])
+      subsection("Image", open.image, (o) => (open.image = o), [...fill(), actionRow("Save PNG at", scales)])
     );
 
+    // Camera fly-through — only a reconstruction with a camera path to fly; otherwise say so.
     const withPath = s.items.filter((i) => i.cameraCount > 1);
-    if (withPath.length > 0) {
-      const rows = this.buildVideoRows(withPath);
-      body.append(subsection("Video", open.video, (o) => (open.video = o), rows));
-    }
+    const rows = withPath.length > 0
+      ? [...fill(), ...this.buildVideoRows(withPath)]
+      : [hint("Needs a reconstruction with two cameras or more: the video flies through them.")];
+    body.append(subsection("Camera fly-through", open.video, (o) => (open.video = o), rows));
     return body;
   }
 
   /**
-   * The Video sub-menu: fly through a reconstruction's cameras (in image-name order)
-   * and save the result. Settings live on the panel; the scale buttons start it.
+   * The Camera fly-through sub-menu: fly through a reconstruction's cameras (in image-name
+   * order) and save the video. Settings live on the panel; the scale buttons start it.
    */
   private buildVideoRows(withPath: SceneItem[]): HTMLElement[] {
     const v = this.video;
@@ -555,19 +558,18 @@ export class ControlPanel {
       fov.title = "Vertical field of view of the video";
       rows.push(fov);
     }
+    // Touch has the status pill's Cancel button; a keyboard has Esc.
+    const cancel = isTouchOnly() ? "" : " (Esc cancels)";
     const scales = scaleButtons(
       [1, 2],
-      (sc) => `Render the camera path at ${sc}× the cameras' image size; frustums are hidden while it runs`,
+      (sc) => `Render the camera path at ${sc}× the cameras' image size; frustums are hidden while it runs${cancel}`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
         const fov = v.overrideFov ? v.fov : undefined;
         void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
-    rows.push(actionRow("Render", scales));
-    if (!isTouchOnly()) {
-      rows.push(hint("Esc cancels a render")); // touch: the status pill has a Cancel button
-    }
+    rows.push(actionRow("Render at", scales));
     return rows;
   }
 
