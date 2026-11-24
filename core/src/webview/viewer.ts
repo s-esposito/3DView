@@ -72,6 +72,10 @@ export type TemporalFrame =
   | { kind: "reconstruction"; id: string; label: string; data: ModelData; source?: string }
   | { kind: "asset"; id: string; label: string; uri: string; name: string };
 
+/** What a click in the view does: select the item under it, or (with a physics object in the
+ *  scene) shoot the piece it hits / blow up a blast there. */
+export type ClickMode = "select" | "shoot" | "blast";
+
 /** What a Scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
 export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
 
@@ -173,6 +177,8 @@ export interface ViewerState {
   physics: PhysicsView | null;
   /** The Scene item the Inspector shows; null when none is selected. */
   selected: string | null;
+  /** What a click in the view does. */
+  clickMode: ClickMode;
 }
 
 /** The scene's simulation, as the Physics panel shows it. */
@@ -293,6 +299,8 @@ export class Viewer {
   private followRun?: PhysicsRun;
   /** The Scene item the Inspector shows. */
   private selectedId: string | null = null;
+  private clickMode: ClickMode = "select";
+  private readonly canvas: HTMLCanvasElement;
   private playbackFps = 10;
   private lastStep = 0;
   // Camera roll (tilt) about the view axis, in degrees. Re-applied every frame
@@ -315,6 +323,7 @@ export class Viewer {
     document.body.dataset.viewerTheme = this.themeName;
     const canvas = document.createElement("canvas");
     container.appendChild(canvas);
+    this.canvas = canvas;
 
     this.scene = new THREE.Scene();
     this.scene.background = themeColor("--vscode-editor-background", 0x1e1e1e);
@@ -345,7 +354,7 @@ export class Viewer {
       boundsDiagonal: () => diagonalOf(this.bounds),
       onSelect: (cam) => this.onSelect?.(cam),
       requestRender: this.requestRender,
-      onMiss: (ray, shiftKey) => this.physicsClick(ray, shiftKey),
+      onMiss: (ray) => this.viewClick(ray),
     });
     this.physics.onChange = () => this.physicsChanged();
 
@@ -444,6 +453,7 @@ export class Viewer {
         }),
       },
       selected: this.selectedId,
+      clickMode: this.clickMode,
       items: this.layers.map((l) => ({
         id: l.id,
         label: l.label,
@@ -751,6 +761,14 @@ export class Viewer {
     this.onChange?.();
   }
 
+  /** What a click in the view does; anything but Select shows a crosshair. Shoot and Blast need
+   *  a physics object in the scene. */
+  setClickMode(mode: ClickMode): void {
+    this.clickMode = this.physics.runs.length > 0 ? mode : "select";
+    this.canvas.style.cursor = this.clickMode === "select" ? "" : "crosshair";
+    this.onChange?.();
+  }
+
   /** Start or stop the simulation's clock (every object's). */
   playPhysics(on: boolean): void {
     if (on) void this.physics.play();
@@ -824,22 +842,30 @@ export class Viewer {
     return this.assetLayers().find((l) => l.id === id)?.physics;
   }
 
-  /** A click on no camera: shoot (or, with shift, blast) the chunked object it points at, if
-   *  its ray crosses that object's current box — a click on empty space does nothing. The shot
-   *  takes the first chunk on the ray, which may be another object's in front. */
-  private physicsClick(ray: THREE.Ray, blast: boolean): void {
-    const layer = this.assetLayers().find((l) => {
-      if (!l.physics || !l.object.visible) {
-        return false;
-      }
-      const { min, max } = l.physics.extent();
-      const box = new THREE.Box3(new THREE.Vector3(...min), new THREE.Vector3(...max));
-      return ray.intersectsBox(box.applyMatrix4(l.object.matrixWorld));
-    });
-    const run = layer?.physics;
+  /**
+   * A click in the view that hit no camera. Select: the item whose box it crosses (the smallest,
+   * so an object inside a room's reconstruction wins over the room; a chunked object by its
+   * pieces' current extent), or none. Shoot / Blast: the first chunk on the ray, if the ray
+   * crosses a physics object's box — a click on empty space does nothing.
+   */
+  private viewClick(ray: THREE.Ray): void {
+    const hits = this.layers.flatMap((l) => {
+      const local = l instanceof AssetLayer && l.physics ? l.physics.extent() : l.bounds();
+      if (!l.visible || !local) return [];
+      const box = new THREE.Box3(new THREE.Vector3(...local.min), new THREE.Vector3(...local.max))
+        .applyMatrix4(l.object.matrixWorld);
+      if (!ray.intersectsBox(box)) return [];
+      const size = box.getSize(new THREE.Vector3());
+      return [{ layer: l, volume: size.x * size.y * size.z }];
+    }).sort((a, b) => a.volume - b.volume);
+    if (this.clickMode === "select") {
+      this.selectItem(hits[0]?.layer.id ?? null);
+      return;
+    }
+    const run = hits.map((h) => h.layer).find((l): l is AssetLayer => l instanceof AssetLayer && l.physics != null)?.physics;
     if (run) {
       this.followRun = run;
-      void (blast ? run.blast(ray) : run.shoot(ray));
+      void (this.clickMode === "blast" ? run.blast(ray) : run.shoot(ray));
     }
   }
 
@@ -962,6 +988,9 @@ export class Viewer {
       this.physics.remove(layer.physics);
       if (this.followRun === layer.physics) {
         this.followRun = undefined;
+      }
+      if (this.physics.runs.length === 0) {
+        this.setClickMode("select"); // nothing left to shoot
       }
     }
     layer.dispose();

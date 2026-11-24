@@ -170,8 +170,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            ever); a chunk past the ground's edge (Sim.lost) is hidden.
                            Per object: Drop, Reset, glue, shatter, presets (shatter/explode/
                            volley/crumble, from rest at the default glue); a click shoots the
-                           first chunk on the ray, shift-click blasts (CameraInteraction.onMiss
-                           -> Viewer.physicsClick). The layer's box follows the pieces;
+                           first chunk on the ray in the Shoot click mode, Blast blows up there
+                           (CameraInteraction.onMiss -> Viewer.viewClick, which in Select
+                           picks the smallest item box the ray crosses). The layer's box follows the pieces;
                            with Follow on the camera eases toward the median chunk of the
                            object last acted on, and snaps back to rest on its Reset/Drop/
                            preset. UI: the playback bar (controlPanel's buildTransport:

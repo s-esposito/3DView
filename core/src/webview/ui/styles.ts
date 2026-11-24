@@ -94,6 +94,7 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-transport-line{flex:0 1 auto;min-width:0;width:10em;padding:0 4px;color:var(--vscode-descriptionForeground,#999);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .viewer-transport .viewer-scale-row{flex:none;width:auto}
 .viewer-transport .viewer-scale-btn{flex:none;padding:4px 7px;border-radius:99em}
+.viewer-transport-speed{min-width:3.6em}
 .viewer-backend{display:inline-flex;align-items:center;gap:4px;font:11px var(--vscode-font-family,sans-serif);color:var(--vscode-descriptionForeground,#999);opacity:.7;cursor:default}
 .viewer-backend::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--vscode-descriptionForeground,#999)}
 .viewer-backend[data-backend="WebGPU"]::before{background:var(--vscode-focusBorder,#03d5ff)}

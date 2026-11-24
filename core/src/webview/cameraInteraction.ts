@@ -29,8 +29,9 @@ export interface InteractionDeps {
   onSelect: (cam: CameraView | null) => void;
   /** Request a redraw (hover/selection change colors without moving the camera). */
   requestRender: () => void;
-  /** A click that hit no camera, as a world-space ray from the eye (physics shoots along it). */
-  onMiss?: (ray: THREE.Ray, shiftKey: boolean) => void;
+  /** A click that hit no camera, as a world-space ray from the eye (it selects an item, or
+   *  shoots / blasts a physics object, by the Viewer's click mode). */
+  onMiss?: (ray: THREE.Ray) => void;
 }
 
 export class CameraInteraction {
@@ -106,7 +107,7 @@ export class CameraInteraction {
       this.select(hit);
     } else if (this.deps.onMiss) {
       this.aim(e.clientX, e.clientY);
-      this.deps.onMiss(this.raycaster.ray.clone(), e.shiftKey);
+      this.deps.onMiss(this.raycaster.ray.clone());
     }
   }
 

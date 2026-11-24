@@ -133,7 +133,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (key === "escape") {
-    viewer.exitPov();
+    // Out of Shoot / Blast first; then out of a camera's view.
+    if (viewer.getState().clickMode !== "select") viewer.setClickMode("select");
+    else viewer.exitPov();
     return;
   }
   if (key === "u") {

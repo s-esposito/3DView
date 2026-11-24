@@ -5,7 +5,7 @@
 // the simulation's playback bar while there is something to simulate. All are thin views over
 // the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
 // Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView } from "../viewer";
+import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode } from "../viewer";
 import type { PhysicsPreset } from "../physics/run";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
@@ -55,8 +55,14 @@ const PANELS: Array<{ id: PanelId; label: string; icon: string; shown: (s: Viewe
   { id: "physics", label: "Physics", icon: ICON_PHYSICS, shown: (s) => s.physics !== null },
   { id: "capture", label: "Capture", icon: ICON_CAPTURE, shown: (s) => s.items.length > 0 },
 ];
-/** The playback bar's speeds (sim seconds per real second). */
-const SPEEDS = ["0.1", "0.25", "0.5", "1"] as const;
+/** The playback bar's speeds (sim seconds per real second), in the order its button cycles. */
+const SPEEDS = [1, 0.5, 0.25, 0.1];
+/** The playback bar's click modes. */
+const CLICK_MODES: Array<{ value: ClickMode; label: string; title: string }> = [
+  { value: "select", label: "Select", title: "A click selects the item under it (Esc returns here)" },
+  { value: "shoot", label: "Shoot", title: "A click knocks out the piece it hits" },
+  { value: "blast", label: "Blast", title: "A click blows up a blast where it hits" },
+];
 
 /** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
  *  SPLAT_RENDER_MODES fails to compile until it is described here. */
@@ -72,6 +78,9 @@ export class ControlPanel {
   private open: PanelId | null = "scene";
   /** Each panel's scroll offset, kept across re-renders and panel switches. */
   private readonly scrollTops = new Map<PanelId, number>();
+  /** The selection at the last render: a new one (a click in the view) opens Scene, where its
+   *  Inspector is. */
+  private selected: string | null = null;
   /** Each physics object's drop height, metres (3 unless set), kept across re-renders. */
   private readonly dropHeights = new Map<string, number>();
   /** How to rewrite each physics status line, by item id ("" = the simulation's) — repopulated
@@ -106,6 +115,12 @@ export class ControlPanel {
     this.playheads.clear();
     const s = this.viewer.getState();
 
+    if (s.selected !== this.selected) {
+      this.selected = s.selected;
+      if (s.selected) {
+        this.open = "scene";
+      }
+    }
     const panels = PANELS.filter((p) => p.shown(s));
     if (this.open && !panels.some((p) => p.id === this.open)) {
       this.open = "scene"; // its panel went (the last chunked object, the last item)
@@ -126,7 +141,7 @@ export class ControlPanel {
       body.scrollTop = this.scrollTops.get(this.open) ?? 0;
     }
     if (s.physics) {
-      document.body.appendChild(this.buildTransport(s.physics));
+      document.body.appendChild(this.buildTransport(s.physics, s.clickMode));
     }
   }
 
@@ -361,13 +376,13 @@ export class ControlPanel {
     const body = document.createElement("div");
     body.className = "viewer-body";
     body.append(section("World", [gravity,
-      hint("Click a piece to shoot it · shift-click to blast there. Select an object in Scene to drop or break it.")]));
+      hint("Shoot or Blast (the playback bar) and a click breaks what it hits; Esc goes back to Select. Select an object for its own controls.")]));
     return body;
   }
 
   /** The simulation's playback bar (bottom centre): play / pause, restore every object, its
-   *  line (updated in place), and the speed. */
-  private buildTransport(p: PhysicsView): HTMLElement {
+   *  line (updated in place), the speed (a button cycling through SPEEDS) and the click mode. */
+  private buildTransport(p: PhysicsView, clickMode: ClickMode): HTMLElement {
     const bar = document.createElement("div");
     bar.id = "viewer-transport";
     bar.className = "viewer-transport";
@@ -391,13 +406,17 @@ export class ControlPanel {
     this.physicsLines.set("", (status) => {
       line.textContent = status;
     });
-    const speed = choiceRow(
-      SPEEDS.map((v) => ({ label: `${v}×`, value: v, title: v === "1" ? "Real time" : "Slow motion: the same steps, fewer a second" })),
-      SPEEDS.find((v) => Number(v) === p.speed) ?? "1",
-      (v) => this.viewer.setPhysicsSpeed(Number(v))
-    );
-    speed.setAttribute("aria-label", "Speed");
-    bar.append(play, restore, line, speed);
+    const speed = document.createElement("button");
+    speed.className = "viewer-scale-btn viewer-transport-speed";
+    speed.textContent = `${p.speed}×`;
+    speed.title = "Speed: slow motion runs the same steps, fewer a second (click for the next)";
+    speed.addEventListener("click", () => {
+      this.viewer.setPhysicsSpeed(SPEEDS[(SPEEDS.indexOf(p.speed) + 1) % SPEEDS.length]);
+      this.render();
+    });
+    const mode = choiceRow(CLICK_MODES, clickMode, (m) => this.viewer.setClickMode(m));
+    mode.setAttribute("aria-label", "Click mode");
+    bar.append(play, restore, line, speed, mode);
     return bar;
   }
 
