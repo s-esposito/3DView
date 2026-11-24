@@ -1,6 +1,9 @@
 # Gradle
 .gradle/
 build/
+# The IntelliJ Platform Gradle plugin's locks and the Kotlin daemon's error logs
+.intellijPlatform/
+.kotlin/
 
 # The webview bundle is copied in from ../out by the copyWebview task — it is a
 # build artifact, not source. (Run `npm run build` in the repo root to produce it.)
