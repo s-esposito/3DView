@@ -612,7 +612,7 @@ export class Viewer {
     layer
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
-        layer.setVisible(true);
+        layer.setVisible(layer.visible); // as wanted: a host or the eye may have hidden it meanwhile
         if (layer.physics && this.byId.get(id) === layer) {
           this.physics.add(layer.physics); // not if it was removed while loading
         }
