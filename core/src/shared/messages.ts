@@ -263,6 +263,44 @@ export interface ViewerConfig {
 /** Change the configuration at runtime: the fields given merge into the current one. */
 export type ConfigureMsg = { type: "configure" } & ViewerConfig;
 
+/** What a scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
+export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
+
+/** Whether an item takes part in the physics: not at all, as a static body (an environment that
+ *  only stops others), or as a dynamic one that moves (a breakable object is always the last). */
+export type PhysicsMode = "off" | "static" | "dynamic";
+
+/** One scene item, in `state`. */
+export interface ItemState {
+  id: string;
+  label: string;
+  type: ItemType;
+  visible: boolean;
+  /** Its placement: the 4x4 matrix row-major, in the scene's frame (as setTransform takes it). */
+  matrix: number[];
+  /** Its box in the scene's frame, placement included; null while it has nothing to measure. */
+  bounds: Bounds | null;
+  /** A sequence's frames (0 for anything else), the one shown (0-based), and whether it plays. */
+  frameCount: number;
+  frame: number;
+  playing: boolean;
+  /** Its physics mode, and the modes it can take; null when it cannot take part. */
+  physics: { mode: PhysicsMode; modes: PhysicsMode[] } | null;
+}
+
+/** The viewer's state, in `state`. Positions are in the scene's frame (COLMAP's, +y down). */
+export interface ViewerSnapshot {
+  version: string;
+  apiVersion: number;
+  items: ItemState[];
+  selected: string | null;
+  camera: { position: [number, number, number]; target: [number, number, number]; fov: number };
+  /** The configuration in force, every field filled: a `configure` with it restores this look. */
+  config: ViewerConfig;
+  /** The simulation; null while no item takes part in it. */
+  physics: { running: boolean } | null;
+}
+
 /** The embedding API's version, in `ready`: raised whenever a message, event or field is added
  *  (additions only; an embedder feature-detects with it). */
 export const API_VERSION = 1;
@@ -315,7 +353,23 @@ export interface SetPlayingMsg {
 export interface SetPhysicsModeMsg {
   type: "setPhysicsMode";
   id: string;
-  mode: "off" | "static" | "dynamic";
+  mode: PhysicsMode;
+}
+
+/** Ask for the viewer's state; answered by `state` with the same `requestId`. */
+export interface GetStateMsg {
+  type: "getState";
+  requestId?: string | number;
+}
+
+/** Ask for a PNG of the current view, as Capture > Save viewpoint draws it: `scale` times the
+ *  view's size (default 1), on a transparent background unless `transparent` is false (then on
+ *  the viewport's). Answered by `captured` with the same `requestId`. */
+export interface CaptureMsg {
+  type: "capture";
+  requestId?: string | number;
+  scale?: number;
+  transparent?: boolean;
 }
 
 /** Drive the simulation: run its clock, stop it, or put every object back where it started. */
@@ -353,6 +407,8 @@ export type HostToWebview =
   | SetPlayingMsg
   | SetPhysicsModeMsg
   | PhysicsMsg
+  | GetStateMsg
+  | CaptureMsg
   | { type: "error"; message: string };
 
 /**
@@ -368,7 +424,10 @@ export type ViewerEvent =
   | { type: "itemLoaded"; id: string; bounds: Bounds | null }
   | { type: "itemFailed"; id: string; message: string }
   | { type: "removed"; id: string } // an item left the scene: the host can forget it
-  | { type: "selected"; id: string | null }; // the selection changed (a click, or selectItem)
+  | { type: "selected"; id: string | null } // the selection changed (a click, or selectItem)
+  // Replies, carrying the request's requestId.
+  | { type: "state"; requestId?: string | number; state: ViewerSnapshot }
+  | { type: "captured"; requestId?: string | number; data?: string; error?: string }; // data: a PNG data URL
 
 /** Webview -> extension host. */
 export type WebviewToHost =

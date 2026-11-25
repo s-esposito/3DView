@@ -303,6 +303,17 @@ function handleHostMessage(msg: HostToWebview) {
     case "setPhysicsMode":
       void viewer.setPhysicsMode(msg.id, msg.mode);
       break;
+    case "getState":
+      host.postMessage({ type: "state", requestId: msg.requestId, state: viewer.snapshot() });
+      break;
+    case "capture":
+      try {
+        const data = viewer.capture(msg.scale ?? 1, msg.transparent ?? true);
+        host.postMessage({ type: "captured", requestId: msg.requestId, data });
+      } catch (err) {
+        host.postMessage({ type: "captured", requestId: msg.requestId, error: (err as Error).message });
+      }
+      break;
     case "physics":
       if (msg.action === "restoreAll") viewer.resetPhysics();
       else viewer.playPhysics(msg.action === "play");

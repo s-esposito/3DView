@@ -8,7 +8,10 @@ import { createRenderer, getGpuCaps } from "@sparkjsdev/radix";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { CameraView, Bounds, ModelData, AddKind, ViewerConfig, ViewerEvent } from "../shared/messages";
+import type {
+  CameraView, Bounds, ModelData, AddKind, ViewerConfig, ViewerEvent, ItemType, PhysicsMode, ViewerSnapshot,
+} from "../shared/messages";
+import { API_VERSION } from "../shared/messages";
 import { expand, FULL_INTERACTION, FULL_UI, type InteractionConfig, type UiConfig } from "./config";
 import { themeColor } from "./theme";
 import {
@@ -90,17 +93,19 @@ export type TemporalFrame =
  *  scene) shoot the piece it hits / blow up a blast there. */
 export type ClickMode = "select" | "shoot" | "blast";
 
-/** Whether an item takes part in the physics: not at all, as a static body (an environment that
- *  only stops others), or as a dynamic one that moves (a breakable object is always the last). */
-export type PhysicsMode = "off" | "static" | "dynamic";
-
-/** What a Scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
-export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
+export type { ItemType, PhysicsMode } from "../shared/messages";
 
 /** A layer's ItemType: a lone asset says what it holds; several frames are a sequence. */
 function itemType(l: SceneLayer): ItemType {
   if (l instanceof ReconstructionLayer) return "reconstruction";
   return l instanceof AssetLayer && l.frameCount === 0 ? l.type : "sequence";
+}
+
+/** A layer's box in the scene's frame, its placement included; null with nothing to measure. */
+function itemBounds(l: SceneLayer): Bounds | null {
+  l.object.updateMatrix();
+  const local = l.bounds();
+  return local ? transformBounds(local, l.object.matrix) : null;
 }
 
 /** One entry in the Scene list. */
@@ -1548,6 +1553,50 @@ export class Viewer {
   }
 
   /** The chrome and what a person may do, as configured (configure). */
+  /** The state an embedding host reads (messages.ts ViewerSnapshot, the `getState` reply). */
+  snapshot(): ViewerSnapshot {
+    this.root.updateMatrixWorld(true);
+    const toScene = this.root.matrixWorld.clone().invert(); // undo the Upright turn
+    const inScene = (p: THREE.Vector3) => p.clone().applyMatrix4(toScene).toArray() as Vec3;
+    const { panels, footer, fps, themeSwitcher, help, keyboard } = this.ui;
+    return {
+      version: __APP_VERSION__,
+      apiVersion: API_VERSION,
+      items: this.layers.map((l) => {
+        const physics = this.physicsModes(l);
+        const temporal = l instanceof TemporalLayer;
+        const bounds = itemBounds(l); // first: it brings the matrix up to date
+        return {
+          id: l.id,
+          label: l.label,
+          type: itemType(l),
+          visible: l.visible,
+          matrix: l.object.matrix.clone().transpose().toArray(),
+          bounds,
+          frameCount: temporal ? l.frameCount : 0,
+          frame: temporal ? l.frame : 0,
+          playing: temporal && this.playingLayers.has(l),
+          physics: physics && { mode: physics.mode, modes: physics.modes },
+        };
+      }),
+      selected: this.selectedId,
+      camera: { position: inScene(this.camera.position), target: inScene(this.controls.target), fov: this.camera.fov },
+      config: {
+        theme: this.themeName,
+        background: this.background ? `#${this.background.getHexString()}` : null,
+        show: {
+          grid: this.showGrid, axes: this.showAxes, box: this.opts.box, points: this.opts.points,
+          frustums: this.opts.frustums, images: this.opts.images, shaded: this.shaded, wireframe: this.wireframe,
+        },
+        upright: this.orientation === "upright",
+        splatMode: this.assetOpts.splatMode,
+        ui: { panels: [...panels], footer, fps, themeSwitcher, help, keyboard },
+        interaction: { ...this.allowed },
+      },
+      physics: this.physics.runs.length > 0 ? { running: this.physics.running } : null,
+    };
+  }
+
   get settings(): { ui: UiConfig; interaction: InteractionConfig } {
     return { ui: this.ui, interaction: this.allowed };
   }
@@ -1586,14 +1635,10 @@ export class Viewer {
     this.refreshScene(first);
   }
 
-  /** Tell the host an item is all drawn, with its box in the scene's frame (placement included);
-   *  nothing when it was removed meanwhile. */
+  /** Tell the host an item is all drawn, with its box; nothing when it was removed meanwhile. */
   private loaded(id: string): void {
     const layer = this.byId.get(id);
-    if (!layer) return;
-    layer.object.updateMatrix();
-    const local = layer.bounds();
-    this.onEvent?.({ type: "itemLoaded", id, bounds: local ? transformBounds(local, layer.object.matrix) : null });
+    if (layer) this.onEvent?.({ type: "itemLoaded", id, bounds: itemBounds(layer) });
   }
 
   /**
@@ -1657,7 +1702,7 @@ export class Viewer {
     const parts = this.layers
       .map((l) => {
         const local = l.bounds();
-        return local && transformBounds(local, l.object.matrix);
+        return local ? transformBounds(local, l.object.matrix) : null;
       })
       .filter((b): b is Bounds => b != null);
     this.bounds = unionBounds(parts);
@@ -1723,28 +1768,49 @@ export class Viewer {
    * viewer background color is dropped). Guards against exceeding the GPU's max buffer.
    */
   saveViewpoint(scale: number): void {
-    const renderer = this.renderer;
-    if (this.videoRender || !renderer) {
+    if (this.videoRender || !this.renderer) {
       return; // the drawing buffer is a video frame until renderCameraPath is done
+    }
+    let png: string;
+    try {
+      png = this.capture(scale);
+    } catch (err) {
+      this.onError?.((err as Error).message);
+      return;
+    }
+    this.onSaveFile?.(png, `viewpoint-${scale}x.png`);
+  }
+
+  /** The current view as a PNG data URL, ``scale`` times the view's size, on a transparent
+   *  background (``transparent`` false: the viewport's). Throws when it cannot be drawn: no
+   *  renderer yet, a camera-path video rendering, or too large for the GPU. */
+  capture(scale = 1, transparent = true): string {
+    const renderer = this.renderer;
+    if (!renderer) {
+      throw new Error("The renderer is not up yet.");
+    }
+    if (this.videoRender) {
+      throw new Error("A camera-path video is rendering."); // the drawing buffer is its frame
     }
     const maxDim = getGpuCaps(renderer).maxTextureSize;
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
-    if (w > maxDim || h > maxDim) {
-      this.onError?.(`Image too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
-      return;
+    if (!(w >= 1 && h >= 1) || w > maxDim || h > maxDim) {
+      throw new Error(`Image too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,
     // then read it back with toDataURL() in the same task — on both backends the
     // canvas still holds this render then, not a stale frame.
-    // Drop the opaque scene.background and clear to alpha 0 so the PNG is transparent;
-    // restore both afterwards so the live view keeps its background color.
+    // For a transparent PNG drop the opaque scene.background and clear to alpha 0;
+    // restore it afterwards so the live view keeps its background color.
     const prevRatio = renderer.getPixelRatio();
     const prevBackground = this.scene.background;
     renderer.setPixelRatio(1);
     renderer.setSize(w, h, false);
-    this.scene.background = null;
-    renderer.setClearColor(0x000000, 0);
+    if (transparent) {
+      this.scene.background = null;
+      renderer.setClearColor(0x000000, 0);
+    }
     const points = this.adaptPoints(scale);
     points.fit(this.camera.fov);
     this.draw(this.camera);
@@ -1754,7 +1820,7 @@ export class Viewer {
     renderer.setPixelRatio(prevRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     this.requestRender();
-    this.onSaveFile?.(png, `viewpoint-${scale}x.png`);
+    return png;
   }
 
   /** Whether a camera-path video is being rendered (see renderCameraPath). */
