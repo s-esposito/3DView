@@ -297,8 +297,9 @@ tracks) under a single
 `setTrackLineWidth`/`setTrackSmoothing`, `setSplatMode`/`toggleSplatMode`, `setFov`/`setRoll`/`resetCamera`,
 `setOrientation`, `setTheme`, `resetView`, `setHomeView`, `exitPov`, `saveViewpoint`, `renderCameraPath`/`cancelVideo`, `setAdaptivePointSize`, `getState`,
 `addTemporal`/`setItemFrame`/`setItemPlaying`/`setPlaybackFps`, +
-`onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onRemoveItem`/`onSaveFile`
-callbacks) — never three.js directly. Adding
+`onSelect`/`onChange`/`onError`/`onFrame`/`onRequestAdd`/`onEvent`/`onSaveFile`
+callbacks; `onEvent` carries messages.ts `ViewerEvent`s — itemAdded / itemLoaded / itemFailed /
+removed / selected — which main.ts posts to the host as they are) — never three.js directly. Adding
 a new source = implement `SceneLayer`, add a `Viewer.addX`, and the
 Scene list + global toggles adapt automatically. (3DGS arrived as a format inside
 the existing `AssetLayer`, not a new layer — see `assetLayer.ts`.)

@@ -263,6 +263,67 @@ export interface ViewerConfig {
 /** Change the configuration at runtime: the fields given merge into the current one. */
 export type ConfigureMsg = { type: "configure" } & ViewerConfig;
 
+/** The embedding API's version, in `ready`: raised whenever a message, event or field is added
+ *  (additions only; an embedder feature-detects with it). */
+export const API_VERSION = 1;
+
+/** Remove an item from the scene (it is answered by `removed`). */
+export interface RemoveItemMsg {
+  type: "removeItem";
+  id: string;
+}
+
+/** Show or hide an item. A hidden physics item leaves the simulation: nothing hits it. */
+export interface SetItemVisibleMsg {
+  type: "setItemVisible";
+  id: string;
+  visible: boolean;
+}
+
+/** Change the label an item shows in the Scene list. */
+export interface SetItemLabelMsg {
+  type: "setItemLabel";
+  id: string;
+  label: string;
+}
+
+/** Select an item, opening its Inspector (null: nothing). Answered by `selected` when the
+ *  selection changes. Works whatever `interaction.select` allows the person. */
+export interface SelectItemMsg {
+  type: "selectItem";
+  id: string | null;
+}
+
+/** Show frame `frame` (0-based, clamped) of a sequence item. */
+export interface SetFrameMsg {
+  type: "setFrame";
+  id: string;
+  frame: number;
+}
+
+/** Play or pause a sequence item; it loops. */
+export interface SetPlayingMsg {
+  type: "setPlaying";
+  id: string;
+  playing: boolean;
+}
+
+/** An item's part in the physics: "off" (none, the default for all but a breakable object),
+ *  "static" (a fixed body others land on and bounce off) or "dynamic" (it falls and is hit). A
+ *  breakable object is "off" or "dynamic"; an item that cannot take part (tracks, a sequence)
+ *  ignores it. Works whatever `interaction.physics` allows the person. */
+export interface SetPhysicsModeMsg {
+  type: "setPhysicsMode";
+  id: string;
+  mode: "off" | "static" | "dynamic";
+}
+
+/** Drive the simulation: run its clock, stop it, or put every object back where it started. */
+export interface PhysicsMsg {
+  type: "physics";
+  action: "play" | "pause" | "restoreAll";
+}
+
 /** The two ways a multi-item add can resolve. Named as the modal's own answers, so
  *  a host-supplied hint and a user's click are the same value downstream. */
 export type GroupingChoice = "temporal" | "separate";
@@ -284,17 +345,42 @@ export type HostToWebview =
   | SetViewMsg
   | SetTransformMsg
   | ConfigureMsg
+  | RemoveItemMsg
+  | SetItemVisibleMsg
+  | SetItemLabelMsg
+  | SelectItemMsg
+  | SetFrameMsg
+  | SetPlayingMsg
+  | SetPhysicsModeMsg
+  | PhysicsMsg
   | { type: "error"; message: string };
+
+/**
+ * What the viewer tells its host about the scene's items. Every add message (`addAsset`,
+ * `addReconstruction`, `loadColmap`, an `addGroup` loaded as one sequence) is answered with
+ * `itemAdded` once the item is in the Scene list, then `itemLoaded` when all of it is drawn, or
+ * `itemFailed` if it could not be loaded (a failed item is removed: `removed` follows).
+ * `bounds` is the item's box in the scene's own frame (COLMAP's, +y down), its placement
+ * included.
+ */
+export type ViewerEvent =
+  | { type: "itemAdded"; id: string; label: string }
+  | { type: "itemLoaded"; id: string; bounds: Bounds | null }
+  | { type: "itemFailed"; id: string; message: string }
+  | { type: "removed"; id: string } // an item left the scene: the host can forget it
+  | { type: "selected"; id: string | null }; // the selection changed (a click, or selectItem)
 
 /** Webview -> extension host. */
 export type WebviewToHost =
-  | { type: "ready" }
+  // The viewer is listening: messages sent before this may be lost. `version` is 3DView's
+  // (package.json), `apiVersion` the embedding API's (API_VERSION).
+  | { type: "ready"; version: string; apiVersion: number }
+  | ViewerEvent
   | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
   // A drop the webview could only read as URIs, not bytes — a drag out of the
   // editor's own file explorer. The host owns paths, so it opens them; only a host
   // that advertises `HostBridge.opensUris` is sent this (see dropZone.ts).
   | { type: "openUris"; uris: string[] }
-  | { type: "removed"; id: string } // an item was removed from the scene
   // A rendered file to save: a viewpoint PNG or a camera-path video. `data` is a
   // data URL ("data:image/png;base64,…"); the host writes it, offering the file type
   // that `suggestedName`'s extension names. Only a host that advertises

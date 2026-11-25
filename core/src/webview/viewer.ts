@@ -8,8 +8,8 @@ import { createRenderer, getGpuCaps } from "@sparkjsdev/radix";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { CameraView, Bounds, ModelData, AddKind, ViewerConfig } from "../shared/messages";
-import { expand, PRESETS, type InteractionConfig, type UiConfig } from "./config";
+import type { CameraView, Bounds, ModelData, AddKind, ViewerConfig, ViewerEvent } from "../shared/messages";
+import { expand, FULL_INTERACTION, FULL_UI, type InteractionConfig, type UiConfig } from "./config";
 import { themeColor } from "./theme";
 import {
   buildGrid,
@@ -270,8 +270,9 @@ export class Viewer {
   onPhysics?: (id: string | null, status: string) => void;
   /** Fired when the "+" add action is invoked (the host opens a picker). */
   onRequestAdd?: (kind: AddKind) => void;
-  /** Fired when an item is removed, so the host can forget it. */
-  onRemoveItem?: (id: string) => void;
+  /** Fired with what a host hears about the items (messages.ts ViewerEvent): added, loaded,
+   *  failed, removed, selected. */
+  onEvent?: (event: ViewerEvent) => void;
   /** Fired with a rendered file (viewpoint PNG, camera-path video) as a data URL, to save (main.ts: via the host, or an in-page download). */
   onSaveFile?: (data: string, suggestedName: string) => void;
 
@@ -355,8 +356,8 @@ export class Viewer {
   private clickMode: ClickMode = "select";
   /** The configured chrome and interaction (configure; the "full" preset until then), and the
    *  viewport background replacing the theme's, if any. */
-  private ui: UiConfig = { ...(PRESETS.full.ui as Omit<UiConfig, "openRequest">), openRequest: 0 };
-  private allowed: InteractionConfig = { ...(PRESETS.full.interaction as InteractionConfig) };
+  private ui: UiConfig = { ...FULL_UI, openRequest: 0 };
+  private allowed: InteractionConfig = { ...FULL_INTERACTION };
   private background: THREE.Color | null = null;
   /** The gizmo on the selected item (three's TransformControls), what it does, and whether the
    *  pointer went down on it (so the click it makes selects or shoots nothing). */
@@ -566,6 +567,7 @@ export class Viewer {
 
   addReconstruction(id: string, label: string, data: ModelData, source?: string): void {
     this.attach(this.buildReconstruction(id, label, data, source));
+    this.loaded(id);
   }
 
   /**
@@ -601,6 +603,7 @@ export class Viewer {
     this.layers.push(layer);
     this.byId.set(id, layer);
     this.root.add(layer.object);
+    this.onEvent?.({ type: "itemAdded", id, label });
     layer
       .load(uri, name, this.assetOpts, (phase) => this.onProgress?.(`${label} — ${phase}`))
       .then(() => {
@@ -612,8 +615,11 @@ export class Viewer {
         this.syncLayerState(layer);
         this.syncSplats(); // this asset may be the scene's first splat
         this.refreshScene(this.layers.length === 1); // fit only if it's the first item
+        this.loaded(id);
       })
       .catch((err: Error) => {
+        if (this.byId.get(id) !== layer) return; // removed while loading: nothing failed
+        this.onEvent?.({ type: "itemFailed", id, message: err.message });
         this.removeItem(id);
         this.onError?.(err.message);
       })
@@ -652,6 +658,7 @@ export class Viewer {
     const clouds = await this.decodeSplatFrames(label, frames);
     if (clouds) {
       this.attachSplatSequence(id, label, source, frames, clouds, color);
+      this.loaded(id);
       return;
     }
 
@@ -678,12 +685,14 @@ export class Viewer {
       }
     }
     if (layer.frameCount === 0) {
+      this.onEvent?.({ type: "itemFailed", id, message: "no frame could be loaded" });
       this.onError?.(`${label}: no frame could be loaded.`);
       return;
     }
     layer.frames.forEach((f) => this.syncLayerState(f));
     this.syncSplats(); // the sequence may hold the scene's first splat
     this.refreshScene(fitWhenLoaded);
+    this.loaded(id);
   }
 
   /**
@@ -853,6 +862,7 @@ export class Viewer {
     }
     this.selectedId = next;
     this.attachGizmo();
+    this.onEvent?.({ type: "selected", id: next });
     const run = this.physicsOf(this.selectedId ?? "");
     if (run) {
       this.followRun = run;
@@ -1303,6 +1313,7 @@ export class Viewer {
     if (this.selectedId === id) {
       this.selectedId = null;
       this.gizmo.detach();
+      this.onEvent?.({ type: "selected", id: null });
     }
     const run = this.runOf(layer);
     if (run) {
@@ -1320,7 +1331,7 @@ export class Viewer {
     this.recomputeBounds();
     this.rebuildHelpers();
     this.onChange?.();
-    this.onRemoveItem?.(id);
+    this.onEvent?.({ type: "removed", id });
   }
 
   setGlobal(toggle: GlobalToggle, on: boolean): void {
@@ -1571,7 +1582,18 @@ export class Viewer {
     this.layers.push(layer);
     this.byId.set(layer.id, layer);
     this.root.add(layer.object);
+    this.onEvent?.({ type: "itemAdded", id: layer.id, label: layer.label });
     this.refreshScene(first);
+  }
+
+  /** Tell the host an item is all drawn, with its box in the scene's frame (placement included);
+   *  nothing when it was removed meanwhile. */
+  private loaded(id: string): void {
+    const layer = this.byId.get(id);
+    if (!layer) return;
+    layer.object.updateMatrix();
+    const local = layer.bounds();
+    this.onEvent?.({ type: "itemLoaded", id, bounds: local ? transformBounds(local, layer.object.matrix) : null });
   }
 
   /**

@@ -25,12 +25,14 @@ export interface InteractionConfig {
   physics: boolean;
 }
 
+/** Everything, as in VS Code: what a viewer with no configuration has. */
+export const FULL_UI: Omit<UiConfig, "openRequest"> = {
+  panels: [...ALL_PANELS], open: "scene", footer: true, fps: true, themeSwitcher: true, help: true, keyboard: true,
+};
+export const FULL_INTERACTION: InteractionConfig = { select: true, edit: true, physics: true };
+
 export const PRESETS: Record<NonNullable<ViewerConfig["preset"]>, ViewerConfig> = {
-  /** Everything, as in VS Code: what a viewer with no configuration is. */
-  full: {
-    ui: { panels: [...ALL_PANELS], open: "scene", footer: true, fps: true, themeSwitcher: true, help: true, keyboard: true },
-    interaction: { select: true, edit: true, physics: true },
-  },
+  full: { ui: FULL_UI, interaction: FULL_INTERACTION },
   /** A showcase: the Scene panel (the items, a sequence's timeline) and nothing to change. */
   presentation: {
     show: { grid: false, axes: false, box: false },

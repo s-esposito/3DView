@@ -8,6 +8,7 @@ import type {
   ColmapModelRef,
   GroupingChoice,
 } from "../shared/messages";
+import { API_VERSION } from "../shared/messages";
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import type { TemporalFrame } from "./viewer";
@@ -58,9 +59,10 @@ viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
 viewer.onPhysics = (id, status) => panel.setPhysicsStatus(id, status);
 viewer.onFps = (fps) => panel.setFps(fps);
 
-// The Scene "+" asks the host to open a picker; removal tells the host to forget.
+// The Scene "+" asks the host to open a picker; what happens to the items (added, loaded,
+// failed, removed, selected) is the host's to hear.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
-viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
+viewer.onEvent = (event) => host.postMessage(event);
 // A host with a save dialog of its own is handed the file; anywhere else (the demo,
 // a page embedding the bundle) a synthetic <a download> saves it, as a browser can
 // download a data URL directly. `suggestedName` is serialized before the multi-MB
@@ -273,6 +275,38 @@ function handleHostMessage(msg: HostToWebview) {
     case "configure":
       viewer.configure(msg);
       break;
+    // The item and physics messages are the panel's own actions; the panel follows where the
+    // viewer call does not re-render it (onChange) itself.
+    case "removeItem":
+      viewer.removeItem(msg.id);
+      break;
+    case "setItemVisible":
+      viewer.setItemVisible(msg.id, msg.visible);
+      panel.render();
+      break;
+    case "setItemLabel":
+      viewer.renameItem(msg.id, msg.label);
+      break;
+    case "selectItem":
+      viewer.selectItem(msg.id);
+      break;
+    case "setFrame": {
+      viewer.setItemFrame(msg.id, msg.frame);
+      const item = viewer.getState().items.find((i) => i.id === msg.id);
+      if (item) panel.setPlayhead(item.id, item.frame);
+      break;
+    }
+    case "setPlaying":
+      viewer.setItemPlaying(msg.id, msg.playing);
+      panel.render();
+      break;
+    case "setPhysicsMode":
+      void viewer.setPhysicsMode(msg.id, msg.mode);
+      break;
+    case "physics":
+      if (msg.action === "restoreAll") viewer.resetPhysics();
+      else viewer.playPhysics(msg.action === "play");
+      break;
     case "error":
       showStatus(`Error: ${msg.message}`);
       break;
@@ -373,7 +407,11 @@ function loadColmapModel(m: ColmapModelRef) {
   showStatus(`Loading ${m.label}`, true);
   loadColmapData(m)
     .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
-    .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      host.postMessage({ type: "itemFailed", id: m.id, message });
+      showStatus(`Error: ${message}`);
+    });
 }
 
 function revokeColmapTrio(urls: { cameras: string; images: string; points3d: string }) {
@@ -396,4 +434,4 @@ installDropZone(
 );
 
 // Tell the host we are alive and ready to receive content.
-host.postMessage({ type: "ready" });
+host.postMessage({ type: "ready", version: __APP_VERSION__, apiVersion: API_VERSION });
