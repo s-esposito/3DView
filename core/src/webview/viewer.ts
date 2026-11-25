@@ -794,12 +794,14 @@ export class Viewer {
 
   /** Draw frame `frame` of a temporal item. Like setItemTransform, deliberately does
    *  NOT fire onChange — the caller is a live slider, and a panel re-render would
-   *  destroy it mid-drag. */
-  setItemFrame(id: string, frame: number): void {
+   *  destroy it mid-drag. Returns the frame shown (clamped); undefined for another item. */
+  setItemFrame(id: string, frame: number): number | undefined {
     const layer = this.byId.get(id);
     if (layer instanceof TemporalLayer) {
       this.showFrame(layer, frame, true);
+      return layer.frame; // the frame shown: clamped
     }
+    return undefined;
   }
 
   /**
@@ -1795,7 +1797,10 @@ export class Viewer {
     const maxDim = getGpuCaps(renderer).maxTextureSize;
     const w = Math.round(window.innerWidth * scale);
     const h = Math.round(window.innerHeight * scale);
-    if (!(w >= 1 && h >= 1) || w > maxDim || h > maxDim) {
+    if (!(w >= 1 && h >= 1)) {
+      throw new Error(`No image at scale ${scale}.`);
+    }
+    if (w > maxDim || h > maxDim) {
       throw new Error(`Image too large (${w}×${h}px); max ${maxDim}px per side — try a lower scale.`);
     }
     // Enlarge the drawing buffer (keeping CSS size, so layout doesn't jump), render,

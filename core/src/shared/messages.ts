@@ -424,10 +424,13 @@ export type ViewerEvent =
   | { type: "itemLoaded"; id: string; bounds: Bounds | null }
   | { type: "itemFailed"; id: string; message: string }
   | { type: "removed"; id: string } // an item left the scene: the host can forget it
-  | { type: "selected"; id: string | null } // the selection changed (a click, or selectItem)
-  // Replies, carrying the request's requestId.
+  | { type: "selected"; id: string | null }; // the selection changed (a click, or selectItem)
+
+/** The answers to `getState` and `capture`, carrying the request's `requestId`. */
+export type ViewerReply =
   | { type: "state"; requestId?: string | number; state: ViewerSnapshot }
-  | { type: "captured"; requestId?: string | number; data?: string; error?: string }; // data: a PNG data URL
+  // `data`: a PNG data URL; `error` instead when the view could not be drawn.
+  | { type: "captured"; requestId?: string | number; data?: string; error?: string };
 
 /** Webview -> extension host. */
 export type WebviewToHost =
@@ -435,6 +438,7 @@ export type WebviewToHost =
   // (package.json), `apiVersion` the embedding API's (API_VERSION).
   | { type: "ready"; version: string; apiVersion: number }
   | ViewerEvent
+  | ViewerReply
   | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
   // A drop the webview could only read as URIs, not bytes — a drag out of the
   // editor's own file explorer. The host owns paths, so it opens them; only a host

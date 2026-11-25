@@ -291,9 +291,8 @@ function handleHostMessage(msg: HostToWebview) {
       viewer.selectItem(msg.id);
       break;
     case "setFrame": {
-      viewer.setItemFrame(msg.id, msg.frame);
-      const item = viewer.getState().items.find((i) => i.id === msg.id);
-      if (item) panel.setPlayhead(item.id, item.frame);
+      const shown = viewer.setItemFrame(msg.id, msg.frame);
+      if (shown !== undefined) panel.setPlayhead(msg.id, shown);
       break;
     }
     case "setPlaying":
