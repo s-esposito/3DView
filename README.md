@@ -87,7 +87,7 @@ and a **browser demo**, over one shared core.
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.3.0.vsix --force
+code --install-extension 3dview-2.0.0.vsix --force
 ```
 
 **From source:**
