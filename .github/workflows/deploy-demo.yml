@@ -24,6 +24,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Full history: older majors' bundles are built from their release commits below.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,6 +65,27 @@ jobs:
             if [ -f "$f" ]; then cp "$f" _site/dist/; fi
           done
           touch _site/.nojekyll
+          # Versioned bundle for pages that embed the viewer (e.g. GenIA's project page): one
+          # loading /v<major>/dist/webview.js stays on that major while /dist/ moves on.
+          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          mkdir -p "_site/v$MAJOR/dist"
+          cp demo/dist/webview.js "_site/v$MAJOR/dist/"
+
+      - name: Build older majors' bundles
+        # Each older major's last release, rebuilt from its commit (reproducible: npm ci from
+        # its own lockfile) and published at /v<major>/dist/webview.js. Add a line per major
+        # when the next one ships. A line for the current major is skipped.
+        run: |
+          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          while read -r major ref; do
+            if [ -z "$major" ] || [ "$major" = "$MAJOR" ]; then continue; fi
+            git worktree add "$RUNNER_TEMP/v$major" "$ref"
+            (cd "$RUNNER_TEMP/v$major" && npm ci && npm run build -w @3dview/core)
+            mkdir -p "_site/v$major/dist"
+            cp "$RUNNER_TEMP/v$major/core/out/webview.js" "_site/v$major/dist/"
+          done <<'MAJORS'
+          1 32b0158
+          MAJORS
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
