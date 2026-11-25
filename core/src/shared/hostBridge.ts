@@ -3,7 +3,7 @@
 // `window.__viewerHost` adapter BEFORE the webview bundle runs; the webview never
 // references a host-specific API directly. Keep this free of `vscode`, Node,
 // DOM-beyond-globalThis, and three.
-import type { WebviewToHost } from "./messages";
+import type { ViewerConfig, WebviewToHost } from "./messages";
 
 /** Minimal channel the webview needs: post a message to the embedding host. */
 export interface HostBridge {
@@ -21,6 +21,9 @@ export interface HostBridge {
    *  the way to bring a model and its images in where the browser's picker can't
    *  select a folder (phones). Absent means no, and the "+" menu doesn't offer it. */
   readonly opensArchives?: boolean;
+  /** The viewer's configuration at startup (messages.ts ViewerConfig), applied before anything
+   *  is drawn; a `configure` message changes it later. */
+  readonly config?: ViewerConfig;
 }
 
 /**

@@ -27,6 +27,10 @@ const status = document.getElementById("status")!;
 ensureStyles();
 const viewer = new Viewer();
 const panel = new ControlPanel(viewer, { archives: host.opensArchives });
+// The host's configuration (messages.ts ViewerConfig), before anything is drawn.
+if (host.config) {
+  viewer.configure(host.config);
+}
 const popup = new InfoPopup();
 
 // Selecting a camera shows its info popup; closing it (✕) clears the highlight
@@ -114,8 +118,8 @@ const TOGGLE_KEYS: Record<string, GlobalToggle> = {
   s: "shaded",
 };
 window.addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement) {
-    return; // don't hijack keys while a control is focused
+  if (e.target instanceof HTMLInputElement || !viewer.settings.ui.keyboard) {
+    return; // don't hijack keys while a control is focused, or when the host turned them off
   }
   const key = e.key.toLowerCase();
   if (viewer.isRenderingVideo) {
@@ -137,7 +141,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (key === "?") {
-    showShortcuts();
+    if (viewer.settings.ui.help) showShortcuts();
     return;
   }
   if (key === "escape") {
@@ -265,6 +269,9 @@ function handleHostMessage(msg: HostToWebview) {
       break;
     case "setTransform":
       viewer.setItemMatrix(msg.id, msg.matrix, msg.node);
+      break;
+    case "configure":
+      viewer.configure(msg);
       break;
     case "error":
       showStatus(`Error: ${msg.message}`);

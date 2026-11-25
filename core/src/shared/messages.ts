@@ -208,6 +208,61 @@ export interface SetTransformMsg {
   matrix: number[];
 }
 
+/** The panels the icon rail can open. */
+export type PanelName = "scene" | "display" | "physics" | "capture";
+
+/** A helper or display switch (the Display panel's Show / Meshes toggles). */
+export type ShowName = "grid" | "axes" | "box" | "points" | "frustums" | "images" | "shaded" | "wireframe";
+
+/**
+ * How the viewer looks and what a person may do in it. Every field is optional: one left out
+ * keeps its current value (at startup: the preset's, else the full UI). Given at startup as
+ * `window.__viewerHost.config` (read before anything is drawn, so nothing flashes) or at any
+ * time with a `configure` message, which merges into what is there.
+ */
+export interface ViewerConfig {
+  /** Start from a preset, then apply the other fields: "full" (default: every panel and
+   *  control, as in VS Code) or "presentation" (a showcase: only the Scene panel, no footer, no
+   *  selecting / editing / physics, grid, axes and box off). */
+  preset?: "full" | "presentation";
+  /** The UI and viewport colour scheme. */
+  theme?: "light" | "dark" | "dim";
+  /** The viewport's background, any CSS colour ("#fff"); null = the theme's. */
+  background?: string | null;
+  /** Helpers and display switches, each on or off. */
+  show?: Partial<Record<ShowName, boolean>>;
+  /** Show the scene Y-up (true, the default) or in its raw COLMAP frame (+y down). */
+  upright?: boolean;
+  /** How 3D Gaussian splats are drawn. */
+  splatMode?: "splatting" | "ellipsoids" | "points";
+  /** The viewer's chrome. */
+  ui?: {
+    /** Which panels the icon rail offers, in rail order; false = no rail and no panels. */
+    panels?: PanelName[] | false;
+    /** The panel to open now (null: none, the rail alone). */
+    open?: PanelName | null;
+    /** The footer (frame rate, backend, version, help, theme switcher), and its parts. */
+    footer?: boolean;
+    fps?: boolean;
+    themeSwitcher?: boolean;
+    help?: boolean;
+    /** Keyboard shortcuts (off: keys do nothing in the viewer). */
+    keyboard?: boolean;
+  };
+  /** What a person may do. */
+  interaction?: {
+    /** Clicking an item (in the view or the Scene list) selects it and opens its Inspector. */
+    select?: boolean;
+    /** Change the scene: the gizmo and placement fields, rename, remove, the "+" add menu. */
+    edit?: boolean;
+    /** Physics: the Physics panel, the playback bar, Shoot / Blast, an item's physics mode. */
+    physics?: boolean;
+  };
+}
+
+/** Change the configuration at runtime: the fields given merge into the current one. */
+export type ConfigureMsg = { type: "configure" } & ViewerConfig;
+
 /** The two ways a multi-item add can resolve. Named as the modal's own answers, so
  *  a host-supplied hint and a user's click are the same value downstream. */
 export type GroupingChoice = "temporal" | "separate";
@@ -228,6 +283,7 @@ export type HostToWebview =
   | AddGroupMsg
   | SetViewMsg
   | SetTransformMsg
+  | ConfigureMsg
   | { type: "error"; message: string };
 
 /** Webview -> extension host. */

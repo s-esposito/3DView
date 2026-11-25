@@ -208,6 +208,11 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            Scene Inspector's Physics section (buildPhysicsSection); Follow
                            is in Display's View and follows the selected object; lines
                            updated in place via Viewer.onPhysics
+    config.ts            the embedding configuration (messages.ts ViewerConfig: look, chrome,
+                         interaction) — presets "full" (default) / "presentation", expand();
+                         given as window.__viewerHost.config (read before the first render) or a
+                         `configure` message; Viewer.configure applies it, ViewerState.ui /
+                         .interaction carry the chrome and what a person may do to the panel
     npz.ts               dependency-free NumPy reader: .npy headers + the ZIP subset
                          np.savez writes (stored / raw-deflate via DecompressionStream)
     cameraLayer.ts       per-camera frustums (fat lines: LineSegments2/Line2NodeMaterial,

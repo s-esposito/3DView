@@ -8,7 +8,8 @@ import { createRenderer, getGpuCaps } from "@sparkjsdev/radix";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { CameraView, Bounds, ModelData, AddKind } from "../shared/messages";
+import type { CameraView, Bounds, ModelData, AddKind, ViewerConfig } from "../shared/messages";
+import { expand, PRESETS, type InteractionConfig, type UiConfig } from "./config";
 import { themeColor } from "./theme";
 import {
   buildGrid,
@@ -202,6 +203,9 @@ export interface ViewerState {
   /** What the gizmo on the selected item does; scale is locked for a breakable object whose
    *  physics is on (its welds are calibrated to its size). */
   gizmoMode: GizmoMode;
+  /** The configured chrome, and what a person may do (Viewer.configure). */
+  ui: UiConfig;
+  interaction: InteractionConfig;
   scaleLocked: boolean;
 }
 
@@ -349,6 +353,11 @@ export class Viewer {
   /** Chunked objects switched off (they take part by default). */
   private readonly physicsOff = new Set<string>();
   private clickMode: ClickMode = "select";
+  /** The configured chrome and interaction (configure; the "full" preset until then), and the
+   *  viewport background replacing the theme's, if any. */
+  private ui: UiConfig = { ...(PRESETS.full.ui as Omit<UiConfig, "openRequest">), openRequest: 0 };
+  private allowed: InteractionConfig = { ...(PRESETS.full.interaction as InteractionConfig) };
+  private background: THREE.Color | null = null;
   /** The gizmo on the selected item (three's TransformControls), what it does, and whether the
    *  pointer went down on it (so the click it makes selects or shoots nothing). */
   private readonly gizmo: TransformControls;
@@ -535,6 +544,8 @@ export class Viewer {
       selected: this.selectedId,
       clickMode: this.clickMode,
       gizmoMode: this.gizmoMode,
+      ui: this.ui,
+      interaction: this.allowed,
       scaleLocked: this.scaleLocked(),
       items: this.layers.map((l) => ({
         id: l.id,
@@ -852,7 +863,7 @@ export class Viewer {
   /** What a click in the view does; anything but Select shows a crosshair. Shoot and Blast need
    *  a physics object in the scene. */
   setClickMode(mode: ClickMode): void {
-    this.clickMode = this.physics.runs.length > 0 ? mode : "select";
+    this.clickMode = this.physics.runs.length > 0 && this.allowed.physics ? mode : "select";
     this.canvas.style.cursor = this.clickMode === "select" ? "" : "crosshair";
     this.onChange?.();
   }
@@ -901,7 +912,7 @@ export class Viewer {
    *  scale is locked. */
   private attachGizmo(): void {
     const layer = this.selectedId ? this.byId.get(this.selectedId) : undefined;
-    if (layer?.visible) this.gizmo.attach(layer.object);
+    if (layer?.visible && this.allowed.edit) this.gizmo.attach(layer.object);
     else this.gizmo.detach();
     if (this.gizmoMode === "scale" && this.scaleLocked()) {
       this.gizmoMode = "translate";
@@ -1157,7 +1168,7 @@ export class Viewer {
       return [{ layer: l, volume: size.x * size.y * size.z }];
     }).sort((a, b) => a.volume - b.volume);
     if (this.clickMode === "select") {
-      this.selectItem(hits[0]?.layer.id ?? null);
+      if (this.allowed.select) this.selectItem(hits[0]?.layer.id ?? null);
       return;
     }
     const run = hits.map((h) => this.runOf(h.layer)).find((r) => r !== undefined);
@@ -1492,8 +1503,42 @@ export class Viewer {
     document.body.dataset.viewerTheme = theme;
     // The CSS palette retones via the [data-viewer-theme] vars; re-read the now
     // themed editor background for the 3D viewport (it was read once at init).
-    this.scene.background = themeColor("--vscode-editor-background", 0x1e1e1e);
+    this.scene.background = this.background ?? themeColor("--vscode-editor-background", 0x1e1e1e);
     this.requestRender();
+  }
+
+  /**
+   * Apply an embedding configuration (messages.ts ViewerConfig): the fields given merge into the
+   * current ones, a preset first if it names one. The look goes to the setters a person's clicks
+   * use; the chrome and what a person may do are kept (ViewerState.ui / .interaction) and acted on
+   * where they apply.
+   */
+  configure(config: ViewerConfig): void {
+    const c = expand(config);
+    if (c.theme) this.setTheme(c.theme);
+    if (c.background !== undefined) {
+      this.background = c.background === null ? null : new THREE.Color(c.background);
+      this.setTheme(this.themeName); // re-reads the viewport background
+    }
+    for (const [name, on] of Object.entries(c.show ?? {})) {
+      if (on !== undefined) this.setGlobal(name as GlobalToggle, on);
+    }
+    if (c.upright !== undefined) this.setOrientation(c.upright ? "upright" : "raw");
+    if (c.splatMode) this.setSplatMode(c.splatMode);
+    const { panels, open, ...rest } = c.ui ?? {};
+    this.ui = { ...this.ui, ...rest };
+    if (panels !== undefined) this.ui.panels = panels || [];
+    if (open !== undefined) this.ui = { ...this.ui, open, openRequest: this.ui.openRequest + 1 };
+    this.allowed = { ...this.allowed, ...c.interaction };
+    if (!this.allowed.select) this.selectItem(null);
+    if (!this.allowed.physics && this.clickMode !== "select") this.setClickMode("select");
+    this.attachGizmo(); // none without `edit`
+    this.onChange?.();
+  }
+
+  /** The chrome and what a person may do, as configured (configure). */
+  get settings(): { ui: UiConfig; interaction: InteractionConfig } {
+    return { ui: this.ui, interaction: this.allowed };
   }
 
   requestAdd(kind: AddKind): void {

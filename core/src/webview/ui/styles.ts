@@ -67,6 +67,8 @@ body[data-viewer-theme="dim"]{--vscode-editor-background:#152433;--vscode-editor
 .viewer-menu-item:hover{background:var(--vscode-menu-selectionBackground,var(--vscode-list-hoverBackground,rgba(255,255,255,0.08)))}
 .viewer-scene-item{display:flex;align-items:center;gap:6px;margin-top:2px;padding:3px 5px;border-radius:6px;transition:background .15s ease}
 .viewer-scene-item{cursor:pointer}
+.viewer-scene-item.static{cursor:default}
+.viewer-scene-item.static:hover{background:transparent}
 .viewer-scene-item:hover{background:color-mix(in srgb,var(--vscode-list-hoverBackground,#ffffff) 45%,transparent)}
 .viewer-scene-item.selected{background:color-mix(in srgb,var(--vscode-focusBorder,#0e639c) 20%,transparent)}
 .viewer-scene-item .label:focus-visible{outline:2px solid var(--vscode-focusBorder,#0e639c);outline-offset:1px;border-radius:3px}

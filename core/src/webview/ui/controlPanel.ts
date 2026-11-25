@@ -6,6 +6,7 @@
 // the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
 // Viewer owns all state.
 import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode, PhysicsMode, GizmoMode } from "../viewer";
+import type { PanelName } from "../../shared/messages";
 import type { PhysicsPreset } from "../physics/run";
 import { EARTH_GRAVITY } from "../physics/sim";
 import { DEFAULT_FOV } from "../cameraInteraction";
@@ -62,7 +63,7 @@ const TYPE_ICONS: Record<ItemType, string> = {
 const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>`;
 
-type PanelId = "scene" | "display" | "physics" | "capture";
+type PanelId = PanelName;
 /** The rail, in order: which panels exist, and when. */
 const PANELS: Array<{ id: PanelId; label: string; icon: string; shown: (s: ViewerState) => boolean }> = [
   { id: "scene", label: "Scene", icon: ICON_SCENE, shown: () => true },
@@ -97,6 +98,8 @@ export class ControlPanel {
   /** The panel the rail has open (one at a time; none = the rail alone). Scene to begin with:
    *  its "+" is what a first visit needs. */
   private open: PanelId | null = "scene";
+  /** The configured "open" ask last acted on (ViewerState.ui.openRequest). */
+  private openRequest = 0;
   /** Each panel's scroll offset, kept across re-renders and panel switches. */
   private readonly scrollTops = new Map<PanelId, number>();
   /** The selection at the last render: a new one (a click in the view) opens Scene, where its
@@ -144,26 +147,39 @@ export class ControlPanel {
         this.open = "scene";
       }
     }
-    const panels = PANELS.filter((p) => p.shown(s));
+    if (s.ui.openRequest !== this.openRequest) {
+      this.openRequest = s.ui.openRequest; // configured: open it once, then the rail is the person's
+      this.open = s.ui.open;
+    }
+    // The configured panels, in the configured order, of those that apply now.
+    const panels = s.ui.panels.flatMap((id) => PANELS.filter((p) => p.id === id))
+      .filter((p) => p.shown(s) && (p.id !== "physics" || s.interaction.physics));
     if (this.open && !panels.some((p) => p.id === this.open)) {
-      this.open = "scene"; // its panel went (the last chunked object, the last item)
+      // Its panel went (the last chunked object, the last item) or is not offered.
+      this.open = panels.some((p) => p.id === "scene") ? "scene" : null;
     }
     const dock = document.createElement("div");
     dock.className = "viewer-dock";
     if (this.open) {
       dock.append(this.buildPanel(this.open, s));
     }
-    dock.append(this.buildRail(panels));
+    if (panels.length) {
+      dock.append(this.buildRail(panels));
+    }
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(dock, buildFooter(s.backend, this.fps, this.buildThemeSwitcher(s)));
+    ui.append(dock);
+    if (s.ui.footer) {
+      ui.append(buildFooter(s.backend, s.ui.fps ? this.fps : undefined, s.ui.help,
+        s.ui.themeSwitcher ? this.buildThemeSwitcher(s) : null));
+    }
     document.body.appendChild(ui);
     const body = ui.querySelector<HTMLElement>(".viewer-body");
     if (body && this.open) {
       body.scrollTop = this.scrollTops.get(this.open) ?? 0;
     }
-    if (s.physics) {
+    if (s.physics && s.interaction.physics) {
       document.body.appendChild(this.buildTransport(s.physics, s.clickMode));
     }
   }
@@ -171,7 +187,8 @@ export class ControlPanel {
   private buildPanel(id: PanelId, s: ViewerState): HTMLElement {
     switch (id) {
       case "scene":
-        return this.panelFrame(id, "Scene", sceneSummary(s), this.buildSceneBody(s), this.buildAddMenu());
+        return this.panelFrame(id, "Scene", sceneSummary(s), this.buildSceneBody(s),
+          s.interaction.edit ? this.buildAddMenu() : undefined);
       case "display":
         return this.panelFrame(id, "Display", null, this.buildDisplayBody(s));
       case "physics":
@@ -726,21 +743,25 @@ export class ControlPanel {
       // deselects it; so does Enter on the focused label.
       const selected = item.id === s.selected;
       row.classList.toggle("selected", selected);
-      label.tabIndex = 0;
-      label.setAttribute("role", "button");
-      label.setAttribute("aria-pressed", String(selected));
-      const select = () => this.viewer.selectItem(selected ? null : item.id);
-      row.addEventListener("click", (e) => {
-        if (!(e.target as HTMLElement).closest("button, input")) {
-          select();
-        }
-      });
-      label.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          select();
-        }
-      });
+      if (s.interaction.select) {
+        label.tabIndex = 0;
+        label.setAttribute("role", "button");
+        label.setAttribute("aria-pressed", String(selected));
+        const select = () => this.viewer.selectItem(selected ? null : item.id);
+        row.addEventListener("click", (e) => {
+          if (!(e.target as HTMLElement).closest("button, input")) {
+            select();
+          }
+        });
+        label.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            select();
+          }
+        });
+      } else {
+        row.classList.add("static"); // nothing to select: no pointer, no highlight
+      }
 
       row.append(this.visibilityToggle(item), label, kind);
       if (item.frameCount > 0) {
@@ -752,13 +773,15 @@ export class ControlPanel {
         row.append(frames);
       }
       // Shown on hover / keyboard focus (styles.ts), so a list of items reads calmly.
-      const actions = document.createElement("span");
-      actions.className = "viewer-scene-actions";
-      actions.append(
-        iconButton("✎", "Rename", () => this.startRename(label, item)),
-        iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
-      );
-      row.append(actions);
+      if (s.interaction.edit) {
+        const actions = document.createElement("span");
+        actions.className = "viewer-scene-actions";
+        actions.append(
+          iconButton("✎", "Rename", () => this.startRename(label, item)),
+          iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
+        );
+        row.append(actions);
+      }
       body.append(row);
       if (item.frameCount > 1) {
         body.append(this.buildTimeline(item));
@@ -797,8 +820,11 @@ export class ControlPanel {
       scale.disabled = true;
       scale.title = "A breakable object's welds are calibrated to its size: turn its physics Off to scale it";
     }
-    wrap.append(head, section("Placement", [gizmo, this.buildTransformEditor(item, s.positionStep, s.scaleLocked)]));
-    if (item.physics) {
+    wrap.append(head);
+    if (s.interaction.edit) {
+      wrap.append(section("Placement", [gizmo, this.buildTransformEditor(item, s.positionStep, s.scaleLocked)]));
+    }
+    if (item.physics && s.interaction.physics) {
       wrap.append(this.buildPhysicsSection(item, s.physics?.objects.find((o) => o.id === item.id)));
     }
     return wrap;
@@ -978,16 +1004,19 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
   return row;
 }
 
-/** The caption row under the panels: which GPU backend draws the scene (once the
- *  renderer is up), the build's version, and the theme switcher. */
-function buildFooter(backend: ViewerState["backend"], fps: number | null, theme: HTMLElement): HTMLElement {
+/** The footer: the frame rate (``fps`` undefined: not shown), the backend, the version, the "?"
+ *  help (``help``) and the theme switcher (``theme``, if any) — the parts the configuration keeps. */
+function buildFooter(backend: ViewerState["backend"], fps: number | null | undefined, help: boolean,
+  theme: HTMLElement | null): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "viewer-foot";
-  const rate = document.createElement("span");
-  rate.className = "viewer-fps";
-  rate.textContent = fpsText(fps);
-  rate.title = "Frames drawn per second; idle while nothing changes (the view redraws on demand)";
-  foot.append(rate);
+  if (fps !== undefined) {
+    const rate = document.createElement("span");
+    rate.className = "viewer-fps";
+    rate.textContent = fpsText(fps);
+    rate.title = "Frames drawn per second; idle while nothing changes (the view redraws on demand)";
+    foot.append(rate);
+  }
   if (backend) {
     const el = document.createElement("span");
     el.className = "viewer-backend";
@@ -999,12 +1028,16 @@ function buildFooter(backend: ViewerState["backend"], fps: number | null, theme:
         : "WebGPU isn't available here — rendering with the WebGL2 fallback";
     foot.append(el);
   }
-  const help = document.createElement("button");
-  help.className = "viewer-help";
-  help.textContent = "?";
-  help.title = "Shortcuts and mouse controls (?)";
-  help.addEventListener("click", showShortcuts);
-  foot.append(buildVersion(), help, theme);
+  foot.append(buildVersion());
+  if (help) {
+    const button = document.createElement("button");
+    button.className = "viewer-help";
+    button.textContent = "?";
+    button.title = "Shortcuts and mouse controls (?)";
+    button.addEventListener("click", showShortcuts);
+    foot.append(button);
+  }
+  if (theme) foot.append(theme);
   return foot;
 }
 
