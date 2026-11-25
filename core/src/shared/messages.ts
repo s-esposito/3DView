@@ -208,6 +208,176 @@ export interface SetTransformMsg {
   matrix: number[];
 }
 
+/** The panels the icon rail can open. */
+export type PanelName = "scene" | "display" | "physics" | "capture";
+
+/** A helper or display switch (the Display panel's Show / Meshes toggles). */
+export type ShowName = "grid" | "axes" | "box" | "points" | "frustums" | "images" | "shaded" | "wireframe";
+
+/**
+ * How the viewer looks and what a person may do in it. Every field is optional: one left out
+ * keeps its current value (at startup: the preset's, else the full UI). Given at startup as
+ * `window.__viewerHost.config` (read before anything is drawn, so nothing flashes) or at any
+ * time with a `configure` message, which merges into what is there.
+ */
+export interface ViewerConfig {
+  /** Start from a preset, then apply the other fields: "full" (default: every panel and
+   *  control, as in VS Code) or "presentation" (a showcase: only the Scene panel, no footer, no
+   *  selecting / editing / physics, grid, axes and box off). */
+  preset?: "full" | "presentation";
+  /** The UI and viewport colour scheme. */
+  theme?: "light" | "dark" | "dim";
+  /** The viewport's background, any CSS colour ("#fff"); null = the theme's. */
+  background?: string | null;
+  /** Helpers and display switches, each on or off. */
+  show?: Partial<Record<ShowName, boolean>>;
+  /** Show the scene Y-up (true, the default) or in its raw COLMAP frame (+y down). */
+  upright?: boolean;
+  /** How 3D Gaussian splats are drawn. */
+  splatMode?: "splatting" | "ellipsoids" | "points";
+  /** The viewer's chrome. */
+  ui?: {
+    /** Which panels the icon rail offers, in rail order; false = no rail and no panels. */
+    panels?: PanelName[] | false;
+    /** The panel to open now (null: none, the rail alone). */
+    open?: PanelName | null;
+    /** The footer (frame rate, backend, version, help, theme switcher), and its parts. */
+    footer?: boolean;
+    fps?: boolean;
+    themeSwitcher?: boolean;
+    help?: boolean;
+    /** Keyboard shortcuts (off: keys do nothing in the viewer). */
+    keyboard?: boolean;
+  };
+  /** What a person may do. */
+  interaction?: {
+    /** Clicking an item (in the view or the Scene list) selects it and opens its Inspector. */
+    select?: boolean;
+    /** Change the scene: the gizmo and placement fields, rename, remove, the "+" add menu. */
+    edit?: boolean;
+    /** Physics: the Physics panel, the playback bar, Shoot / Blast, an item's physics mode. */
+    physics?: boolean;
+  };
+}
+
+/** Change the configuration at runtime: the fields given merge into the current one. */
+export type ConfigureMsg = { type: "configure" } & ViewerConfig;
+
+/** What a scene item holds: a COLMAP reconstruction, a sequence of frames, or one asset. */
+export type ItemType = "reconstruction" | "sequence" | "mesh" | "splats" | "points" | "tracks" | "physics";
+
+/** Whether an item takes part in the physics: not at all, as a static body (an environment that
+ *  only stops others), or as a dynamic one that moves (a breakable object is always the last). */
+export type PhysicsMode = "off" | "static" | "dynamic";
+
+/** One scene item, in `state`. */
+export interface ItemState {
+  id: string;
+  label: string;
+  type: ItemType;
+  visible: boolean;
+  /** Its placement: the 4x4 matrix row-major, in the scene's frame (as setTransform takes it). */
+  matrix: number[];
+  /** Its box in the scene's frame, placement included; null while it has nothing to measure. */
+  bounds: Bounds | null;
+  /** A sequence's frames (0 for anything else), the one shown (0-based), and whether it plays. */
+  frameCount: number;
+  frame: number;
+  playing: boolean;
+  /** Its physics mode, and the modes it can take; null when it cannot take part. */
+  physics: { mode: PhysicsMode; modes: PhysicsMode[] } | null;
+}
+
+/** The viewer's state, in `state`. Positions are in the scene's frame (COLMAP's, +y down). */
+export interface ViewerSnapshot {
+  version: string;
+  apiVersion: number;
+  items: ItemState[];
+  selected: string | null;
+  camera: { position: [number, number, number]; target: [number, number, number]; fov: number };
+  /** The configuration in force, every field filled: a `configure` with it restores this look. */
+  config: ViewerConfig;
+  /** The simulation; null while no item takes part in it. */
+  physics: { running: boolean } | null;
+}
+
+/** The embedding API's version, in `ready`: raised whenever a message, event or field is added
+ *  (additions only; an embedder feature-detects with it). */
+export const API_VERSION = 1;
+
+/** Remove an item from the scene, or one still loading (it never appears); answered by `removed`. */
+export interface RemoveItemMsg {
+  type: "removeItem";
+  id: string;
+}
+
+/** Show or hide an item. A hidden physics item leaves the simulation: nothing hits it. */
+export interface SetItemVisibleMsg {
+  type: "setItemVisible";
+  id: string;
+  visible: boolean;
+}
+
+/** Change the label an item shows in the Scene list. */
+export interface SetItemLabelMsg {
+  type: "setItemLabel";
+  id: string;
+  label: string;
+}
+
+/** Select an item, opening its Inspector (null: nothing). Answered by `selected` when the
+ *  selection changes. Works whatever `interaction.select` allows the person. */
+export interface SelectItemMsg {
+  type: "selectItem";
+  id: string | null;
+}
+
+/** Show frame `frame` (0-based, clamped) of a sequence item. */
+export interface SetFrameMsg {
+  type: "setFrame";
+  id: string;
+  frame: number;
+}
+
+/** Play or pause a sequence item; it loops. */
+export interface SetPlayingMsg {
+  type: "setPlaying";
+  id: string;
+  playing: boolean;
+}
+
+/** An item's part in the physics: "off" (none, the default for all but a breakable object),
+ *  "static" (a fixed body others land on and bounce off) or "dynamic" (it falls and is hit). A
+ *  breakable object is "off" or "dynamic"; an item that cannot take part (tracks, a sequence)
+ *  ignores it. Works whatever `interaction.physics` allows the person. */
+export interface SetPhysicsModeMsg {
+  type: "setPhysicsMode";
+  id: string;
+  mode: PhysicsMode;
+}
+
+/** Ask for the viewer's state; answered by `state` with the same `requestId`. */
+export interface GetStateMsg {
+  type: "getState";
+  requestId?: string | number;
+}
+
+/** Ask for a PNG of the current view, as Capture > Save viewpoint draws it: `scale` times the
+ *  view's size (default 1), on a transparent background unless `transparent` is false (then on
+ *  the viewport's). Answered by `captured` with the same `requestId`. */
+export interface CaptureMsg {
+  type: "capture";
+  requestId?: string | number;
+  scale?: number;
+  transparent?: boolean;
+}
+
+/** Drive the simulation: run its clock, stop it, or put every object back where it started. */
+export interface PhysicsMsg {
+  type: "physics";
+  action: "play" | "pause" | "restoreAll";
+}
+
 /** The two ways a multi-item add can resolve. Named as the modal's own answers, so
  *  a host-supplied hint and a user's click are the same value downstream. */
 export type GroupingChoice = "temporal" | "separate";
@@ -228,17 +398,54 @@ export type HostToWebview =
   | AddGroupMsg
   | SetViewMsg
   | SetTransformMsg
+  | ConfigureMsg
+  | RemoveItemMsg
+  | SetItemVisibleMsg
+  | SetItemLabelMsg
+  | SelectItemMsg
+  | SetFrameMsg
+  | SetPlayingMsg
+  | SetPhysicsModeMsg
+  | PhysicsMsg
+  | GetStateMsg
+  | CaptureMsg
   | { type: "error"; message: string };
+
+/**
+ * What the viewer tells its host about the scene's items. Every add message (`addAsset`,
+ * `addReconstruction`, `loadColmap`, an `addGroup` loaded as one sequence) is answered with
+ * `itemAdded` once the item is in the Scene list, then `itemLoaded` when all of it is drawn, or
+ * `itemFailed` if it could not be loaded; an item that was in the list is then removed (`removed`
+ * follows). A COLMAP model or a sequence joins the list only once fetched, so its `itemFailed` may
+ * come without `itemAdded`; one removed before it was added is answered by `removed` alone.
+ * `bounds` is the item's box in the scene's own frame (COLMAP's, +y down), its placement
+ * included.
+ */
+export type ViewerEvent =
+  | { type: "itemAdded"; id: string; label: string }
+  | { type: "itemLoaded"; id: string; bounds: Bounds | null }
+  | { type: "itemFailed"; id: string; message: string }
+  | { type: "removed"; id: string } // an item left the scene: the host can forget it
+  | { type: "selected"; id: string | null }; // the selection changed (a click, or selectItem)
+
+/** The answers to `getState` and `capture`, carrying the request's `requestId`. */
+export type ViewerReply =
+  | { type: "state"; requestId?: string | number; state: ViewerSnapshot }
+  // `data`: a PNG data URL; `error` instead when the view could not be drawn.
+  | { type: "captured"; requestId?: string | number; data?: string; error?: string };
 
 /** Webview -> extension host. */
 export type WebviewToHost =
-  | { type: "ready" }
+  // The viewer is listening: messages sent before this may be lost. `version` is 3DView's
+  // (package.json), `apiVersion` the embedding API's (API_VERSION).
+  | { type: "ready"; version: string; apiVersion: number }
+  | ViewerEvent
+  | ViewerReply
   | { type: "requestAdd"; kind: AddKind } // "+" in the Scene menu
   // A drop the webview could only read as URIs, not bytes — a drag out of the
   // editor's own file explorer. The host owns paths, so it opens them; only a host
   // that advertises `HostBridge.opensUris` is sent this (see dropZone.ts).
   | { type: "openUris"; uris: string[] }
-  | { type: "removed"; id: string } // an item was removed from the scene
   // A rendered file to save: a viewpoint PNG or a camera-path video. `data` is a
   // data URL ("data:image/png;base64,…"); the host writes it, offering the file type
   // that `suggestedName`'s extension names. Only a host that advertises

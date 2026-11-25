@@ -68,17 +68,27 @@ jobs:
           # Versioned bundle for pages that embed the viewer (e.g. GenIA's project page): one
           # loading /v<major>/dist/webview.js stays on that major while /dist/ moves on.
           MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          echo "MAJOR=$MAJOR" >> "$GITHUB_ENV"   # the next step's too
           mkdir -p "_site/v$MAJOR/dist"
           cp demo/dist/webview.js "_site/v$MAJOR/dist/"
+          # The embedding kit (2.0 on), per major only: /v<major>/embed.html (the iframe page) and
+          # /v<major>/dist/embed.js (the SDK), with the host bridge embed.html loads.
+          cp demo/embed.html "_site/v$MAJOR/"
+          cp demo/dist/embed.js demo/dist/embed-frame.js "_site/v$MAJOR/dist/"
+          cp docs/embedding.md "_site/v$MAJOR/"   # the API reference, beside what it describes
 
       - name: Build older majors' bundles
         # Each older major's last release, rebuilt from its commit (reproducible: npm ci from
         # its own lockfile) and published at /v<major>/dist/webview.js. Add a line per major
-        # when the next one ships. A line for the current major is skipped.
+        # when the next one ships. A line for the current major means package.json was not
+        # bumped: this build would replace that frozen major's bundle, so the deploy stops.
         run: |
-          MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
           while read -r major ref; do
-            if [ -z "$major" ] || [ "$major" = "$MAJOR" ]; then continue; fi
+            if [ -z "$major" ]; then continue; fi
+            if [ "$major" = "$MAJOR" ]; then
+              echo "::error::package.json is still major $MAJOR, which is frozen at $ref: bump the version first"
+              exit 1
+            fi
             git worktree add "$RUNNER_TEMP/v$major" "$ref"
             (cd "$RUNNER_TEMP/v$major" && npm ci && npm run build -w @3dview/core)
             mkdir -p "_site/v$major/dist"

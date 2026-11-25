@@ -43,6 +43,10 @@ import {
   trackSteps,
 } from "./tracks";
 import type { TrackSet } from "./tracks";
+import { buildChunkedObject, decodeChunkedObject, isChunkedObject } from "./physics/chunkedObject";
+import { PhysicsRun } from "./physics/run";
+import type { CollisionGeometry } from "./physics/rigidObject";
+import { PointCloud } from "./builders";
 import { DEFAULT_ASSET_OPTIONS } from "./sceneLayer";
 import type { AssetOptions, FrameSource } from "./sceneLayer";
 
@@ -53,6 +57,9 @@ export class AssetLayer implements FrameSource {
   visible = true;
 
   private current?: THREE.Object3D;
+  /** Where the content (and the box) hang: the layer's group, or a rigid body's holder while
+   *  the item is a dynamic physics object (rigidObject.ts). */
+  private holder?: THREE.Object3D;
   private currentBounds?: Bounds;
   private box?: THREE.Box3Helper;
   /** Per-mesh material pairs backing the Shaded / Wireframe toggles; empty for splat points. */
@@ -70,6 +77,8 @@ export class AssetLayer implements FrameSource {
    *  `cloud`/`tracks` rather than read back off the built object, so the answer does
    *  not depend on the scene graph's shape or on the current 3DGS render mode. */
   private isCloud = false;
+  /** A chunked object's physics (physics/run.ts). */
+  private physicsRun?: PhysicsRun;
   /** The asset options this layer's content was last built/updated for. */
   private opts: AssetOptions = DEFAULT_ASSET_OPTIONS;
   // Mirrors of the scene-wide shading state, so a rebuilt splat object comes back
@@ -128,6 +137,30 @@ export class AssetLayer implements FrameSource {
   /** True once loaded, if this asset is a 3DGS cloud (so the render mode applies). */
   get isSplat(): boolean {
     return this.cloud != null;
+  }
+
+  /** What it holds, once loaded (the Scene list's type). */
+  get type(): "physics" | "splats" | "points" | "tracks" | "mesh" {
+    if (this.physicsRun) return "physics";
+    if (this.cloud) return "splats";
+    if (this.isCloud) return "points";
+    return this.trackSteps > 0 ? "tracks" : "mesh";
+  }
+
+  /** True once loaded, if this asset is a chunked object: splats, always drawn as such. */
+  get isChunked(): boolean {
+    return this.physicsRun != null;
+  }
+
+  /** A chunked object's physics; undefined for every other asset. */
+  get physics(): PhysicsRun | undefined {
+    return this.physicsRun;
+  }
+
+  /** Move the box to ``bounds`` (a chunked object's pieces, as they move). */
+  setBoxBounds(bounds: Bounds): void {
+    this.box?.box.min.fromArray(bounds.min);
+    this.box?.box.max.fromArray(bounds.max);
   }
 
   /** True once loaded, if this asset is a bare point cloud (so "Point size" applies).
@@ -243,7 +276,7 @@ export class AssetLayer implements FrameSource {
     opts: AssetOptions,
     onProgress?: Progress
   ): Promise<void> {
-    const { object, bounds, cloud, tracks, isCloud } = await loadAsset(
+    const { object, bounds, cloud, tracks, isCloud, physics } = await loadAsset(
       uri,
       name,
       opts,
@@ -253,11 +286,86 @@ export class AssetLayer implements FrameSource {
     this.cloud = cloud;
     this.tracks = tracks;
     this.isCloud = isCloud ?? false;
+    this.physicsRun = physics;
     this.opts = { ...opts };
     this.currentBounds = bounds;
     this.attachCurrent(object);
     this.box = buildBox(bounds);
-    this.object.add(this.box);
+    (this.holder ?? this.object).add(this.box);
+  }
+
+  /** Hang the content and the box on a moving body's ``holder`` (rigidObject.ts), or back on
+   *  the layer's group (none); a rebuilt content goes where they are. */
+  mountOn(holder: THREE.Object3D | undefined): void {
+    this.holder = holder;
+    for (const o of [this.current, this.box]) if (o) (holder ?? this.object).add(o);
+  }
+
+  /** How many splats, vertices or points its collision geometry comes from (cheap: no copy). */
+  get geometrySize(): number {
+    if (this.cloud) return this.cloud.count;
+    let n = 0;
+    this.current?.traverse((o) => {
+      const g = o instanceof PointCloud ? o.points : o instanceof THREE.Mesh || o instanceof THREE.Points ? o.geometry : undefined;
+      if (g) n += g.getAttribute("position").count;
+    });
+    return n;
+  }
+
+  /** Its geometry for a collision shape, in the layer's frame: a 3DGS asset's splat centres (the
+   *  visibly opaque ones), else a mesh's triangles, else a cloud's points (asked only of those:
+   *  Viewer.physicsModes). */
+  collisionGeometry(): CollisionGeometry | null {
+    const current = this.current;
+    if (!current) return null;
+    this.object.updateWorldMatrix(true, true);
+    const toLayer = this.object.matrixWorld.clone().invert();
+    const v = new THREE.Vector3();
+    /** An attribute's xyz (read through it: interleaved or quantized glTF data too) into ``out``. */
+    const transform = (attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, m: THREE.Matrix4,
+      out: Float32Array, at: number) => {
+      for (let i = 0; i < attr.count; i++) out.set(v.fromBufferAttribute(attr, i).applyMatrix4(m).toArray(), at + 3 * i);
+    };
+    if (this.cloud) {
+      const { centers, opacities } = this.cloud;
+      const kept = centers.filter((_, k) => opacities[Math.floor(k / 3)] > 0.1);
+      const points = new Float32Array(kept.length);
+      transform(new THREE.BufferAttribute(kept, 3), toLayer.clone().multiply(current.matrixWorld), points, 0);
+      return { points };
+    }
+    const meshes: THREE.Mesh[] = [], clouds: THREE.BufferGeometry[] = [], cloudOwners: THREE.Object3D[] = [];
+    current.traverse((o) => {
+      if (o instanceof THREE.Mesh) meshes.push(o);
+      else if (o instanceof THREE.Points || o instanceof PointCloud) {
+        clouds.push(o instanceof PointCloud ? o.points : o.geometry);
+        cloudOwners.push(o);
+      }
+    });
+    if (meshes.length) {
+      const sizes = meshes.map((m) => m.geometry.getAttribute("position").count);
+      const positions = new Float32Array(3 * sizes.reduce((a, b) => a + b, 0));
+      const index: number[] = [];
+      let base = 0;
+      meshes.forEach((m, k) => {
+        const g = m.geometry;
+        transform(g.getAttribute("position"), toLayer.clone().multiply(m.matrixWorld), positions, 3 * base);
+        if (g.index) for (const i of g.index.array) index.push(base + i);
+        else for (let i = 0; i < sizes[k]; i++) index.push(base + i);
+        base += sizes[k];
+      });
+      return { positions, index };
+    }
+    if (clouds.length) {
+      const total = clouds.reduce((n, g) => n + g.getAttribute("position").count, 0);
+      const points = new Float32Array(3 * total);
+      let at = 0;
+      clouds.forEach((g, k) => {
+        transform(g.getAttribute("position"), toLayer.clone().multiply(cloudOwners[k].matrixWorld), points, at);
+        at += 3 * g.getAttribute("position").count;
+      });
+      return { points };
+    }
+    return null;
   }
 
   dispose(): void {
@@ -268,6 +376,8 @@ export class AssetLayer implements FrameSource {
     this.cloud = undefined;
     this.clouds = undefined;
     this.isCloud = false;
+    this.physicsRun?.dispose();
+    this.physicsRun = undefined;
     this.frameBuffer = undefined;
     this.tracks = undefined;
   }
@@ -276,7 +386,7 @@ export class AssetLayer implements FrameSource {
   private attachCurrent(object: THREE.Object3D): void {
     this.current = object;
     this.shadingPairs = collectShadingPairs(object);
-    this.object.add(object);
+    (this.holder ?? this.object).add(object);
     this.setWireframe(this.wireframe);
     this.setShaded(this.shaded);
     setPointsSize(object, this.opts.pointSize);
@@ -356,6 +466,8 @@ interface LoadedAsset {
   tracks?: TrackSet;
   /** Set only for a PLY that turned out to be a bare point cloud rather than a mesh. */
   isCloud?: boolean;
+  /** Set only for a chunked object (an .npz from export_chunks.py): its physics. */
+  physics?: PhysicsRun;
 }
 
 /** Reports a human-readable loading phase ("Downloading 45%", "Decoding"). */
@@ -394,7 +506,7 @@ function loadAsset(
       return loadSplat(uri, name, opts.splatMode, onProgress);
     case "npz":
     case "npy":
-      return loadTracks(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
+      return loadNumpy(uri, ext === "npy", opts.trackDensity, opts.trackSmoothing, onProgress);
     default:
       return Promise.reject(new Error(`Unsupported asset format: .${ext}`));
   }
@@ -496,10 +608,11 @@ function isSplatPly(bytes: Uint8Array): boolean {
 }
 
 /**
- * Load 3D point tracks: a NumPy archive of trajectory arrays (`.npz`), or a single
- * (steps, tracks, 3) array (`.npy`). Both parse in-process — no worker, no wasm.
+ * Load a NumPy file: 3D point tracks — an archive of trajectory arrays (`.npz`) or a single
+ * (steps, tracks, 3) array (`.npy`) — or a chunked object, an `.npz` told apart by its keys
+ * (physics/chunkedObject.ts). All parse in-process — no worker, no wasm.
  */
-async function loadTracks(
+async function loadNumpy(
   uri: string,
   bare: boolean,
   density: number,
@@ -510,6 +623,11 @@ async function loadTracks(
   onProgress?.("Decoding");
   const bytes = new Uint8Array(buffer);
   const arrays = bare ? new Map([["tracks", readNpy(bytes)]]) : await readNpz(bytes);
+  if (isChunkedObject(arrays)) {
+    const chunked = decodeChunkedObject(arrays);
+    const { object, bounds, chunks } = buildChunkedObject(chunked);
+    return { object, bounds, physics: new PhysicsRun(chunked.scene, chunks) };
+  }
   const set = decodeTracks(arrays);
   return { object: buildTrackLines(set, density, smoothing), bounds: set.bounds, tracks: set };
 }

@@ -1,14 +1,11 @@
 // Small, stateless DOM builders shared by the control panel and popup. They only
 // produce elements with class names; all styling lives in styles.ts.
 
-/** Adaptive number formatting for slider readouts. */
+/** Adaptive number formatting for slider readouts, without trailing zeros ("1.5", not "1.50"). */
 function fmtNum(v: number): string {
-  if (v === 0) {
-    return "0";
-  }
   const a = Math.abs(v);
   const decimals = a < 0.1 ? 4 : a < 10 ? 2 : 1;
-  return v.toFixed(decimals);
+  return String(Number(v.toFixed(decimals)));
 }
 
 /** True where the primary input is a finger and nothing hovers — a phone or tablet,
@@ -18,10 +15,14 @@ export function isTouchOnly(): boolean {
   return matchMedia("(hover: none) and (pointer: coarse)").matches;
 }
 
-/** A control's label with its keyboard shortcut ("Grid (G)"), minus the shortcut on
- *  a touch-only device. */
-export function keyed(label: string, key: string): string {
-  return isTouchOnly() ? label : `${label} (${key})`;
+/** Give a control its keyboard shortcut: in its tooltip (the label stays plain) and for
+ *  assistive tech; nothing on a touch-only device. The "?" overlay lists them all. */
+export function withKey<T extends HTMLElement>(el: T, key: string): T {
+  if (!isTouchOnly()) {
+    el.title = `Shortcut: ${key}`;
+    el.setAttribute("aria-keyshortcuts", key);
+  }
+  return el;
 }
 
 export function section(title: string, children: HTMLElement[]): HTMLElement {
@@ -94,38 +95,92 @@ export function checkbox(
   return wrap;
 }
 
+/** A slider's readout and editing: ``format`` writes the readout (default: the number, a
+ *  whole-number step as an integer); ``parse`` reads a typed one back into slider units
+ *  (default: its leading number, so "9.8 m/s²" reads 9.8); ``reset`` is the value a
+ *  double-click on the label restores. */
+export interface SliderOptions {
+  format?: (v: number) => string;
+  parse?: (text: string) => number;
+  reset?: number;
+}
+
+/**
+ * One row: caption · track · readout. Double-click the readout to type a value (Enter or
+ * leaving the field takes it, clamped to the range; Esc keeps the old one); double-click the
+ * caption to restore ``reset``.
+ */
 export function slider(
   label: string,
   min: number,
   max: number,
   step: number,
   value: number,
-  onInput: (v: number) => void
+  onInput: (v: number) => void,
+  { format, parse = parseFloat, reset }: SliderOptions = {}
 ): HTMLElement {
-  // One row: caption · track · readout. A whole-number step reads as an integer
-  // ("24", not "24.0"); anything finer keeps the adaptive precision.
-  const fmt = Number.isInteger(step) ? (v: number) => String(Math.round(v)) : fmtNum;
+  const fmt = format ?? (Number.isInteger(step) ? (v: number) => String(Math.round(v)) : fmtNum);
   const wrap = document.createElement("div");
   wrap.className = "viewer-slider";
   const caption = document.createElement("span");
   caption.className = "viewer-slider-label";
   caption.textContent = label;
-  caption.title = label; // the column can ellipsize a long caption
+  caption.title = reset === undefined ? label : `${label} — double-click for ${fmt(reset)}`;
   const val = document.createElement("span");
   val.className = "viewer-slider-val";
   val.textContent = fmt(value);
+  val.title = "Double-click to type a value";
   const input = document.createElement("input");
   input.type = "range";
   input.min = String(min);
   input.max = String(max);
   input.step = String(step);
   input.value = String(value);
+  input.setAttribute("aria-label", label);
+  /** Move to ``v`` (the range input clamps and snaps it) and report it. */
+  const set = (v: number) => {
+    input.value = String(v);
+    const now = Number(input.value);
+    val.textContent = fmt(now);
+    onInput(now);
+  };
   input.addEventListener("input", () => {
     const v = Number(input.value);
     val.textContent = fmt(v);
     onInput(v);
   });
-  input.setAttribute("aria-label", label);
+  val.addEventListener("dblclick", () => {
+    const edit = document.createElement("input");
+    edit.type = "text";
+    edit.className = "viewer-slider-edit";
+    edit.value = val.textContent ?? "";
+    edit.setAttribute("aria-label", label);
+    let done = false;
+    const finish = (take: boolean) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      const v = parse(edit.value);
+      edit.replaceWith(val);
+      if (take && Number.isFinite(v)) {
+        set(v);
+      }
+    };
+    edit.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        finish(e.key === "Enter");
+      }
+    });
+    edit.addEventListener("blur", () => finish(true));
+    val.replaceWith(edit);
+    edit.focus();
+    edit.select();
+  });
+  if (reset !== undefined) {
+    caption.addEventListener("dblclick", () => set(reset));
+  }
   wrap.append(caption, input, val);
   return wrap;
 }

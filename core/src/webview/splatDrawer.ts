@@ -46,6 +46,11 @@ export class SplatDrawer {
     return this.mesh.sortMode === "cpu";
   }
 
+  /** Re-sort before the next draw: splat objects moved relative to each other (physics). */
+  requestSort(): void {
+    this.mesh.requestSort();
+  }
+
   /** Resolves when the next sort lands, or after `ms` if none does. */
   nextSort(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -92,6 +97,9 @@ export class SplatDrawer {
       this.drawn = visible;
       this.mesh.collection = new SplatCollection(visible.map((o) => this.uploaded.get(o)!.record));
     }
+    // An empty collection does not stop Radix drawing what it last sorted: with every splat
+    // object hidden (the scene's only one, say), the mesh itself must go.
+    this.mesh.visible = visible.length > 0;
   }
 
   private upload(object: SplatObject): Uploaded {

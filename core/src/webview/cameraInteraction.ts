@@ -29,6 +29,11 @@ export interface InteractionDeps {
   onSelect: (cam: CameraView | null) => void;
   /** Request a redraw (hover/selection change colors without moving the camera). */
   requestRender: () => void;
+  /** A click that hit no camera, as a world-space ray from the eye (it selects an item, or
+   *  shoots / blasts a physics object, by the Viewer's click mode). */
+  onMiss?: (ray: THREE.Ray) => void;
+  /** True when this click belongs to something else (the gizmo): it neither picks nor misses. */
+  ignoreClick?: () => boolean;
 }
 
 export class CameraInteraction {
@@ -96,13 +101,24 @@ export class CameraInteraction {
     const moved = Math.hypot(e.clientX - this.pointerDown.x, e.clientY - this.pointerDown.y);
     this.pointerDown = undefined;
     const tolerance = e.pointerType === "touch" ? TAP_DRAG_TOLERANCE_PX : CLICK_DRAG_TOLERANCE_PX;
-    if (moved > tolerance) {
-      return; // an orbit drag, not a click
+    if (moved > tolerance || this.deps.ignoreClick?.()) {
+      return; // an orbit drag, or a click on the gizmo — not a click here
     }
     const hit = this.pick(e.clientX, e.clientY);
     if (hit) {
       this.select(hit);
+    } else if (this.deps.onMiss) {
+      this.aim(e.clientX, e.clientY);
+      this.deps.onMiss(this.raycaster.ray.clone());
     }
+  }
+
+  /** Point the raycaster from the eye through a pixel of the canvas. */
+  private aim(clientX: number, clientY: number): void {
+    const rect = this.deps.dom.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.deps.camera);
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -121,11 +137,7 @@ export class CameraInteraction {
     if (objects.length === 0) {
       return null;
     }
-    const rect = this.deps.dom.getBoundingClientRect();
-    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera(this.pointer, this.deps.camera);
-
+    this.aim(clientX, clientY);
     for (const hit of this.raycaster.intersectObjects(objects, true)) {
       let obj: THREE.Object3D | null = hit.object;
       while (obj && obj.userData.cameraIndex === undefined) {

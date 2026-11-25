@@ -34,7 +34,11 @@ function copyWebview() {
   if (fs.existsSync(`${CORE_WEBVIEW}.map`)) {
     fs.copyFileSync(`${CORE_WEBVIEW}.map`, path.join("dist", "webview.js.map"));
   }
-  console.log("[demo] webview.js copied from @3dview/core");
+  // The embedding kit, beside the viewer: embed.html (in demo/) loads dist/embed-frame.js.
+  for (const f of ["embed.js", "embed-frame.js"]) {
+    fs.copyFileSync(path.join(path.dirname(CORE_WEBVIEW), f), path.join("dist", f));
+  }
+  console.log("[demo] webview.js + embed kit copied from @3dview/core");
 }
 
 async function run() {

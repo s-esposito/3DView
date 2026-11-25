@@ -8,12 +8,13 @@ import type {
   ColmapModelRef,
   GroupingChoice,
 } from "../shared/messages";
+import { API_VERSION } from "../shared/messages";
 import { getHostBridge } from "../shared/hostBridge";
 import { Viewer, GlobalToggle } from "./viewer";
 import type { TemporalFrame } from "./viewer";
 import { compareNatural, sharedFolderName } from "../shared/naming";
 import { ControlPanel } from "./ui/controlPanel";
-import { InfoPopup, showColmapChooser, askTemporalGrouping } from "./ui/overlays";
+import { InfoPopup, showColmapChooser, askTemporalGrouping, showShortcuts } from "./ui/overlays";
 import { ensureStyles } from "./ui/styles";
 import { isTouchOnly } from "./ui/components";
 import { loadColmapFromUrls } from "./colmapLoader";
@@ -23,10 +24,17 @@ import { installDropZone } from "./dropZone";
 // bundle runs; we never reference a host-specific API directly.
 const host = getHostBridge();
 const status = document.getElementById("status")!;
+/** Whether the overlay shows an error: an empty scene keeps it rather than its hint. */
+let errorShown = false;
 
 ensureStyles();
 const viewer = new Viewer();
 const panel = new ControlPanel(viewer, { archives: host.opensArchives });
+viewer.onOpenPanel = (name) => panel.openPanel(name);
+// The host's configuration (messages.ts ViewerConfig), before anything is drawn.
+if (host.config) {
+  viewer.configure(host.config);
+}
 const popup = new InfoPopup();
 
 // Selecting a camera shows its info popup; closing it (✕) clears the highlight
@@ -44,17 +52,20 @@ viewer.onChange = () => {
   panel.render();
   updateStatus();
 };
-viewer.onError = (message) => showStatus(`Error: ${message}`);
+viewer.onError = (message) => showError(message);
 // Async loaders report their phase (download %, "Decoding…") here.
 viewer.onProgress = (message) => showStatus(message, true);
 
 // Playback moves a temporal item's playhead; the panel updates that one slider in
 // place (a re-render would rebuild it several times a second, losing any drag).
 viewer.onFrame = (id, frame) => panel.setPlayhead(id, frame);
+viewer.onPhysics = (id, status) => panel.setPhysicsStatus(id, status);
+viewer.onFps = (fps) => panel.setFps(fps);
 
-// The Scene "+" asks the host to open a picker; removal tells the host to forget.
+// The Scene "+" asks the host to open a picker; what happens to the items (added, loaded,
+// failed, removed, selected) is the host's to hear.
 viewer.onRequestAdd = (kind) => host.postMessage({ type: "requestAdd", kind });
-viewer.onRemoveItem = (id) => host.postMessage({ type: "removed", id });
+viewer.onEvent = (event) => host.postMessage(event);
 // A host with a save dialog of its own is handed the file; anywhere else (the demo,
 // a page embedding the bundle) a synthetic <a download> saves it, as a browser can
 // download a data URL directly. `suggestedName` is serialized before the multi-MB
@@ -98,7 +109,7 @@ const EMPTY_HINT = isTouchOnly()
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
-showStatus(EMPTY_HINT);
+updateStatus();
 
 // Keyboard shortcuts map to the same Viewer API the panel uses.
 const TOGGLE_KEYS: Record<string, GlobalToggle> = {
@@ -112,8 +123,8 @@ const TOGGLE_KEYS: Record<string, GlobalToggle> = {
   s: "shaded",
 };
 window.addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement) {
-    return; // don't hijack keys while a control is focused
+  if (e.target instanceof HTMLInputElement || !viewer.settings.ui.keyboard) {
+    return; // don't hijack keys while a control is focused, or when the host turned them off
   }
   const key = e.key.toLowerCase();
   if (viewer.isRenderingVideo) {
@@ -123,12 +134,25 @@ window.addEventListener("keydown", (e) => {
     }
     return;
   }
-  if (key === "r") {
+  if (e.key === "Home") {
     viewer.resetView();
     return;
   }
+  // Blender's G / R / S: the gizmo on the selected item (nothing without one). Shift+G / Shift+S
+  // keep the grid and the mesh shading.
+  const gizmo: Record<string, "translate" | "rotate" | "scale"> = { g: "translate", r: "rotate", s: "scale" };
+  if (gizmo[key] && !e.shiftKey) {
+    if (viewer.getState().selected) viewer.setGizmoMode(gizmo[key]);
+    return;
+  }
+  if (key === "?") {
+    if (viewer.settings.ui.help) showShortcuts();
+    return;
+  }
   if (key === "escape") {
-    viewer.exitPov();
+    // Out of Shoot / Blast first; then out of a camera's view.
+    if (viewer.getState().clickMode !== "select") viewer.setClickMode("select");
+    else viewer.exitPov();
     return;
   }
   if (key === "u") {
@@ -159,6 +183,7 @@ let statusShape = "";
  *  keeps spinning, signalling progress even without a percentage). While a video
  *  renders it carries a Cancel button — the one way to stop it without a keyboard. */
 function showStatus(message: string, busy = false) {
+  errorShown = false;
   status.style.display = "flex";
   const cancellable = viewer.isRenderingVideo;
   const shape = `${busy}|${cancellable}`;
@@ -187,12 +212,22 @@ function showStatus(message: string, busy = false) {
   statusText.textContent = message;
 }
 
-/** Hide the overlay once the scene has content; otherwise show a prompt. */
+function showError(message: string) {
+  showStatus(`Error: ${message}`);
+  errorShown = true;
+}
+
+/** Hide the overlay once the scene has content; otherwise show the empty-scene hint, where the
+ *  person can add something (interaction.edit), unless an error says why it is empty. */
 function updateStatus() {
-  if (viewer.getState().items.length > 0) {
-    status.style.display = "none";
-  } else {
+  const empty = viewer.getState().items.length === 0;
+  if (empty && errorShown) {
+    return;
+  }
+  if (empty && viewer.settings.interaction.edit) {
     showStatus(EMPTY_HINT);
+  } else {
+    status.style.display = "none";
   }
 }
 
@@ -251,8 +286,57 @@ function handleHostMessage(msg: HostToWebview) {
     case "setTransform":
       viewer.setItemMatrix(msg.id, msg.matrix, msg.node);
       break;
+    case "configure":
+      viewer.configure(msg);
+      updateStatus(); // the empty-scene hint follows interaction.edit
+      break;
+    // The item and physics messages are the panel's own actions; the panel follows where the
+    // viewer call does not re-render it (onChange) itself.
+    case "removeItem":
+      viewer.removeItem(msg.id);
+      break;
+    case "setItemVisible":
+      viewer.setItemVisible(msg.id, msg.visible);
+      panel.render();
+      break;
+    case "setItemLabel":
+      viewer.renameItem(msg.id, msg.label);
+      break;
+    case "selectItem":
+      viewer.selectItem(msg.id);
+      break;
+    case "setFrame": {
+      const shown = viewer.setItemFrame(msg.id, msg.frame);
+      if (shown !== undefined) panel.setPlayhead(msg.id, shown);
+      break;
+    }
+    case "setPlaying":
+      viewer.setItemPlaying(msg.id, msg.playing);
+      panel.render();
+      break;
+    case "setPhysicsMode":
+      void viewer.setPhysicsMode(msg.id, msg.mode);
+      break;
+    case "getState":
+      host.postMessage({ type: "state", requestId: msg.requestId, state: viewer.snapshot() });
+      break;
+    case "capture":
+      // `ready` comes before the renderer is up: a capture asked at once waits for it.
+      void viewer.rendererUp.then(() => {
+        try {
+          const data = viewer.capture(msg.scale ?? 1, msg.transparent ?? true);
+          host.postMessage({ type: "captured", requestId: msg.requestId, data });
+        } catch (err) {
+          host.postMessage({ type: "captured", requestId: msg.requestId, error: (err as Error).message });
+        }
+      });
+      break;
+    case "physics":
+      if (msg.action === "restoreAll") viewer.resetPhysics();
+      else viewer.playPhysics(msg.action === "play");
+      break;
     case "error":
-      showStatus(`Error: ${msg.message}`);
+      showError(msg.message);
       break;
   }
 }
@@ -286,6 +370,7 @@ async function addItems(
     updateStatus(); // drop a host's "loading" message: nothing is coming
     return;
   }
+  viewer.expectItem(groupId); // removable while its members are fetched
   const frames: TemporalFrame[] = [];
   for (const m of ordered) {
     const frame = await toFrame(m);
@@ -311,7 +396,7 @@ async function toFrame(m: AddItem): Promise<TemporalFrame | undefined> {
   try {
     return { kind: "reconstruction", id, label, data: await loadColmapData(m), source: m.source };
   } catch (err) {
-    showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    showError(err instanceof Error ? err.message : String(err));
     return undefined;
   }
 }
@@ -349,9 +434,10 @@ function loadColmapData(m: ColmapModelRef) {
 /** Fetch + parse a URL-served COLMAP model and add it to the scene. */
 function loadColmapModel(m: ColmapModelRef) {
   showStatus(`Loading ${m.label}`, true);
+  viewer.expectItem(m.id); // removable while it is fetched
   loadColmapData(m)
     .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
-    .catch((err) => showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`));
+    .catch((err) => viewer.fail(m.id, err instanceof Error ? err.message : String(err)));
 }
 
 function revokeColmapTrio(urls: { cameras: string; images: string; points3d: string }) {
@@ -370,8 +456,9 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) =>
 // only where the host says it can open them (see dropZone.ts).
 installDropZone(
   handleHostMessage,
-  host.opensUris ? (uris) => host.postMessage({ type: "openUris", uris }) : undefined
+  host.opensUris ? (uris) => host.postMessage({ type: "openUris", uris }) : undefined,
+  () => viewer.settings.interaction.edit // a drop adds to the scene: an edit
 );
 
 // Tell the host we are alive and ready to receive content.
-host.postMessage({ type: "ready" });
+host.postMessage({ type: "ready", version: __APP_VERSION__, apiVersion: API_VERSION });

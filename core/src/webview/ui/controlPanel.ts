@@ -1,10 +1,15 @@
-// The control UI (top-right overlay): stacked, independently-collapsible panels
-// inside a #viewer-ui column — a "3DView" panel with scene-wide display controls
-// (Show / Appearance / View), a "Scene" panel below it (the item list + add menu),
-// and, once the scene holds something, a "Capture" panel (Image / Video
-// sub-menus). All are thin views over the Viewer: they read `getState()` to render
-// and call Viewer setters on interaction; the Viewer owns all state.
-import type { Viewer, ViewerState, SceneItem, ThemeName } from "../viewer";
+// The control UI. On the right (#viewer-ui), an icon rail and the one panel it has open, at
+// full height: "Scene" (the item list + add menu), "Display" (scene-wide Show / Appearance /
+// View / Camera), "Physics" while the scene holds a chunked object, "Capture" once it holds
+// anything; under them the footer (backend, version, theme). At the bottom (#viewer-transport),
+// the simulation's playback bar while there is something to simulate. All are thin views over
+// the Viewer: they read `getState()` to render and call Viewer setters on interaction; the
+// Viewer owns all state.
+import type { Viewer, ViewerState, SceneItem, ItemType, ThemeName, PhysicsItem, PhysicsAction, PhysicsView, ClickMode, PhysicsMode, GizmoMode } from "../viewer";
+import type { PanelName } from "../../shared/messages";
+import type { PhysicsPreset } from "../physics/run";
+import { EARTH_GRAVITY } from "../physics/sim";
+import { DEFAULT_FOV } from "../cameraInteraction";
 import { SPLAT_RENDER_MODES } from "../splats";
 import type { SplatRenderMode } from "../splats";
 import {
@@ -20,8 +25,9 @@ import {
   iconButton,
   menuButton,
   isTouchOnly,
-  keyed,
+  withKey,
 } from "./components";
+import { showShortcuts } from "./overlays";
 
 // Inline (themeable, currentColor) eye glyphs for the per-item show/hide toggle.
 const EYE_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
@@ -32,12 +38,52 @@ const ICON_LIGHT = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentCol
 const ICON_DARK = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M12.5 8.473a10.968 10.968 0 0 1 8.785-.97 7.435 7.435 0 0 0-3.737 4.672l-.09.373A7.454 7.454 0 0 0 28.732 20.4a10.97 10.97 0 0 1-5.232 7.125l-.497.27c-5.014 2.566-11.175.916-14.234-3.813l-.295-.483C5.53 18.403 7.13 11.93 12.017 8.77l.483-.297Zm4.234.616a8.946 8.946 0 0 0-2.805.883l-.429.234A9 9 0 0 0 10.206 22.5l.241.395A9 9 0 0 0 22.5 25.794l.416-.255a8.94 8.94 0 0 0 2.167-1.99 9.433 9.433 0 0 1-2.782-.313c-5.043-1.352-8.036-6.535-6.686-11.578l.147-.491c.242-.745.573-1.44.972-2.078Z"/></svg>`;
 const ICON_DIM = `<svg viewBox="0 0 36 36" aria-hidden="true" fill="currentColor"><path d="M5 21a1 1 0 0 1 1-1h24a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1ZM12 25a1 1 0 0 1 1-1h10a1 1 0 1 1 0 2H13a1 1 0 0 1-1-1ZM15 29a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2h-4a1 1 0 0 1-1-1ZM18 13a6 6 0 0 1 5.915 7h-2.041A4.005 4.005 0 0 0 18 15a4 4 0 0 0-3.874 5h-2.041A6 6 0 0 1 18 13ZM17 7.038a1 1 0 1 1 2 0v3a1 1 0 0 1-2 0v-3ZM24.244 8.742a1 1 0 1 1 1.618 1.176L24.1 12.345a1 1 0 1 1-1.618-1.176l1.763-2.427ZM29.104 14.379a1 1 0 0 1 .618 1.902l-2.854.927a1 1 0 1 1-.618-1.902l2.854-.927ZM6.278 16.28a1 1 0 1 1 .618-1.901l2.853.927a1 1 0 1 1-.618 1.902l-2.853-.927ZM10.137 9.918a1 1 0 0 1 1.618-1.176l1.764 2.427a1 1 0 0 1-1.618 1.176l-1.764-2.427Z"/></svg>`;
 
-// Four-way move arrows: the per-item transform (position + rotation) disclosure.
-const ICON_MOVE = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>`;
+// The rail's panels: layers (Scene), sliders (Display), a ball over the ground (Physics), a
+// camera (Capture); and the playback bar's "restore" (an arrow turning back).
+const RAIL_SVG = `viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const ICON_SCENE = `<svg ${RAIL_SVG}><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>`;
+const ICON_DISPLAY = `<svg ${RAIL_SVG}><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>`;
+const ICON_PHYSICS = `<svg ${RAIL_SVG}><circle cx="12" cy="8" r="4"/><path d="M4 20h16M9 14.5l-1 2.5M15 14.5l1 2.5M12 15v2.5"/></svg>`;
+const ICON_CAPTURE = `<svg ${RAIL_SVG}><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+const ICON_RESTORE = `<svg ${RAIL_SVG}><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg>`;
 
-// Play / pause, for a temporal item's timeline.
+// A Scene row's type, by ItemType (14 px, drawn like the rail's icons).
+const TYPE_SVG = `viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const TYPE_ICONS: Record<ItemType, string> = {
+  reconstruction: `<svg ${TYPE_SVG}><path d="M4 18L12 5l8 13z"/><path d="M12 5v13"/></svg>`,
+  sequence: `<svg ${TYPE_SVG}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>`,
+  mesh: `<svg ${TYPE_SVG}><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>`,
+  splats: `<svg ${TYPE_SVG}><ellipse cx="9" cy="10" rx="5.5" ry="3" transform="rotate(-25 9 10)"/><ellipse cx="15.5" cy="15.5" rx="4" ry="2.5" transform="rotate(20 15.5 15.5)"/></svg>`,
+  points: `<svg ${TYPE_SVG}><circle cx="6" cy="8" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="17" cy="10" r="1"/><circle cx="8" cy="15" r="1"/><circle cx="14" cy="17" r="1"/><circle cx="19" cy="18" r="1"/></svg>`,
+  tracks: `<svg ${TYPE_SVG}><path d="M4 18c4-10 8 2 15-10"/><circle cx="19.5" cy="7.5" r="1.5"/></svg>`,
+  physics: `<svg ${TYPE_SVG}><circle cx="12" cy="8" r="4"/><path d="M4 20h16M9 14.5l-1 2.5M15 14.5l1 2.5M12 15v2.5"/></svg>`,
+};
+
+// Play / pause, for a temporal item's timeline and the playback bar.
 const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>`;
+
+/** The rail, in order: which panels exist, and when. */
+const PANELS: Array<{ id: PanelName; label: string; icon: string; shown: (s: ViewerState) => boolean }> = [
+  { id: "scene", label: "Scene", icon: ICON_SCENE, shown: () => true },
+  { id: "display", label: "Display", icon: ICON_DISPLAY, shown: () => true },
+  { id: "physics", label: "Physics", icon: ICON_PHYSICS, shown: (s) => s.physics !== null },
+  { id: "capture", label: "Capture", icon: ICON_CAPTURE, shown: (s) => s.items.length > 0 },
+];
+/** The playback bar's speeds (sim seconds per real second), in the order its button cycles. */
+const SPEEDS = [1, 0.5, 0.25, 0.1];
+/** The gizmo's modes, Blender's keys. */
+const GIZMO_MODES: Array<{ value: GizmoMode; label: string; title: string; key: string }> = [
+  { value: "translate", label: "Move", title: "Drag the gizmo's arrows or planes to move it", key: "G" },
+  { value: "rotate", label: "Rotate", title: "Drag the gizmo's rings to turn it", key: "R" },
+  { value: "scale", label: "Scale", title: "Drag the gizmo's handles to resize it", key: "S" },
+];
+/** The playback bar's click modes. */
+const CLICK_MODES: Array<{ value: ClickMode; label: string; title: string }> = [
+  { value: "select", label: "Select", title: "A click selects the item under it (Esc returns here)" },
+  { value: "shoot", label: "Shoot", title: "A click knocks out the piece it hits" },
+  { value: "blast", label: "Blast", title: "A click blows up a blast where it hits" },
+];
 
 /** Button copy for the 3DGS render modes; keyed exhaustively, so adding a mode to
  *  SPLAT_RENDER_MODES fails to compile until it is described here. */
@@ -48,16 +94,23 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 };
 
 export class ControlPanel {
-  // The 3DView (display) panel. On a phone-sized screen it starts folded: open, it
-  // and the Scene panel would cover most of the view; the Scene panel (with its +)
-  // stays open, as it is what a first visit needs.
-  private collapsed = matchMedia("(max-width: 600px), (max-height: 500px)").matches;
-  private sceneCollapsed = false; // the Scene panel
-  private captureCollapsed = true; // the Capture panel: out of the way until wanted
+  /** The panel the rail has open (one at a time; none = the rail alone). Scene to begin with:
+   *  its "+" is what a first visit needs. */
+  private open: PanelName | null = "scene";
+  /** Each panel's scroll offset, kept across re-renders and panel switches. */
+  private readonly scrollTops = new Map<PanelName, number>();
+  /** The selection at the last render: a new one (a click in the view) opens Scene, where its
+   *  Inspector is. */
+  private selected: string | null = null;
+  /** The last frame rate reported (setFps). */
+  private fps: number | null = null;
+  /** Each physics object's drop height, metres (3 unless set), kept across re-renders. */
+  private readonly dropHeights = new Map<string, number>();
+  /** How to rewrite each physics status line, by item id ("" = the simulation's) — repopulated
+   *  on every render, so a running simulation updates the lines instead of rebuilding the panel. */
+  private readonly physicsLines = new Map<string, (status: string) => void>();
   /** Which Capture sub-menus are open, kept across panel re-renders. */
   private readonly captureOpen = { image: true, video: true };
-  /** Scene items whose transform fields are open, kept across panel re-renders. */
-  private readonly transformOpen = new Set<string>();
   /** How to move each temporal item's playhead, by item id — repopulated on every
    *  render, so playback updates the live slider instead of rebuilding the panel. */
   private readonly playheads = new Map<string, (frame: number) => void>();
@@ -71,59 +124,119 @@ export class ControlPanel {
     private readonly options: { archives?: boolean } = {}
   ) {}
 
+  /** Open ``panel`` (null: none, the rail alone), as the configuration asks (Viewer.onOpenPanel);
+   *  the render that follows shows it. */
+  openPanel(panel: PanelName | null): void {
+    this.open = panel;
+  }
+
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
     // This rebuilds the UI wholesale — on every rename, remove and load — so a scrolled
-    // body would jump back to the top. Carry the offsets across, like transformOpen.
-    const scroll = Array.from(document.querySelectorAll<HTMLElement>(".viewer-body")).map(
-      (body) => body.scrollTop
-    );
+    // body would jump back to the top. Carry its offset across.
+    const shown = document.querySelector<HTMLElement>("#viewer-ui .viewer-panel");
+    if (shown) {
+      this.scrollTops.set(shown.dataset.panel as PanelName, shown.querySelector(".viewer-body")!.scrollTop);
+    }
     document.getElementById("viewer-ui")?.remove();
+    document.getElementById("viewer-transport")?.remove();
+    this.physicsLines.clear(); // the lines built below re-register
+    this.playheads.clear();
     const s = this.viewer.getState();
 
+    if (s.selected !== this.selected) {
+      this.selected = s.selected;
+      if (s.selected) {
+        this.open = "scene";
+      }
+    }
+    // The configured panels, in the configured order, of those that apply now.
+    const panels = s.ui.panels.map((id) => PANELS.find((p) => p.id === id)!)
+      .filter((p) => p.shown(s) && (p.id !== "physics" || s.interaction.physics));
+    if (this.open && !panels.some((p) => p.id === this.open)) {
+      // Its panel went (the last chunked object, the last item) or is not offered.
+      this.open = panels.some((p) => p.id === "scene") ? "scene" : null;
+    }
+    const dock = document.createElement("div");
+    dock.className = "viewer-dock";
+    if (this.open) {
+      dock.append(this.buildPanel(this.open, s));
+    }
+    if (panels.length) {
+      dock.append(this.buildRail(panels));
+    }
     const ui = document.createElement("div");
     ui.id = "viewer-ui";
     ui.className = "viewer-ui";
-    ui.append(this.buildDisplayPanel(s), this.buildScenePanel(s));
-    const capturePanel = this.buildCapturePanel(s);
-    if (capturePanel) {
-      ui.append(capturePanel);
+    ui.append(dock);
+    if (s.ui.footer) {
+      ui.append(buildFooter(s.backend, s.ui.fps, this.fps, s.ui.help,
+        s.ui.themeSwitcher ? this.buildThemeSwitcher(s) : null));
     }
-    ui.append(buildFooter(s.backend));
     document.body.appendChild(ui);
-    ui.querySelectorAll<HTMLElement>(".viewer-body").forEach((body, i) => {
-      body.scrollTop = scroll[i] ?? 0;
-    });
+    const body = ui.querySelector<HTMLElement>(".viewer-body");
+    if (body && this.open) {
+      body.scrollTop = this.scrollTops.get(this.open) ?? 0;
+    }
+    if (s.physics && s.interaction.physics) {
+      document.body.appendChild(this.buildTransport(s.physics, s.clickMode));
+    }
   }
 
-  /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
-  setPlayhead(id: string, frame: number): void {
-    this.playheads.get(id)?.(frame);
+  private buildPanel(id: PanelName, s: ViewerState): HTMLElement {
+    switch (id) {
+      case "scene":
+        return this.panelFrame(id, "Scene", sceneSummary(s), this.buildSceneBody(s),
+          s.interaction.edit ? this.buildAddMenu() : undefined);
+      case "display":
+        return this.panelFrame(id, "Display", null, this.buildDisplayBody(s));
+      case "physics":
+        return this.panelFrame(id, "Physics", null, this.buildPhysicsBody(s.physics!));
+      case "capture":
+        return this.panelFrame(id, "Capture", null, this.buildCaptureBody(s));
+    }
   }
 
-  /** A collapsible panel header: chevron + title (+ optional subtitle + action). */
-  private header(
-    panel: HTMLElement,
+  /** The rail: one button per panel; a click opens it (closing the other), or closes it. */
+  private buildRail(panels: typeof PANELS): HTMLElement {
+    const rail = document.createElement("div");
+    rail.className = "viewer-rail";
+    rail.setAttribute("role", "toolbar");
+    rail.setAttribute("aria-label", "Panels");
+    rail.setAttribute("aria-orientation", "vertical");
+    for (const p of panels) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "viewer-rail-btn";
+      btn.innerHTML = p.icon;
+      btn.title = p.label;
+      btn.setAttribute("aria-label", p.label);
+      btn.setAttribute("aria-pressed", String(this.open === p.id));
+      btn.addEventListener("click", () => {
+        this.open = this.open === p.id ? null : p.id;
+        this.render();
+      });
+      rail.append(btn);
+    }
+    return rail;
+  }
+
+  /** A panel: its title row (title, subtitle, an action such as the Scene "+") over a body
+   *  that scrolls by itself — the only scroll box, so the panel never outgrows the window. */
+  private panelFrame(
+    id: PanelName,
     title: string,
     subtitle: string | null,
-    toggle: () => void,
+    body: HTMLElement,
     action?: HTMLElement
   ): HTMLElement {
+    const panel = document.createElement("div");
+    panel.className = "viewer-panel";
+    panel.dataset.panel = id;
+    panel.setAttribute("role", "region");
+    panel.setAttribute("aria-label", title);
     const header = document.createElement("div");
     header.className = "viewer-header";
-    header.title = "Collapse / expand";
-    // Expose the header as a real toggle button to keyboard / screen-reader users:
-    // focusable, announced as a button, with its collapsed state in aria-expanded.
-    header.setAttribute("role", "button");
-    header.tabIndex = 0;
-    header.setAttribute("aria-label", `${title} panel`);
-    header.setAttribute("aria-expanded", String(!panel.classList.contains("collapsed")));
-
-    const chevron = document.createElement("span");
-    chevron.className = "viewer-chevron";
-    chevron.textContent = "▾";
-    chevron.setAttribute("aria-hidden", "true"); // decorative; aria-expanded conveys state
-
     const titles = document.createElement("div");
     titles.className = "viewer-titles";
     const titleEl = document.createElement("span");
@@ -136,76 +249,60 @@ export class ControlPanel {
       sub.textContent = subtitle;
       titles.append(sub);
     }
-
-    header.append(chevron, titles);
+    header.append(titles);
     if (action) {
-      // The action (e.g. the "+" menu) stops its own click from bubbling here.
       header.append(action);
     }
-    const flip = () => {
-      toggle();
-      const collapsed = panel.classList.toggle("collapsed");
-      header.setAttribute("aria-expanded", String(!collapsed));
-    };
-    header.addEventListener("click", flip);
-    header.addEventListener("keydown", (e) => {
-      // Only the header itself toggles; ignore keys bubbling from the action (the
-      // "+" menu button is independently focusable and handles its own keys).
-      if (e.target !== header || (e.key !== "Enter" && e.key !== " ")) {
-        return;
-      }
-      e.preventDefault(); // Space would otherwise scroll the page
-      flip();
-    });
-    return header;
+    panel.append(header, body);
+    return panel;
   }
 
-  /** The 3DView panel: scene-wide display controls. */
-  private buildDisplayPanel(s: ViewerState): HTMLElement {
-    const panel = document.createElement("div");
-    panel.className = this.collapsed ? "viewer-panel collapsed" : "viewer-panel";
-    panel.append(
-      this.header(panel, "3DView", null, () => {
-        this.collapsed = !this.collapsed;
-      }),
-      collapseWrap(this.buildDisplayBody(s))
-    );
-    return panel;
+  /** Rewrite a physics status line, an object's or (``id`` null) the simulation's (the
+   *  Viewer's onPhysics, while it runs). */
+  setPhysicsStatus(id: string | null, status: string): void {
+    this.physicsLines.get(id ?? "")?.(status);
+  }
+
+  /** The footer's frame rate (the Viewer's onFps); kept for the next rebuild. */
+  setFps(fps: number | null): void {
+    this.fps = fps;
+    const el = document.querySelector<HTMLElement>(".viewer-fps");
+    if (el) el.textContent = fpsText(fps);
+  }
+
+  /** Move a temporal item's playhead (the Viewer's onFrame, during playback). */
+  setPlayhead(id: string, frame: number): void {
+    this.playheads.get(id)?.(frame);
   }
 
   private buildDisplayBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
 
-    // Theme — light/dark/dim color scheme for the UI and the 3D viewport.
-    body.append(section("Theme", [this.buildThemeSwitcher(s)]));
-
     // Show — scene-wide visibility toggles, only for content that exists.
     const toggles = document.createElement("div");
     toggles.className = "viewer-toggles";
+    const toggle = (label: string, key: string, name: Parameters<Viewer["setGlobal"]>[0], on: boolean) =>
+      withKey(checkbox(label, on, (v) => this.viewer.setGlobal(name, v)), key);
     if (s.hasPoints) {
-      toggles.append(checkbox(keyed("Points", "P"), s.points, (on) => this.viewer.setGlobal("points", on)));
+      toggles.append(toggle("Points", "P", "points", s.points));
     }
     if (s.hasCameras) {
-      toggles.append(
-        checkbox(keyed("Frustums", "F"), s.frustums, (on) => this.viewer.setGlobal("frustums", on)),
-        checkbox(keyed("Images", "I"), s.images, (on) => this.viewer.setGlobal("images", on))
-      );
+      toggles.append(toggle("Frustums", "F", "frustums", s.frustums), toggle("Images", "I", "images", s.images));
     }
     if (s.hasPoints || s.hasAssets) {
-      toggles.append(checkbox(keyed("Box", "B"), s.box, (on) => this.viewer.setGlobal("box", on)));
+      toggles.append(toggle("Box", "B", "box", s.box));
     }
-    if (s.hasAssets) {
-      toggles.append(
-        checkbox(keyed("Shaded", "S"), s.shaded, (on) => this.viewer.setGlobal("shaded", on)),
-        checkbox(keyed("Wireframe", "W"), s.wireframe, (on) => this.viewer.setGlobal("wireframe", on))
-      );
-    }
-    toggles.append(
-      checkbox(keyed("Grid", "G"), s.grid, (on) => this.viewer.setGlobal("grid", on)),
-      checkbox(keyed("Axes", "A"), s.axes, (on) => this.viewer.setGlobal("axes", on))
-    );
+    toggles.append(toggle("Grid", "Shift+G", "grid", s.grid), toggle("Axes", "A", "axes", s.axes));
     body.append(section("Show", [toggles]));
+
+    // Meshes — how mesh assets are drawn (two independent switches).
+    if (s.hasAssets) {
+      const modes = document.createElement("div");
+      modes.className = "viewer-toggles";
+      modes.append(toggle("Shaded", "Shift+S", "shaded", s.shaded), toggle("Wireframe", "W", "wireframe", s.wireframe));
+      body.append(section("Meshes", [modes]));
+    }
 
     // Gaussians — how 3DGS assets are drawn; only when the scene holds one.
     if (s.hasSplat) {
@@ -222,7 +319,8 @@ export class ControlPanel {
     // One slider for every bare point cloud in the scene: a reconstruction's own
     // cloud and a point-cloud asset alike.
     if (s.hasPoints || s.hasPointCloud) {
-      appearance.push(slider("Point size", 0.5, 6, 0.5, s.pointSize, (v) => this.viewer.setPointSize(v)));
+      appearance.push(slider("Point size", 0.5, 6, 0.5, s.pointSize, (v) => this.viewer.setPointSize(v),
+        { format: (v) => `${v} px` }));
     }
     if (s.hasCameras) {
       appearance.push(
@@ -230,7 +328,7 @@ export class ControlPanel {
           this.viewer.setFrustumScale(v)
         ),
         slider("Frustum line width", 1, 10, 0.5, s.frustumLineWidth, (v) =>
-          this.viewer.setFrustumLineWidth(v)
+          this.viewer.setFrustumLineWidth(v), { format: (v) => `${v} px` }
         ),
         colorRow("Frustum color", s.frustumColor, (v) => this.viewer.setFrustumColor(v))
       );
@@ -250,7 +348,8 @@ export class ControlPanel {
         slider("Track density", 0.05, 1, 0.05, s.trackDensity, (v) =>
           this.viewer.setTrackDensity(v)
         ),
-        slider("Track line width", 1, 10, 0.5, s.trackLineWidth, (v) => this.viewer.setTrackLineWidth(v)),
+        slider("Track line width", 1, 10, 0.5, s.trackLineWidth, (v) => this.viewer.setTrackLineWidth(v),
+          { format: (v) => `${v} px` }),
         slider("Track smoothing", 0, 5, 0.25, s.trackSmoothing, (v) =>
           this.viewer.setTrackSmoothing(v)
         )
@@ -267,24 +366,29 @@ export class ControlPanel {
       body.append(section("Appearance", appearance));
     }
 
-    // View — orientation + reset.
-    body.append(
-      section("View", [
-        checkbox(keyed("Upright Y-up", "U"), s.orientation === "upright", (on) =>
-          this.viewer.setOrientation(on ? "upright" : "raw")
-        ),
-        button(keyed("Reset view", "R"), () => this.viewer.resetView(), true),
-      ])
-    );
+    // View — orientation, following a simulation, reset.
+    const view: HTMLElement[] = [
+      withKey(checkbox("Upright Y-up", s.orientation === "upright", (on) =>
+        this.viewer.setOrientation(on ? "upright" : "raw")
+      ), "U"),
+    ];
+    if (s.physics) {
+      const follow = checkbox("Follow the pieces", s.physics.follow, (on) => this.viewer.setPhysicsFollow(on));
+      follow.title = "Keep the camera on the object last acted on while its pieces move";
+      view.push(follow);
+    }
+    view.push(withKey(button("Fit view", () => this.viewer.resetView(), true), "Home"));
+    body.append(section("View", view));
 
     // Camera — controls OrbitControls' drag can't reach: perspective FOV and a
     // roll (tilt) about the view axis. Reset snaps both sliders back to default.
     body.append(
       section("Camera", [
-        slider("Field of view°", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v)),
-        slider("Roll°", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v)),
+        slider("Field of view", 20, 90, 1, s.fov, (v) => this.viewer.setFov(v),
+          { format: (v) => `${v}°`, reset: DEFAULT_FOV }),
+        slider("Roll", -180, 180, 1, s.roll, (v) => this.viewer.setRoll(v), { format: (v) => `${v}°`, reset: 0 }),
         button(
-          "Reset camera",
+          "Default lens",
           () => {
             this.viewer.resetCamera();
             this.render(); // a click, not a keystroke — re-reading the sliders is safe
@@ -294,16 +398,153 @@ export class ControlPanel {
       ])
     );
 
-    if (s.hasCameras) {
-      body.append(
-        hint(
-          isTouchOnly()
-            ? "Tap a frustum to view from it · Reset view to exit"
-            : "Hover a frustum to highlight it · click to view from it (Esc to exit)"
-        )
-      );
-    }
     return body;
+  }
+
+  /**
+   * The Physics panel, while the scene holds a chunked object (an .npz from
+   * GenerativeReconstruction's export_chunks.py): the World every object shares (they are in
+   * one world, so they collide). Its clock is the playback bar; each object's own controls
+   * are in its Inspector (Scene).
+   */
+  private buildPhysicsBody(p: PhysicsView): HTMLElement {
+    const gravity = slider("Gravity", 0, 20, 0.1, p.gravity, (v) => this.viewer.setPhysicsGravity(v),
+      { format: (v) => `${v.toFixed(1)} m/s²`, reset: EARTH_GRAVITY });
+    gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
+    const body = document.createElement("div");
+    body.className = "viewer-body";
+    const floor = checkbox("Floor at the scene's bottom", p.floor, (on) => this.viewer.setPhysicsFloor(on));
+    floor.title = "An endless floor under everything; off, what falls past the scene is lost";
+    // The scene's unit on a log scale, 1 mm to 1 km: COLMAP's units are arbitrary, the physics'
+    // are metres.
+    const unit = slider("Scene unit", -3, 3, 0.1, Math.log10(p.unit), (v) => this.viewer.setPhysicsUnit(10 ** v),
+      { format: (v) => `${Number((10 ** v).toPrecision(2))} m`, parse: (t) => Math.log10(parseFloat(t)), reset: 0 });
+    unit.title = "How many metres one unit of the scene is (gravity, drop heights and shot speeds are in metres)";
+    body.append(section("World", [gravity, floor, unit]));
+    return body;
+  }
+
+  /** The simulation's playback bar (bottom centre): play / pause, restore every object, its
+   *  line (updated in place), the speed (a button cycling through SPEEDS) and the click mode. */
+  private buildTransport(p: PhysicsView, clickMode: ClickMode): HTMLElement {
+    const bar = document.createElement("div");
+    bar.id = "viewer-transport";
+    bar.className = "viewer-transport";
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "Simulation");
+    const busy = p.objects.some((o) => o.busy);
+    const play = document.createElement("button");
+    play.className = "viewer-iconbtn";
+    play.innerHTML = p.running ? ICON_PAUSE : ICON_PLAY;
+    play.title = p.running ? "Pause the simulation" : "Play the simulation (the first time calibrates every object's welds)";
+    play.addEventListener("click", () => this.viewer.playPhysics(!p.running));
+    const restore = document.createElement("button");
+    restore.className = "viewer-iconbtn";
+    restore.innerHTML = ICON_RESTORE;
+    restore.title = "Restore all: every object back to rest, whole";
+    restore.addEventListener("click", () => this.viewer.resetPhysics());
+    play.disabled = restore.disabled = busy;
+    const line = document.createElement("span");
+    line.className = "viewer-transport-line";
+    line.textContent = p.status;
+    this.physicsLines.set("", (status) => {
+      line.textContent = status;
+    });
+    const speed = document.createElement("button");
+    speed.className = "viewer-scale-btn viewer-transport-speed";
+    speed.textContent = `${p.speed}×`;
+    speed.title = "Speed: slow motion runs the same steps, fewer a second (click for the next)";
+    speed.addEventListener("click", () => {
+      this.viewer.setPhysicsSpeed(SPEEDS[(SPEEDS.indexOf(p.speed) + 1) % SPEEDS.length]);
+      this.render();
+    });
+    const mode = choiceRow(CLICK_MODES, clickMode, (m) => this.viewer.setClickMode(m));
+    mode.setAttribute("aria-label", "Click mode");
+    bar.append(play, restore, line, speed, mode);
+    return bar;
+  }
+
+  /** The Inspector's Physics section: whether the item takes part (Off / Static / Dynamic, or a
+   *  breakable object's Off / Breakable) and, while it does, its line (updated in place), its
+   *  collision shape on demand, and — dynamic — Drop / Restore and the drop height, — breakable —
+   *  glue, shatter and the presets. The first action calibrates every
+   *  object's welds (~7 simulated seconds each, with progress on its line). */
+  private buildPhysicsSection(sceneItem: SceneItem, item: PhysicsItem | undefined): HTMLElement {
+    const { mode, modes, shape } = sceneItem.physics!;
+    const labels: Record<PhysicsMode, string> = {
+      off: "Off",
+      static: "Static",
+      dynamic: sceneItem.type === "physics" ? "Breakable" : "Dynamic",
+    };
+    const titles: Record<PhysicsMode, string> = {
+      off: "Not in the physics: nothing hits it",
+      static: "An environment: it stops what falls on it, and never moves",
+      dynamic: sceneItem.type === "physics" ? "Welded chunks that break apart" : "A solid body: it falls, and shots push it",
+    };
+    const modeRow = choiceRow(modes.map((m) => ({ value: m, label: labels[m], title: titles[m] })), mode,
+      (m) => this.viewer.setPhysicsMode(sceneItem.id, m));
+    if (!item) {
+      return section("Physics", [modeRow]);
+    }
+    const showShape = checkbox("Show collision shape", shape, (on) => this.viewer.setPhysicsShape(sceneItem.id, on));
+    showShape.title = "Its bodies' boxes, as a wireframe: what the physics collides with";
+    const line = hint(item.status);
+    this.physicsLines.set(item.id, (status) => {
+      line.textContent = status;
+    });
+    const height = () => this.dropHeights.get(item.id) ?? 3;
+    const run = (action: PhysicsAction) => () => this.viewer.runPhysics(item.id, action, height());
+    const drop = button("Drop", run("drop"));
+    drop.title = "Lift it to the drop height, tilted, and let it fall";
+    const reset = button("Restore", run("reset"), true);
+    reset.title = "This object back to rest, whole, where it is placed";
+    const row = document.createElement("div");
+    row.className = "viewer-scale-row";
+    row.append(drop, reset);
+    const heightRow = slider("Drop height", 0, 4, 0.1, height(), (v) => {
+      this.dropHeights.set(item.id, v);
+    }, { format: (v) => `${v} m`, reset: 3 });
+    // Glue on a log scale (0.3x to 300x the load each weld carries at rest): the object
+    // stands above 1x; shatter's top step is "off".
+    const glue = slider("Glue", -0.5, 2.5, 0.05, Math.log10(item.strength),
+      (v) => this.viewer.setPhysicsStrength(item.id, 10 ** v),
+      { format: (v) => `${fmtGlue(10 ** v)}×`, parse: (t) => Math.log10(parseFloat(t)), reset: 1 });
+    glue.title = "Each weld breaks at this multiple of the load it carries at rest";
+    const shatterTop = 10.5;
+    const shatter = slider("Shatter above", 1, shatterTop,
+      0.5, Math.min(item.shatterSpeed, shatterTop),
+      (v) => this.viewer.setPhysicsShatterSpeed(item.id, v >= shatterTop ? Number.POSITIVE_INFINITY : v),
+      { format: (v) => (v >= shatterTop ? "off" : `${v} m/s`),
+        parse: (t) => (/off/i.test(t) ? shatterTop : parseFloat(t)), reset: shatterTop });
+    shatter.title = "A piece hit faster than this comes loose (brittle)";
+    const presets = document.createElement("div");
+    presets.className = "viewer-scale-row";
+    const presetCopy: Array<[PhysicsPreset, string, string]> = [
+      ["shatter", "Shatter", "Brittle, dropped from 3 m"],
+      ["explode", "Explode", "A blast at its middle"],
+      ["volley", "Volley", "Five shots through it from here"],
+      ["crumble", "Crumble", "The glue vanishes"],
+    ];
+    const actions = [drop, reset];
+    for (const [name, label, title] of presetCopy) {
+      const b = document.createElement("button");
+      b.className = "viewer-scale-btn";
+      b.textContent = label;
+      b.addEventListener("click", () => this.viewer.physicsPreset(item.id, name));
+      b.title = `${title} (from rest, default glue)`;
+      presets.append(b);
+      actions.push(b);
+    }
+    for (const b of actions) {
+      b.disabled = item.busy;
+    }
+    if (!item.dynamic) {
+      return section("Physics", [modeRow, line, showShape]);
+    }
+    if (!item.breakable) {
+      return section("Physics", [modeRow, line, row, heightRow, showShape]);
+    }
+    return section("Physics", [modeRow, line, row, heightRow, glue, shatter, presets, showShape]);
   }
 
   /**
@@ -312,22 +553,21 @@ export class ControlPanel {
    * kind is a sub-menu of its own (video only for a reconstruction with a camera
    * path to fly, i.e. two cameras or more).
    */
-  private buildCapturePanel(s: ViewerState): HTMLElement | null {
-    if (s.items.length === 0) {
-      return null;
-    }
+  private buildCaptureBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
 
-    const fill = checkbox("Fill point gaps", s.adaptivePointSize, (on) =>
-      this.viewer.setAdaptivePointSize(on)
-    );
-    fill.title =
-      "Size points by each cloud's own spacing in image and video captures, so surfaces stay filled at high resolution";
-    const top = document.createElement("div");
-    top.className = "viewer-section";
-    top.append(fill);
-    body.append(top);
+    // "Fill point gaps" changes both captures, and only where there are points to fill: one
+    // setting, shown in each capture it affects.
+    const hasPoints = s.hasPoints || s.hasPointCloud;
+    const fill = (): HTMLElement[] => {
+      if (!hasPoints) {
+        return [];
+      }
+      const row = checkbox("Fill point gaps", s.adaptivePointSize, (on) => this.viewer.setAdaptivePointSize(on));
+      row.title = "Size points by each cloud's own spacing, so surfaces stay filled at high resolution";
+      return [row];
+    };
 
     // Image — save a PNG of the current view at 1×/2×/4× resolution.
     const scales = scaleButtons(
@@ -337,31 +577,21 @@ export class ControlPanel {
     );
     const open = this.captureOpen;
     body.append(
-      subsection("Image", open.image, (o) => (open.image = o), [actionRow("Save PNG", scales)])
+      subsection("Image", open.image, (o) => (open.image = o), [...fill(), actionRow("Save PNG at", scales)])
     );
 
+    // Camera fly-through — only a reconstruction with a camera path to fly; otherwise say so.
     const withPath = s.items.filter((i) => i.cameraCount > 1);
-    if (withPath.length > 0) {
-      const rows = this.buildVideoRows(withPath);
-      body.append(subsection("Video", open.video, (o) => (open.video = o), rows));
-    }
-
-    const panel = document.createElement("div");
-    panel.className = this.captureCollapsed
-      ? "viewer-panel viewer-capture collapsed"
-      : "viewer-panel viewer-capture";
-    panel.append(
-      this.header(panel, "Capture", null, () => {
-        this.captureCollapsed = !this.captureCollapsed;
-      }),
-      collapseWrap(body)
-    );
-    return panel;
+    const rows = withPath.length > 0
+      ? [...fill(), ...this.buildVideoRows(withPath)]
+      : [hint("Needs a reconstruction with two cameras or more: the video flies through them.")];
+    body.append(subsection("Camera fly-through", open.video, (o) => (open.video = o), rows));
+    return body;
   }
 
   /**
-   * The Video sub-menu: fly through a reconstruction's cameras (in image-name order)
-   * and save the result. Settings live on the panel; the scale buttons start it.
+   * The Camera fly-through sub-menu: fly through a reconstruction's cameras (in image-name
+   * order) and save the video. Settings live on the panel; the scale buttons start it.
    */
   private buildVideoRows(withPath: SceneItem[]): HTMLElement[] {
     const v = this.video;
@@ -388,23 +618,22 @@ export class ControlPanel {
       })
     );
     if (v.overrideFov) {
-      const fov = slider("Field of view°", 10, 120, 1, v.fov, (n) => (v.fov = n));
+      const fov = slider("Field of view", 10, 120, 1, v.fov, (n) => (v.fov = n), { format: (n) => `${n}°` });
       fov.title = "Vertical field of view of the video";
       rows.push(fov);
     }
+    // Touch has the status pill's Cancel button; a keyboard has Esc.
+    const cancel = isTouchOnly() ? "" : " (Esc cancels)";
     const scales = scaleButtons(
       [1, 2],
-      (sc) => `Render the camera path at ${sc}× the cameras' image size; frustums are hidden while it runs`,
+      (sc) => `Render the camera path at ${sc}× the cameras' image size; frustums are hidden while it runs${cancel}`,
       (sc) => {
         const { item: itemId, framesPerCamera, fps, loop } = v;
         const fov = v.overrideFov ? v.fov : undefined;
         void this.viewer.renderCameraPath({ itemId, framesPerCamera, fps, loop, fov, scale: sc });
       }
     );
-    rows.push(actionRow("Render", scales));
-    if (!isTouchOnly()) {
-      rows.push(hint("Esc cancels a render")); // touch: the status pill has a Cancel button
-    }
+    rows.push(actionRow("Render at", scales));
     return rows;
   }
 
@@ -460,16 +689,13 @@ export class ControlPanel {
     return seg;
   }
 
-  /** The Scene panel: a "+" add menu in the header + the item list as the body. */
-  private buildScenePanel(s: ViewerState): HTMLElement {
-    const panel = document.createElement("div");
-    panel.className = this.sceneCollapsed ? "viewer-panel collapsed" : "viewer-panel";
-
+  /** The Scene panel's "+" add menu (its header's action). */
+  private buildAddMenu(): HTMLElement {
     // One entry per loadable kind. The asset entries differ only in how the host
     // filters its file picker — what a file actually is comes from the file itself
     // (a .ply is a mesh, a point cloud or a splat, by what is in it), so a "wrong"
     // entry still loads it.
-    const add = menuButton("+", "Add to scene", [
+    return menuButton("+", "Add to scene", [
       { label: "COLMAP", onClick: () => this.viewer.requestAdd("colmap") },
       // The same, zipped — only where the host can unzip (a phone can't pick the
       // project folder its model and images span).
@@ -484,26 +710,11 @@ export class ControlPanel {
       // way in where a host's file dialog can't select several files at once.
       { label: "Asset folder", onClick: () => this.viewer.requestAdd("assetFolder") },
     ]);
-
-    panel.append(
-      this.header(
-        panel,
-        "Scene",
-        sceneSummary(s),
-        () => {
-          this.sceneCollapsed = !this.sceneCollapsed;
-        },
-        add
-      ),
-      collapseWrap(this.buildSceneBody(s))
-    );
-    return panel;
   }
 
   private buildSceneBody(s: ViewerState): HTMLElement {
     const body = document.createElement("div");
     body.className = "viewer-body";
-    this.playheads.clear(); // the rows below re-register the ones that still exist
 
     if (s.items.length === 0) {
       const empty = document.createElement("div");
@@ -522,10 +733,34 @@ export class ControlPanel {
       label.title = item.source ? sourcePath(item.source) : item.label;
       const kind = document.createElement("span");
       kind.className = "kind";
-      kind.textContent = item.kind === "reconstruction" ? "recon" : "asset";
+      kind.innerHTML = TYPE_ICONS[item.type];
+      kind.title = ITEM_TYPE_LABELS[item.type];
+      kind.setAttribute("role", "img");
+      kind.setAttribute("aria-label", ITEM_TYPE_LABELS[item.type]);
 
-      const editor = this.buildTransformEditor(item, s.positionStep);
-      editor.hidden = !this.transformOpen.has(item.id);
+      // A click on the row (not on one of its buttons) selects it for the Inspector, or
+      // deselects it; so does Enter on the focused label.
+      const selected = item.id === s.selected;
+      row.classList.toggle("selected", selected);
+      if (s.interaction.select) {
+        label.tabIndex = 0;
+        label.setAttribute("role", "button");
+        label.setAttribute("aria-pressed", String(selected));
+        const select = () => this.viewer.selectItem(selected ? null : item.id);
+        row.addEventListener("click", (e) => {
+          if (!(e.target as HTMLElement).closest("button, input")) {
+            select();
+          }
+        });
+        label.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            select();
+          }
+        });
+      } else {
+        row.classList.add("static"); // nothing to select: no pointer, no highlight
+      }
 
       row.append(this.visibilityToggle(item), label, kind);
       if (item.frameCount > 0) {
@@ -537,21 +772,61 @@ export class ControlPanel {
         row.append(frames);
       }
       // Shown on hover / keyboard focus (styles.ts), so a list of items reads calmly.
-      const actions = document.createElement("span");
-      actions.className = "viewer-scene-actions";
-      actions.append(
-        this.transformToggle(item, editor),
-        iconButton("✎", "Rename", () => this.startRename(label, item)),
-        iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
-      );
-      row.append(actions);
+      if (s.interaction.edit) {
+        const actions = document.createElement("span");
+        actions.className = "viewer-scene-actions";
+        actions.append(
+          iconButton("✎", "Rename", () => this.startRename(label, item)),
+          iconButton("✕", "Remove", () => this.viewer.removeItem(item.id))
+        );
+        row.append(actions);
+      }
       body.append(row);
       if (item.frameCount > 1) {
         body.append(this.buildTimeline(item));
       }
-      body.append(editor);
+    }
+    const selected = s.items.find((i) => i.id === s.selected);
+    if (selected) {
+      body.append(this.buildInspector(selected, s));
     }
     return body;
+  }
+
+  /**
+   * The Inspector, under the Scene list: what the selected item is, its placement, and (a
+   * chunked object) its physics. Every per-item setting lives here.
+   */
+  private buildInspector(item: SceneItem, s: ViewerState): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "viewer-inspector";
+    wrap.setAttribute("role", "region");
+    wrap.setAttribute("aria-label", `${item.label}: inspector`);
+    const head = document.createElement("div");
+    head.className = "viewer-inspector-head";
+    const name = document.createElement("div");
+    name.className = "viewer-inspector-name";
+    name.textContent = item.label;
+    const what = document.createElement("div");
+    what.className = "viewer-inspector-type";
+    what.textContent = itemDescription(item);
+    head.title = item.source ? sourcePath(item.source) : item.label;
+    head.append(name, what);
+    const gizmo = choiceRow(GIZMO_MODES.map((g) => ({ ...g, title: `${g.title} (${g.key})` })), s.gizmoMode,
+      (m) => this.viewer.setGizmoMode(m));
+    if (s.scaleLocked) {
+      const scale = gizmo.querySelector<HTMLButtonElement>("button:last-child")!;
+      scale.disabled = true;
+      scale.title = "A breakable object's welds are calibrated to its size: turn its physics Off to scale it";
+    }
+    wrap.append(head);
+    if (s.interaction.edit) {
+      wrap.append(section("Placement", [gizmo, this.buildTransformEditor(item, s.positionStep, s.scaleLocked)]));
+    }
+    if (item.physics && s.interaction.physics) {
+      wrap.append(this.buildPhysicsSection(item, s.physics?.objects.find((o) => o.id === item.id)));
+    }
+    return wrap;
   }
 
   /**
@@ -608,38 +883,19 @@ export class ControlPanel {
     return wrap;
   }
 
-  /** Move-arrows button that shows/hides an item's transform fields in place. */
-  private transformToggle(item: SceneItem, editor: HTMLElement): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.className = "viewer-iconbtn";
-    btn.innerHTML = ICON_MOVE;
-    btn.title = "Position / rotation";
-    btn.setAttribute("aria-expanded", String(!editor.hidden));
-    btn.addEventListener("click", () => {
-      editor.hidden = !editor.hidden;
-      if (editor.hidden) {
-        this.transformOpen.delete(item.id);
-      } else {
-        this.transformOpen.add(item.id);
-      }
-      btn.setAttribute("aria-expanded", String(!editor.hidden));
-    });
-    return btn;
-  }
-
   /**
    * Per-item position + rotation fields, Blender-style: the item's own placement in
    * the scene. Edits go straight to the Viewer and update nothing else in the panel,
    * so a field keeps focus while it is being typed in or nudged.
    */
-  private buildTransformEditor(item: SceneItem, positionStep: number): HTMLElement {
+  private buildTransformEditor(item: SceneItem, positionStep: number, scaleLocked: boolean): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "viewer-xform";
 
     const reset = document.createElement("button");
     reset.className = "viewer-xform-reset";
-    reset.textContent = "Reset";
-    reset.title = "Back to the origin, unrotated";
+    reset.textContent = "Reset placement";
+    reset.title = "Back to the origin, unrotated, its own size";
     reset.addEventListener("click", () => {
       this.viewer.resetItemTransform(item.id);
       this.render(); // a click, not a keystroke — re-reading the fields is safe here
@@ -652,6 +908,9 @@ export class ControlPanel {
       vectorRow("Rotation°", item.transform.rotation, 1, (v) =>
         this.viewer.setItemTransform(item.id, { rotation: v })
       ),
+      lockable(vectorRow("Scale", item.transform.scale, 0.1, (v) =>
+        this.viewer.setItemTransform(item.id, { scale: v })
+      ), scaleLocked),
       reset
     );
     return wrap;
@@ -710,21 +969,9 @@ export class ControlPanel {
   }
 }
 
-/**
- * Wrap a panel body so the `.collapsed` grid-rows transition animates its height.
- * The grid's child must be a padding-free clip layer (`.viewer-clip`): the padded
- * `.viewer-body` itself can't be the grid item, because an item's padding is added
- * to its min-content size and floors the `0fr` row at ~18px (the panel then never
- * closes fully). The padding lives on the grandchild instead.
- */
-function collapseWrap(body: HTMLElement): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "viewer-collapse";
-  const clip = document.createElement("div");
-  clip.className = "viewer-clip";
-  clip.append(body);
-  wrap.append(clip);
-  return wrap;
+/** A glue multiple as the slider reads it: "0.5", "3", "30". */
+function fmtGlue(k: number): string {
+  return k < 1 ? k.toFixed(1) : k < 10 ? k.toFixed(1).replace(/\.0$/, "") : String(Math.round(k));
 }
 
 /** A row of "1×", "2×", … buttons that each start a render at that scale. */
@@ -756,11 +1003,19 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
   return row;
 }
 
-/** The caption row under the panels: which GPU backend draws the scene (once the
- *  renderer is up), then the build's version. */
-function buildFooter(backend: ViewerState["backend"]): HTMLElement {
+/** The footer: the frame rate (``fps``, if ``showFps``), the backend, the version, the "?" help
+ *  (``help``) and the theme switcher (``theme``, if any) — the parts the configuration keeps. */
+function buildFooter(backend: ViewerState["backend"], showFps: boolean, fps: number | null, help: boolean,
+  theme: HTMLElement | null): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "viewer-foot";
+  if (showFps) {
+    const rate = document.createElement("span");
+    rate.className = "viewer-fps";
+    rate.textContent = fpsText(fps);
+    rate.title = "Frames drawn per second; idle while nothing changes (the view redraws on demand)";
+    foot.append(rate);
+  }
   if (backend) {
     const el = document.createElement("span");
     el.className = "viewer-backend";
@@ -773,6 +1028,15 @@ function buildFooter(backend: ViewerState["backend"]): HTMLElement {
     foot.append(el);
   }
   foot.append(buildVersion());
+  if (help) {
+    const button = document.createElement("button");
+    button.className = "viewer-help";
+    button.textContent = "?";
+    button.title = "Shortcuts and mouse controls (?)";
+    button.addEventListener("click", showShortcuts);
+    foot.append(button);
+  }
+  if (theme) foot.append(theme);
   return foot;
 }
 
@@ -794,6 +1058,37 @@ function buildVersion(): HTMLElement {
 /** Strip a leading http(s) origin from a host URI so the tooltip reads as a file path. */
 function sourcePath(uri: string): string {
   return uri.replace(/^https?:\/\/[^/]+/i, "");
+}
+
+/** ``row`` with its inputs disabled when ``locked`` (a breakable object's scale). */
+function lockable(row: HTMLElement, locked: boolean): HTMLElement {
+  row.querySelectorAll("input").forEach((input) => (input.disabled = locked));
+  if (locked) row.title = "Locked while its physics is on (its welds are calibrated to its size)";
+  return row;
+}
+
+/** The footer's frame rate: "60 fps", or "idle" while nothing is drawn. */
+function fpsText(fps: number | null): string {
+  return fps === null ? "idle" : `${fps} fps`;
+}
+
+/** Each item type as the Inspector names it. */
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  reconstruction: "COLMAP reconstruction",
+  sequence: "Sequence",
+  mesh: "Mesh",
+  splats: "3D Gaussian splats",
+  points: "Point cloud",
+  tracks: "Point tracks",
+  physics: "Breakable object (physics)",
+};
+
+/** What a Scene item is, for the Inspector: its type and, where known, its size. */
+function itemDescription(item: SceneItem): string {
+  const type = ITEM_TYPE_LABELS[item.type];
+  if (item.cameraCount > 0) return `${type} · ${item.cameraCount} cameras`;
+  if (item.frameCount > 0) return `${type} · ${item.frameCount} frames`;
+  return type;
 }
 
 /** Human-readable scene summary, e.g. "1 reconstruction · 2 assets". */

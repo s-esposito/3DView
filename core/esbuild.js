@@ -19,11 +19,44 @@ const define = { __APP_VERSION__: JSON.stringify(version) };
 // production builds (`npm run build`, used for the VSIX + Pages demo) drop it.
 const prod = !watch;
 
+// box3d-wasm exports its JS entry points but not its .wasm: physics/box3d.ts imports the
+// bytes as "box3d-wasm-binary", read here from the package's own folder and embedded.
+const box3dWasm = {
+  name: "box3d-wasm-binary",
+  setup(build) {
+    build.onResolve({ filter: /^box3d-wasm-binary$/ }, () => ({
+      path: path.join(path.dirname(require.resolve("box3d-wasm/package.json")), "dist", "box3d.wasm"),
+      namespace: "box3d-wasm-binary",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "box3d-wasm-binary" }, (args) => ({
+      contents: fs.readFileSync(args.path),
+      loader: "binary",
+    }));
+  },
+};
+
 /** @type {import('esbuild').BuildOptions} */
 const webviewConfig = {
   entryPoints: ["src/webview/main.ts"],
   bundle: true,
   outfile: "out/webview.js",
+  platform: "browser",
+  format: "iife",
+  target: "es2020",
+  minify: true,
+  sourcemap: !prod,
+  define,
+  plugins: [box3dWasm],
+  // box3d's loader imports node's "module" only when it runs under Node, never here.
+  external: ["node:module"],
+};
+
+// The embedding kit (src/embed): embed.js, the SDK a web page loads, and embed-frame.js, the
+// host bridge embed.html installs before webview.js. Both plain scripts, like the viewer.
+const embedConfig = {
+  entryPoints: { embed: "src/embed/sdk.ts", "embed-frame": "src/embed/frame.ts" },
+  bundle: true,
+  outdir: "out",
   platform: "browser",
   format: "iife",
   target: "es2020",
@@ -48,7 +81,11 @@ function testConfig() {
     format: "cjs",
     target: "node18",
     sourcemap: true,
-    define, // in case a test bundles a module referencing __APP_VERSION__
+    // __APP_VERSION__ in case a test bundles a module referencing it; import.meta.url for
+    // box3d's loader, which a CJS bundle does not have, from the banner below.
+    define: { ...define, "import.meta.url": "__importMetaUrl" },
+    banner: { js: 'const __importMetaUrl = require("url").pathToFileURL(__filename).href;' },
+    plugins: [box3dWasm],
   };
 }
 
@@ -63,8 +100,8 @@ async function run() {
     await ctx.watch();
     console.log("[core] watching webview for changes...");
   } else {
-    await esbuild.build(webviewConfig);
-    console.log("[core] webview built");
+    await Promise.all([esbuild.build(webviewConfig), esbuild.build(embedConfig)]);
+    console.log("[core] webview + embed built");
   }
 }
 

@@ -21,7 +21,7 @@ and a **browser demo**, over one shared core.
   (`.ply` / `.splat` / `.spz` / `.ksplat`, loaded via [Spark](https://sparkjs.dev)).
   A `.ply` is auto-detected as a mesh, a point cloud or a splat, including the
   PlayCanvas / SuperSplat **compressed** flavour. Three render modes in the **Gaussians** section
-  of the 3DView panel: **Splats** (default) — true Gaussian splatting through Spark's
+  of the **Display** panel: **Splats** (default) — true Gaussian splatting through Spark's
   renderer, sorted per viewpoint with spherical harmonics; **Ellipsoids** — each
   Gaussian as a solid oriented ellipsoid, to see the primitives as data; and
   **Points** — bare centers, the cheap fallback for huge scenes.
@@ -39,6 +39,21 @@ and a **browser demo**, over one shared core.
   trajectories).
   Reads NumPy archives holding `(steps, tracks, 3)` positions plus an optional
   `(steps, tracks)` visibility mask.
+- **Physics (experimental)** — any mesh, point cloud or splat item can take part, from its
+  **Inspector**: **Off** (the default), **Static** (a fixed body others land on) or **Dynamic**
+  (it falls, collides and can be hit; a reconstruction can be Static), its collision shape built
+  from its own geometry as boxes
+  (**Show collision shape** draws them). **Breakable objects**: a `.npz` holding
+  `physics_scene` (a 3DGS object cut into voxel chunks: each chunk a rigid body of boxes, welded
+  to the chunks it touches) and `physics_splats` (each chunk's Gaussians) opens as an object that
+  can be **dropped, shattered, blown up, shot or dissolved**, its splats moving with their chunks
+  ([Box3D](https://github.com/erincatto/box3d) in WebAssembly); these take part by default.
+  Every object shares one world, so they collide. The **playback bar** at the bottom runs the clock (play / pause,
+  restore all, speed down to 0.1×) and sets what a click does (**Select** / **Shoot** /
+  **Blast**); the **Physics** panel holds gravity, the **floor** (at the scene's bottom, or
+  none) and the **scene unit** (metres per unit: COLMAP's are arbitrary); an object's own controls (drop height,
+  glue, shatter on impact, presets) are in its **Inspector**. The first action calibrates
+  each breakable object's welds against its own weight (~1-2 s an object).
 - **Temporal items (4D)** — load several reconstructions, meshes, clouds or splats as the
   **timesteps of one capture** instead of that many scene items: when a folder holds
   more than one model, or you pick / drop several asset files at once, 3DView asks
@@ -46,17 +61,19 @@ and a **browser demo**, over one shared core.
   **timeline** — scrub through the frames or play them back (shared **Playback FPS**).
 - **Multi-source scenes** — open many reconstructions and assets together; add,
   show/hide, and remove them from the **Scene** panel. Each item has its own
-  **position / rotation** fields (the move-arrows button on its row), so sources that don't
+  **position / rotation / scale** (click its row — or it, in the view — for the **Inspector** under the
+  list, and a Blender-style **gizmo** on it: **G** / **R** / **S**), so sources that don't
   share a coordinate frame can be lined up by hand, Blender-style.
 - **Helpers** — world-origin metric grid, bounding boxes, axes, and a raw‑COLMAP ↔
   upright (Y‑up) toggle.
-- **Adjust** — from the **3DView** panel: point size, frustum size / line width /
-  color, and camera field of view and roll. Rename, hide and remove scene items from
-  the **Scene** panel.
+- **Adjust** — the icon rail on the right opens one panel at a time (**Scene**,
+  **Display**, **Physics**, **Capture**). From **Display**: point size, frustum size /
+  line width / color, and camera field of view and roll. Rename, hide and remove scene
+  items from the **Scene** panel. The theme (light / dark / dim) is in the footer.
 - **Export** — from the **Capture** panel: a transparent PNG of the current view at
   **1× / 2× / 4×** (**Image**), and a video flying through a reconstruction's
   cameras in image-name order, with optional in-between frames, a loop back to the
-  start and a field-of-view override (**Video**, for a reconstruction with two cameras
+  start and a field-of-view override (**Camera fly-through**, for a reconstruction with two cameras
   or more; MP4, or WebM where the host has no
   H.264 encoder). Renders size points by each cloud's own spacing, so surfaces stay
   filled at high resolution (**Fill point gaps**).
@@ -70,7 +87,7 @@ and a **browser demo**, over one shared core.
 [Releases](https://github.com/s-esposito/3DView/releases) page and install it:
 
 ```bash
-code --install-extension 3dview-1.3.0.vsix --force
+code --install-extension 3dview-2.0.0.vsix --force
 ```
 
 **From source:**
@@ -114,11 +131,31 @@ flush the ten-entry list).
 | Orbit / zoom / pan | drag / scroll / right‑drag |
 | Fly to a camera's view | click its frustum (**Esc** to exit) |
 | Cancel a video render | **Esc** |
-| Reset view | **R** |
+| Fit view | **Home** |
+| Move / rotate / scale the selected item (its gizmo) | **G** / **R** / **S**, then drag the gizmo |
+| Select an item / shoot / blast | click it (the playback bar's **Select** / **Shoot** / **Blast**; **Esc** back to Select) |
+| Type a slider's value / restore its default | double-click its value / its label |
+| All of these | **?** (or the footer's **?**) |
 | Toggle points / frustums / images | **P** / **F** / **I** |
-| Toggle shaded / wireframe / box | **S** / **W** / **B** |
-| Toggle grid / axes / upright | **G** / **A** / **U** |
+| Toggle shaded / wireframe / box | **Shift+S** / **W** / **B** |
+| Toggle grid / axes / upright | **Shift+G** / **A** / **U** |
 | Cycle Gaussians: splats → ellipsoids → points | **E** |
+
+## Embedding in a web page
+
+Put a model on any page with an iframe, no JavaScript:
+
+```html
+<iframe src="https://s-esposito.github.io/3DView/v2/embed.html?asset=https://example.org/mug.glb&preset=presentation"
+        style="width: 640px; height: 480px; border: 0"></iframe>
+```
+
+or drive it from the page with the SDK (`/v2/dist/embed.js`: `ThreeDView.mount(el, {config,
+items})` → `add`, `setTransform`, `getState`, `capture`, events, …). The configuration sets how it
+looks, which panels and controls show, and what a person may do; messages add, place, select and
+animate items; events report what loaded, failed or was selected. The full reference, for people
+and AI agents alike, is [docs/embedding.md](docs/embedding.md), also served at
+`https://s-esposito.github.io/3DView/v2/embedding.md`.
 
 ## Development
 
