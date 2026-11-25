@@ -30,6 +30,7 @@ let errorShown = false;
 ensureStyles();
 const viewer = new Viewer();
 const panel = new ControlPanel(viewer, { archives: host.opensArchives });
+viewer.onOpenPanel = (name) => panel.openPanel(name);
 // The host's configuration (messages.ts ViewerConfig), before anything is drawn.
 if (host.config) {
   viewer.configure(host.config);
@@ -320,12 +321,15 @@ function handleHostMessage(msg: HostToWebview) {
       host.postMessage({ type: "state", requestId: msg.requestId, state: viewer.snapshot() });
       break;
     case "capture":
-      try {
-        const data = viewer.capture(msg.scale ?? 1, msg.transparent ?? true);
-        host.postMessage({ type: "captured", requestId: msg.requestId, data });
-      } catch (err) {
-        host.postMessage({ type: "captured", requestId: msg.requestId, error: (err as Error).message });
-      }
+      // `ready` comes before the renderer is up: a capture asked at once waits for it.
+      void viewer.rendererUp.then(() => {
+        try {
+          const data = viewer.capture(msg.scale ?? 1, msg.transparent ?? true);
+          host.postMessage({ type: "captured", requestId: msg.requestId, data });
+        } catch (err) {
+          host.postMessage({ type: "captured", requestId: msg.requestId, error: (err as Error).message });
+        }
+      });
       break;
     case "physics":
       if (msg.action === "restoreAll") viewer.resetPhysics();
@@ -366,6 +370,7 @@ async function addItems(
     updateStatus(); // drop a host's "loading" message: nothing is coming
     return;
   }
+  viewer.expectItem(groupId); // removable while its members are fetched
   const frames: TemporalFrame[] = [];
   for (const m of ordered) {
     const frame = await toFrame(m);
@@ -429,13 +434,10 @@ function loadColmapData(m: ColmapModelRef) {
 /** Fetch + parse a URL-served COLMAP model and add it to the scene. */
 function loadColmapModel(m: ColmapModelRef) {
   showStatus(`Loading ${m.label}`, true);
+  viewer.expectItem(m.id); // removable while it is fetched
   loadColmapData(m)
     .then((data) => viewer.addReconstruction(m.id, m.label, data, m.source))
-    .catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      host.postMessage({ type: "itemFailed", id: m.id, message });
-      showError(message);
-    });
+    .catch((err) => viewer.fail(m.id, err instanceof Error ? err.message : String(err)));
 }
 
 function revokeColmapTrio(urls: { cameras: string; images: string; points3d: string }) {

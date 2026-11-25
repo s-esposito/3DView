@@ -305,7 +305,7 @@ export interface ViewerSnapshot {
  *  (additions only; an embedder feature-detects with it). */
 export const API_VERSION = 1;
 
-/** Remove an item from the scene (it is answered by `removed`). */
+/** Remove an item from the scene, or one still loading (it never appears); answered by `removed`. */
 export interface RemoveItemMsg {
   type: "removeItem";
   id: string;
@@ -415,7 +415,9 @@ export type HostToWebview =
  * What the viewer tells its host about the scene's items. Every add message (`addAsset`,
  * `addReconstruction`, `loadColmap`, an `addGroup` loaded as one sequence) is answered with
  * `itemAdded` once the item is in the Scene list, then `itemLoaded` when all of it is drawn, or
- * `itemFailed` if it could not be loaded (a failed item is removed: `removed` follows).
+ * `itemFailed` if it could not be loaded; an item that was in the list is then removed (`removed`
+ * follows). A COLMAP model or a sequence joins the list only once fetched, so its `itemFailed` may
+ * come without `itemAdded`; one removed before it was added is answered by `removed` alone.
  * `bounds` is the item's box in the scene's own frame (COLMAP's, +y down), its placement
  * included.
  */

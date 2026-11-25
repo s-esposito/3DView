@@ -1,9 +1,9 @@
 // embed.js: the JS SDK for a web page embedding 3DView. `ThreeDView.mount(element, options)` puts
 // embed.html in an iframe and resolves, once the viewer is ready, to an EmbeddedViewer: promises
-// over the same messages and events the IDE hosts use (messages.ts), nothing of its own. A plain
-// script that defines the global `ThreeDView`.
+// over the same messages and events the IDE hosts use (messages.ts), nothing of its own. Each
+// method is named after the message it sends. A plain script that defines the global `ThreeDView`.
 import type {
-  CaptureMsg, HostToWebview, PhysicsMode, ViewerConfig, ViewerSnapshot, WebviewToHost,
+  CaptureMsg, HostToWebview, PhysicsMode, PhysicsMsg, SetViewMsg, ViewerConfig, ViewerSnapshot, WebviewToHost,
 } from "../shared/messages";
 import { itemMessage, type EmbedItem } from "./items";
 
@@ -16,13 +16,16 @@ export interface MountOptions {
   /** Items to show at once (relative URLs resolve against the page). */
   items?: EmbedItem[];
   /** The camera's starting position and the point it looks at, in the scene's frame. */
-  view?: { position: [number, number, number]; target: [number, number, number] };
+  view?: Omit<SetViewMsg, "type">;
   /** The embed.html to load; default: the one of embed.js's own major. */
   src?: string;
 }
 
 type EventOf<T extends WebviewToHost["type"]> = Extract<WebviewToHost, { type: T }>;
-type Waiter = { resolve: (e: WebviewToHost) => void; reject: (err: Error) => void };
+/** A request or add waiting for its answer. An add's ``removed`` rejects it only once the item
+ *  was added or this page asked to remove it: a `removed` for an earlier item of the same id
+ *  (removed, then added again) arrives after the new add was sent. */
+type Waiter = { resolve: (e: WebviewToHost) => void; reject: (err: Error) => void; added?: boolean; removing?: boolean };
 
 let mounted = 0;
 
@@ -36,14 +39,22 @@ export class EmbeddedViewer {
   /** Requests and adds waiting for their answer, by requestId / item id. */
   private readonly waiting = new Map<string | number, Waiter>();
   private queue: HostToWebview[] | null = [];
+  private destroyed = false;
   private nextId = 0;
   private readonly prefix = `3dview-${++mounted}`;
+  private readonly whenReady: Promise<this>;
   private readonly onMessage = (event: MessageEvent) => {
     if (event.source === this.iframe.contentWindow) this.receive(event.data as WebviewToHost);
   };
 
   constructor(readonly iframe: HTMLIFrameElement, private readonly base: string) {
     window.addEventListener("message", this.onMessage);
+    this.whenReady = this.wait(`${this.prefix}-ready`).then(() => this);
+  }
+
+  /** Resolves once the viewer is ready (`mount` already waits for it). */
+  ready(): Promise<this> {
+    return this.whenReady;
   }
 
   /** Listen for an event (or a reply); returns the function that stops listening. */
@@ -61,7 +72,8 @@ export class EmbeddedViewer {
     else this.iframe.contentWindow?.postMessage(msg, "*");
   }
 
-  /** Add an item; resolves with its id once it is drawn, rejects if it cannot be loaded. */
+  /** Add an item; resolves with its id once it is drawn, rejects if it cannot be loaded or is
+   *  removed first. */
   add(item: EmbedItem): Promise<string> {
     const msg = itemMessage(item, `${this.prefix}-item-${++this.nextId}`, this.base);
     const done = this.wait(msg.id).then(() => msg.id);
@@ -69,7 +81,9 @@ export class EmbeddedViewer {
     return done;
   }
 
-  remove(id: string): void {
+  removeItem(id: string): void {
+    const w = this.waiting.get(id);
+    if (w) w.removing = true;
     this.send({ type: "removeItem", id });
   }
   /** Change the configuration: the fields given merge into the current one. */
@@ -77,20 +91,20 @@ export class EmbeddedViewer {
     this.send({ type: "configure", ...config });
   }
   /** Move the camera and make that the scene's home view (scene frame). */
-  setView(position: [number, number, number], target: [number, number, number]): void {
+  setView(position: SetViewMsg["position"], target: SetViewMsg["target"]): void {
     this.send({ type: "setView", position, target });
   }
   /** Place an item, or a named node in it, by a 4x4 matrix, row-major (scene frame). */
   setTransform(id: string, matrix: number[], node?: string): void {
     this.send({ type: "setTransform", id, matrix, node });
   }
-  setVisible(id: string, visible: boolean): void {
+  setItemVisible(id: string, visible: boolean): void {
     this.send({ type: "setItemVisible", id, visible });
   }
-  setLabel(id: string, label: string): void {
+  setItemLabel(id: string, label: string): void {
     this.send({ type: "setItemLabel", id, label });
   }
-  select(id: string | null): void {
+  selectItem(id: string | null): void {
     this.send({ type: "selectItem", id });
   }
   setFrame(id: string, frame: number): void {
@@ -103,7 +117,7 @@ export class EmbeddedViewer {
     this.send({ type: "setPhysicsMode", id, mode });
   }
   /** Run the simulation, stop it, or put every object back where it started. */
-  physics(action: "play" | "pause" | "restoreAll"): void {
+  physics(action: PhysicsMsg["action"]): void {
     this.send({ type: "physics", action });
   }
 
@@ -119,18 +133,15 @@ export class EmbeddedViewer {
     });
   }
 
-  /** Take the viewer off the page; whatever is still waiting rejects. */
+  /** Take the viewer off the page; whatever is still waiting rejects, and so does anything asked
+   *  later. */
   destroy(): void {
+    this.destroyed = true;
     window.removeEventListener("message", this.onMessage);
     this.iframe.remove();
     this.waiting.forEach((w) => w.reject(new Error("the viewer was destroyed")));
     this.waiting.clear();
     this.listeners.clear();
-  }
-
-  /** Resolves on the viewer's ready. */
-  ready(): Promise<this> {
-    return this.wait(`${this.prefix}-ready`).then(() => this);
   }
 
   private request(msg: HostToWebview & { requestId?: string | number }): Promise<WebviewToHost> {
@@ -141,6 +152,8 @@ export class EmbeddedViewer {
   }
 
   private wait(key: string | number): Promise<WebviewToHost> {
+    if (this.destroyed) return Promise.reject(new Error("the viewer was destroyed"));
+    this.waiting.get(key)?.reject(new Error(`another add took the id ${key}`));
     return new Promise((resolve, reject) => this.waiting.set(key, { resolve, reject }));
   }
 
@@ -161,15 +174,22 @@ export class EmbeddedViewer {
         this.queue = null;
         this.settle(`${this.prefix}-ready`, event);
         break;
+      case "itemAdded": {
+        const w = this.waiting.get(event.id);
+        if (w) w.added = true;
+        break;
+      }
       case "itemLoaded":
         this.settle(event.id, event);
         break;
       case "itemFailed":
         this.settle(event.id, event, event.message);
         break;
-      case "removed":
-        this.settle(event.id, event, "removed before it was loaded"); // nothing once it was
+      case "removed": {
+        const w = this.waiting.get(event.id);
+        if (w && (w.added || w.removing)) this.settle(event.id, event, "removed before it was loaded");
         break;
+      }
       case "state":
       case "captured":
         this.settle(event.requestId, event);
@@ -194,11 +214,10 @@ export async function mount(target: HTMLElement | string, options: MountOptions 
   iframe.title = "3DView";
   iframe.style.cssText = "width:100%;height:100%;border:0;display:block";
   const viewer = new EmbeddedViewer(iframe, document.baseURI);
-  const ready = viewer.ready();
   el.append(iframe);
   if (options.view) viewer.setView(options.view.position, options.view.target);
   options.items?.forEach((item) => void viewer.add(item).catch(() => undefined)); // failures: on("itemFailed")
-  return ready;
+  return viewer.ready();
 }
 
 (globalThis as { ThreeDView?: unknown }).ThreeDView = { mount };

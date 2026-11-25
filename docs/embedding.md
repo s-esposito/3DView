@@ -13,7 +13,7 @@ message and event is listed here (a test fails if one is missing).
 ## Contents
 
 1. [Quick start](#quick-start): an iframe, the SDK, or the bundle in your own page
-2. [Concepts](#concepts): items and ids, the scene's frame, files and CORS, versions
+2. [Concepts](#concepts): items and ids, the scene's frame, files and CORS, before `ready`, versions
 3. [embed.html URL parameters](#embedhtml-url-parameters)
 4. [The SDK (embed.js)](#the-sdk-embedjs)
 5. [Configuration](#configuration): how it looks, the UI, what a person may do
@@ -76,7 +76,8 @@ This is how the VS Code and PyCharm extensions host the viewer. Load the viewer 
 </script>
 <script src="https://s-esposito.github.io/3DView/v2/dist/webview.js"></script>
 <script>
-  // Messages go to the window the viewer runs in. Send them after its `ready` event.
+  // Messages go to the window the viewer runs in. The bundle posts `ready` as its script
+  // finishes running, so a script after it may send at once.
   window.postMessage({ type: "addAsset", id: "mug", label: "Mug",
                        asset: { uri: "models/mug.glb", name: "mug.glb" } }, "*");
 </script>
@@ -129,6 +130,11 @@ Formats:
 
 A `.ply` is told apart by what it holds, not by its name.
 
+### Before `ready`
+
+The viewer listens for messages from its `ready` event on; anything sent before is lost. The SDK
+holds messages until then for you.
+
 ### Versions
 
 - **Pin the major.** Load from `/v2/`. Unversioned paths (`/dist/webview.js`) follow the latest
@@ -172,7 +178,7 @@ window.addEventListener("message", (e) => {
 });
 ```
 
-Messages sent before `ready` are lost. The SDK queues them for you.
+Wait for `ready` before sending (see [Before `ready`](#before-ready)).
 
 ## The SDK (embed.js)
 
@@ -204,28 +210,31 @@ The object `add()`, `items` and the `items` URL parameter take. One of:
 
 ### `EmbeddedViewer`
 
-| Member | Does | Message |
-|--------|------|---------|
-| `add(item) → Promise<id>` | adds an item; resolves once it is drawn. Rejects if it fails to load, or is removed before. | `addAsset` / `loadColmap` / `addGroup` |
-| `remove(id)` | removes an item | `removeItem` |
-| `configure(config)` | changes the configuration; the fields given merge in | `configure` |
-| `setView(position, target)` | moves the camera; also the home view | `setView` |
-| `setTransform(id, matrix, node?)` | places an item (or a named node of a glTF) | `setTransform` |
-| `setVisible(id, visible)` | shows / hides an item | `setItemVisible` |
-| `setLabel(id, label)` | renames an item | `setItemLabel` |
-| `select(id \| null)` | selects an item, or nothing | `selectItem` |
-| `setFrame(id, frame)` | shows a sequence's frame | `setFrame` |
-| `setPlaying(id, playing)` | plays / pauses a sequence | `setPlaying` |
-| `setPhysicsMode(id, mode)` | an item's part in the physics | `setPhysicsMode` |
-| `physics(action)` | `"play"` \| `"pause"` \| `"restoreAll"` | `physics` |
-| `getState() → Promise<ViewerSnapshot>` | the viewer's state | `getState` |
-| `capture(options?) → Promise<dataURL>` | a PNG of the view; `{ scale?, transparent? }` | `capture` |
-| `on(type, listener) → unsubscribe` | listens for an [event](#events-and-replies) | |
-| `send(message)` | sends any [message](#messages) as it is | |
-| `destroy()` | removes the iframe; pending promises reject | |
-| `ready() → Promise<this>` | resolves once the viewer is ready (`mount` already waits for it) | `ready` |
-| `version`, `apiVersion` | 3DView's version and the API's | from `ready` |
-| `iframe` | the iframe element | |
+Each method sends the [message](#messages) of the same name; `add` sends `addAsset`,
+`loadColmap` or `addGroup`.
+
+| Member | Does |
+|--------|------|
+| `add(item) → Promise<id>` | adds an item; resolves once it is drawn. Rejects if it fails to load, or is removed first |
+| `removeItem(id)` | removes an item |
+| `configure(config)` | changes the configuration; the fields given merge in |
+| `setView(position, target)` | moves the camera; also the home view |
+| `setTransform(id, matrix, node?)` | places an item (or a named node of a glTF) |
+| `setItemVisible(id, visible)` | shows / hides an item |
+| `setItemLabel(id, label)` | renames an item |
+| `selectItem(id \| null)` | selects an item, or nothing |
+| `setFrame(id, frame)` | shows a sequence's frame |
+| `setPlaying(id, playing)` | plays / pauses a sequence |
+| `setPhysicsMode(id, mode)` | an item's part in the physics |
+| `physics(action)` | `"play"` \| `"pause"` \| `"restoreAll"` |
+| `getState() → Promise<ViewerSnapshot>` | the viewer's state |
+| `capture(options?) → Promise<dataURL>` | a PNG of the view; `{ scale?, transparent? }` |
+| `on(type, listener) → unsubscribe` | listens for an [event](#events-and-replies) |
+| `send(message)` | sends any message as it is |
+| `ready() → Promise<this>` | resolves once the viewer is ready (`mount` already waits for it) |
+| `destroy()` | removes the iframe; what is pending, and anything asked later, rejects |
+| `version`, `apiVersion` | 3DView's version and the API's, from `ready` |
+| `iframe` | the iframe element |
 
 ## Configuration
 
@@ -320,7 +329,7 @@ messages, put in natural order by label.
 { "type": "removeItem", "id": "mug" }
 ```
 
-Answered by `removed`.
+Answered by `removed`. An item still loading is removed too: it never appears.
 
 #### `setItemVisible`
 
@@ -406,7 +415,8 @@ The physics is experimental. Items are not in it by default, except breakable `.
 - `"dynamic"`: it falls, collides and can be hit.
 
 `getState()` lists the modes each item can take: reconstructions are `off` / `static`, breakable
-objects `off` / `dynamic`, and sequences and tracks none. The floor is the scene's bottom.
+objects `off` / `dynamic`, and sequences and tracks none. A floor sits at the scene's bottom; the
+person can turn it off in the Physics panel.
 
 #### `physics`
 
@@ -445,10 +455,11 @@ your own page, and to `on(type, …)` in the SDK.
 
 ### Item life cycle
 
-Every add is answered in this order:
-1. `itemAdded`, once the item is in the Scene list;
-2. then `itemLoaded`, when all of it is drawn;
-3. or instead `itemFailed`. A failed asset is then removed, so `removed` follows.
+Every add is answered by `itemAdded` once the item is in the Scene list, then `itemLoaded` when
+all of it is drawn. If it cannot be loaded, `itemFailed` comes instead of `itemLoaded`, and an
+item that was in the Scene list is then removed, so `removed` follows. A COLMAP model or a
+sequence joins the Scene list only once fetched, so its `itemFailed` may come with no
+`itemAdded` before it. An item removed before it was added is answered by `removed` alone.
 
 #### `ready`
 
@@ -456,7 +467,7 @@ Every add is answered in this order:
 { "type": "ready", "version": "2.0.0", "apiVersion": 1 }
 ```
 
-The viewer listens from now on; messages sent before are lost.
+The viewer listens from now on (see [Before `ready`](#before-ready)).
 
 #### `itemAdded`
 
@@ -554,7 +565,7 @@ const viewer = await ThreeDView.mount("#viewer", {
 });
 let current = null;
 async function show(url, view) {
-  if (current) viewer.remove(current);
+  if (current) viewer.removeItem(current);
   if (view) viewer.setView(view.position, view.target);
   current = await viewer.add({ url });
 }
@@ -574,14 +585,14 @@ socket.onmessage = (e) => {
 
 ```js
 const id = await viewer.add({ url: "models/mug.glb" });
-const png = await viewer.capture({ scale: 1, transparent: true });
+const png = await viewer.capture();   // the view's size, transparent background
 document.querySelector("img").src = png;
 ```
 
 ### Reacting to a click
 
 ```js
-viewer.configure({ interaction: { select: true } });
+viewer.configure({ interaction: { select: true } });   // only needed after the presentation preset
 viewer.on("selected", async ({ id }) => {
   if (!id) return;
   const { items } = await viewer.getState();

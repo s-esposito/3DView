@@ -128,7 +128,7 @@ test("a scaled item's body is its scaled shape, moves in metres and is drawn whe
   runtime.dispose();
 });
 
-test("a shot at a scaled item goes where the ray points (the World is in metres)", async () => {
+test("a shot at a scaled item goes where the ray points (at the default unit, 1 m)", async () => {
   // A 0.4 m cube scaled 2x, 2 m to the side, resting on the ground: a shot level with its centre
   // (0.4 m up) hits it; one at 0.9 m up, above it (it is 0.8 m tall), misses.
   const item = new THREE.Group();
@@ -167,7 +167,22 @@ test("the floor: a box rests on it where it is; with none, it falls past and is 
   onFloor.setFloor(null);
   for (let i = 0; i < 240; i++) onFloor.step();
   assert.ok(a.lost.has(0) && centreY(a) < -12 + 0.5, `lost below the old floor: ${centreY(a)}, lost ${a.lost.has(0)}`);
+  // The floor back: a lost body stays asleep where it went (woken, it would fall forever).
+  onFloor.setFloor(-2);
+  assert.equal(onFloor.awake, 0, "a lost body was woken");
   onFloor.dispose();
+});
+
+test("a floor that stays where it is wakes nothing; a moved one wakes what rests", () => {
+  const world = new World(b3, { floor: -2 });
+  const a = boxBody(world, 0.4, 1);
+  for (let i = 0; i < 600 && world.awake > 0; i++) world.step();
+  assert.equal(world.awake, 0, "came to rest");
+  world.setFloor(-2); // what every change of the scene's bounds does
+  assert.equal(world.awake, 0, "the same floor woke it");
+  world.setFloor(-3);
+  assert.equal(a.awake, 1, "a moved floor must wake what rested on it");
+  world.dispose();
 });
 
 test("a scene in centimetres falls at the same rate in metres as one in metres", () => {
@@ -194,6 +209,26 @@ test("a new scene unit rebuilds the World: a breakable object joins again, whole
   await runtime.prepared();
   runtime.setUnit(0.5);
   await runtime.prepared();
+  assert.ok(!run.calibrating && /^whole/.test(run.status), run.status);
+  runtime.dispose();
+});
+
+test("a new scene unit mid-calibration: the object joins the new World, not the destroyed one", async () => {
+  const runtime = new PhysicsRuntime();
+  const blob = presetScene({ shape: "blob", radius: 6, chunks: 12, height: 1 });
+  const nodes = blob.chunks.map((c) => { const n = new THREE.Group(); n.position.set(...c.position); return n; });
+  const turn = new THREE.Group();
+  turn.add(...nodes);
+  new THREE.Group().add(turn);
+  const run = new PhysicsRun(blob, nodes);
+  runtime.add(run);
+  const first = runtime.prepared(); // what Play awaits
+  while (!run.calibrating) await new Promise((r) => setTimeout(r, 1));
+  runtime.setUnit(0.5); // while it calibrates in the first World
+  await assert.doesNotReject(first, "the calibration went on into the destroyed World");
+  const world = await runtime.prepared();
+  const sim = (run as unknown as { sim?: Sim }).sim;
+  assert.ok(sim && sim.world === world && !world.disposed, "joined a destroyed World");
   assert.ok(!run.calibrating && /^whole/.test(run.status), run.status);
   runtime.dispose();
 });

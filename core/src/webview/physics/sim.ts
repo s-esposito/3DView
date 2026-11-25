@@ -117,6 +117,8 @@ export class World {
   fallLimit: number;
   private nextTag = 1;
   private ground?: Box3dBody;
+  /** The floor's top (setFloor), null: none; undefined until the first setFloor. */
+  private floorY?: number | null;
   private readonly friction: number;
 
   /** ``floor``: the floor's top (World y, units), or null for none. */
@@ -133,8 +135,11 @@ export class World {
   }
 
   /** The floor: a static slab whose top is at World y ``y`` (units), or none (null). Bodies wake,
-   *  as what they rested on moved. */
+   *  as what they rested on moved. Called on every change of the scene's bounds, so a floor that
+   *  stays where it is is kept. */
   setFloor(y: number | null): void {
+    if (y === this.floorY) return;
+    this.floorY = y;
     this.ground?.destroy();
     this.ground = undefined;
     if (y !== null) {
@@ -144,7 +149,12 @@ export class World {
       this.ground.setUserData(GROUND_TAG);
       this.fallLimit = y - FALL_DEPTH / this.unit;
     }
-    for (const sim of this.objects) for (const body of sim.bodies) body.setAwake(true);
+    this.wake();
+  }
+
+  /** Wake every body but the lost ones, which would fall forever (and keep the World awake). */
+  private wake(): void {
+    for (const sim of this.objects) sim.bodies.forEach((body, i) => sim.lost.has(i) || body.setAwake(true));
   }
 
   /** ``n`` tags for a new object's chunks: the first. */
@@ -165,7 +175,7 @@ export class World {
   setGravity(g: number): void {
     this.gravity = g;
     this.box3d.setGravity({ x: 0, y: -g / this.unit, z: 0 });
-    for (const sim of this.objects) for (const body of sim.bodies) body.setAwake(true);
+    this.wake();
   }
 
   /** The object and chunk a tag belongs to, if any. */
@@ -206,7 +216,13 @@ export class World {
   /** Put every body to sleep (until something wakes it: a hit, a shot, a blast). */
   sleep(): void { for (const sim of this.objects) sim.sleep(); }
 
-  dispose(): void { this.box3d.destroy(); }
+  /** Destroyed (dispose): a calibration that outlived it must not join it (PhysicsRun.join). */
+  disposed = false;
+
+  dispose(): void {
+    this.box3d.destroy();
+    this.disposed = true;
+  }
 }
 
 /** One chunked object in a World. */

@@ -63,9 +63,8 @@ const TYPE_ICONS: Record<ItemType, string> = {
 const ICON_PLAY = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>`;
 
-type PanelId = PanelName;
 /** The rail, in order: which panels exist, and when. */
-const PANELS: Array<{ id: PanelId; label: string; icon: string; shown: (s: ViewerState) => boolean }> = [
+const PANELS: Array<{ id: PanelName; label: string; icon: string; shown: (s: ViewerState) => boolean }> = [
   { id: "scene", label: "Scene", icon: ICON_SCENE, shown: () => true },
   { id: "display", label: "Display", icon: ICON_DISPLAY, shown: () => true },
   { id: "physics", label: "Physics", icon: ICON_PHYSICS, shown: (s) => s.physics !== null },
@@ -97,11 +96,9 @@ const SPLAT_MODE_COPY: Record<SplatRenderMode, { label: string; title: string }>
 export class ControlPanel {
   /** The panel the rail has open (one at a time; none = the rail alone). Scene to begin with:
    *  its "+" is what a first visit needs. */
-  private open: PanelId | null = "scene";
-  /** The configured "open" ask last acted on (ViewerState.ui.openRequest). */
-  private openRequest = 0;
+  private open: PanelName | null = "scene";
   /** Each panel's scroll offset, kept across re-renders and panel switches. */
-  private readonly scrollTops = new Map<PanelId, number>();
+  private readonly scrollTops = new Map<PanelName, number>();
   /** The selection at the last render: a new one (a click in the view) opens Scene, where its
    *  Inspector is. */
   private selected: string | null = null;
@@ -127,13 +124,19 @@ export class ControlPanel {
     private readonly options: { archives?: boolean } = {}
   ) {}
 
+  /** Open ``panel`` (null: none, the rail alone), as the configuration asks (Viewer.onOpenPanel);
+   *  the render that follows shows it. */
+  openPanel(panel: PanelName | null): void {
+    this.open = panel;
+  }
+
   /** Render (or re-render) the UI from current Viewer state. */
   render(): void {
     // This rebuilds the UI wholesale — on every rename, remove and load — so a scrolled
     // body would jump back to the top. Carry its offset across.
     const shown = document.querySelector<HTMLElement>("#viewer-ui .viewer-panel");
     if (shown) {
-      this.scrollTops.set(shown.dataset.panel as PanelId, shown.querySelector(".viewer-body")!.scrollTop);
+      this.scrollTops.set(shown.dataset.panel as PanelName, shown.querySelector(".viewer-body")!.scrollTop);
     }
     document.getElementById("viewer-ui")?.remove();
     document.getElementById("viewer-transport")?.remove();
@@ -147,12 +150,8 @@ export class ControlPanel {
         this.open = "scene";
       }
     }
-    if (s.ui.openRequest !== this.openRequest) {
-      this.openRequest = s.ui.openRequest; // configured: open it once, then the rail is the person's
-      this.open = s.ui.open;
-    }
     // The configured panels, in the configured order, of those that apply now.
-    const panels = s.ui.panels.flatMap((id) => PANELS.filter((p) => p.id === id))
+    const panels = s.ui.panels.map((id) => PANELS.find((p) => p.id === id)!)
       .filter((p) => p.shown(s) && (p.id !== "physics" || s.interaction.physics));
     if (this.open && !panels.some((p) => p.id === this.open)) {
       // Its panel went (the last chunked object, the last item) or is not offered.
@@ -171,7 +170,7 @@ export class ControlPanel {
     ui.className = "viewer-ui";
     ui.append(dock);
     if (s.ui.footer) {
-      ui.append(buildFooter(s.backend, s.ui.fps ? this.fps : undefined, s.ui.help,
+      ui.append(buildFooter(s.backend, s.ui.fps, this.fps, s.ui.help,
         s.ui.themeSwitcher ? this.buildThemeSwitcher(s) : null));
     }
     document.body.appendChild(ui);
@@ -184,7 +183,7 @@ export class ControlPanel {
     }
   }
 
-  private buildPanel(id: PanelId, s: ViewerState): HTMLElement {
+  private buildPanel(id: PanelName, s: ViewerState): HTMLElement {
     switch (id) {
       case "scene":
         return this.panelFrame(id, "Scene", sceneSummary(s), this.buildSceneBody(s),
@@ -225,7 +224,7 @@ export class ControlPanel {
   /** A panel: its title row (title, subtitle, an action such as the Scene "+") over a body
    *  that scrolls by itself — the only scroll box, so the panel never outgrows the window. */
   private panelFrame(
-    id: PanelId,
+    id: PanelName,
     title: string,
     subtitle: string | null,
     body: HTMLElement,
@@ -1004,13 +1003,13 @@ function actionRow(label: string, buttons: HTMLElement): HTMLElement {
   return row;
 }
 
-/** The footer: the frame rate (``fps`` undefined: not shown), the backend, the version, the "?"
- *  help (``help``) and the theme switcher (``theme``, if any) — the parts the configuration keeps. */
-function buildFooter(backend: ViewerState["backend"], fps: number | null | undefined, help: boolean,
+/** The footer: the frame rate (``fps``, if ``showFps``), the backend, the version, the "?" help
+ *  (``help``) and the theme switcher (``theme``, if any) — the parts the configuration keeps. */
+function buildFooter(backend: ViewerState["backend"], showFps: boolean, fps: number | null, help: boolean,
   theme: HTMLElement | null): HTMLElement {
   const foot = document.createElement("div");
   foot.className = "viewer-foot";
-  if (fps !== undefined) {
+  if (showFps) {
     const rate = document.createElement("span");
     rate.className = "viewer-fps";
     rate.textContent = fpsText(fps);

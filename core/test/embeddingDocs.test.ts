@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { CONFIG_SHORTHANDS } from "../src/embed/items";
+
 const CORE = resolve(__dirname, "..", ".."); // out/test -> core
 const read = (p: string) => readFileSync(resolve(CORE, p), "utf8");
 const DOC = read("../docs/embedding.md");
@@ -39,7 +41,7 @@ test("every configuration field and display switch is documented", () => {
 
 test("every embed.html URL parameter and item field is documented", () => {
   const items = read("src/embed/items.ts");
-  const params = all(items, /(?:key === |params\.get\()"(\w+)"/g);
+  const params = [...all(items, /(?:key === |params\.get\()"(\w+)"/g), ...CONFIG_SHORTHANDS];
   assert.ok(params.includes("asset") && params.includes("background"), `params read: ${params}`);
   assert.deepEqual(missing(params, (p) => DOC.includes(`| \`${p}\` |`)), []);
   const fields = all(block(items, "export type EmbedItem ="), /(\w+)\??:/g);

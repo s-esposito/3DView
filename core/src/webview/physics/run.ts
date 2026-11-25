@@ -72,9 +72,10 @@ export class PhysicsRuntime {
   prepared(): Promise<World> {
     const prepare = async (): Promise<World> => {
       const b3 = await loadBox3d();
-      this.world ??= new World(b3, { gravity: this.gravity, unit: this.unit, floor: this.floor });
-      for (const run of [...this.runs]) await run.join(b3, this.world); // a run may go meanwhile
-      return this.world;
+      const world = (this.world ??= new World(b3, { gravity: this.gravity, unit: this.unit, floor: this.floor }));
+      // One World for all: setUnit may replace it meanwhile, and the prepare it queues joins them anew.
+      for (const run of [...this.runs]) await run.join(b3, world); // a run may go meanwhile
+      return world;
     };
     this.preparing = (this.preparing?.catch(() => undefined) ?? Promise.resolve()).then(prepare);
     return this.preparing;
@@ -242,7 +243,7 @@ export class PhysicsRun {
    *  item is placed. A no-op once joined, and once removed from its runtime (it may be, between
    *  two slices). */
   async join(b3: Box3dModule, world: World): Promise<void> {
-    if (this.sim || !this.runtime?.runs.includes(this)) return; // joined, or removed meanwhile
+    if (this.sim || !this.runtime?.runs.includes(this) || world.disposed) return; // joined, removed, stale
     if (!this.breakable) {
       this.sim = new Sim(b3, this.scene, { body: this.body }, world);
       this.sim.setEnabled(this.enabled);
@@ -264,7 +265,8 @@ export class PhysicsRun {
         }
         this.changed();
         await new Promise((resolve) => setTimeout(resolve, 0));
-        if (!this.runtime?.runs.includes(this)) return; // removed meanwhile: never join
+        // Removed meanwhile, or its World rebuilt (a new scene unit; the runtime joins it anew).
+        if (!this.runtime?.runs.includes(this) || world.disposed) return;
       }
       this.sim = new Sim(b3, this.scene, { shatterSpeed: this.shatterSpeed }, world);
       this.sim.base = probe.base;

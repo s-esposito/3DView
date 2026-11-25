@@ -28,18 +28,20 @@ export function nameOf(url: string): string {
 }
 
 function asset(url: string, id: string, label?: string): AddAssetMsg {
-  return { type: "addAsset", id, label: label ?? nameOf(url), asset: { uri: url, name: nameOf(url) } };
+  const name = nameOf(url);
+  return { type: "addAsset", id, label: label ?? name, asset: { uri: url, name } };
 }
 
 /** The message that adds ``item`` as ``id`` (its own id wins), its URLs resolved against ``base``. */
 export function itemMessage(item: EmbedItem, id: string, base: string): AddAssetMsg | LoadColmapMsg | AddGroupMsg {
   id = item.id ?? id;
   const abs = (u: string) => new URL(u, base).href;
+  const folder = (u: string) => abs(u.endsWith("/") ? u : `${u}/`);
   if ("url" in item) {
     return asset(abs(item.url), id, item.label);
   }
   if ("colmap" in item) {
-    const dir = abs(item.colmap.endsWith("/") ? item.colmap : `${item.colmap}/`);
+    const dir = folder(item.colmap);
     const ext = item.format ?? "bin";
     const msg: LoadColmapMsg = {
       type: "loadColmap",
@@ -49,7 +51,7 @@ export function itemMessage(item: EmbedItem, id: string, base: string): AddAsset
       urls: { cameras: `${dir}cameras.${ext}`, images: `${dir}images.${ext}`, points3d: `${dir}points3D.${ext}` },
       source: dir,
     };
-    if (item.images) msg.imageBaseUrl = abs(item.images.endsWith("/") ? item.images : `${item.images}/`);
+    if (item.images) msg.imageBaseUrl = folder(item.images);
     return msg;
   }
   const urls = item.sequence.map(abs);
@@ -64,6 +66,9 @@ export function itemMessage(item: EmbedItem, id: string, base: string): AddAsset
     members: urls.map((u, k) => asset(u, `${id}/${k}`)),
   };
 }
+
+/** URL parameters that set one configuration field each, over `config`. */
+export const CONFIG_SHORTHANDS = ["preset", "theme", "background"] as const;
 
 /** What embed.html's URL parameters ask for: the configuration, read before anything is drawn,
  *  and the messages to send once the viewer is ready. Throws on a malformed parameter. */
@@ -105,12 +110,8 @@ export function parseEmbedParams(search: string, base: string): EmbedSetup {
     }
     messages.unshift({ type: "setView", position: [view[0], view[1], view[2]], target: [view[3], view[4], view[5]] });
   }
-  const short = {
-    preset: params.get("preset") as ViewerConfig["preset"] | null,
-    theme: params.get("theme") as ViewerConfig["theme"] | null,
-    background: params.get("background"),
-  };
-  for (const [key, value] of Object.entries(short)) {
+  for (const key of CONFIG_SHORTHANDS) {
+    const value = params.get(key);
     if (value !== null) config = { ...config, [key]: value };
   }
   return { config, messages };

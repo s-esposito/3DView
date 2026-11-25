@@ -6,12 +6,9 @@ import type { PanelName, ViewerConfig } from "../shared/messages";
 /** Every panel, in the rail's order. */
 export const ALL_PANELS: readonly PanelName[] = ["scene", "display", "physics", "capture"];
 
+/** The chrome as configured (ViewerConfig.ui; `open` is an ask, not state: Viewer.onOpenPanel). */
 export interface UiConfig {
   panels: PanelName[];
-  /** The panel last asked for (ViewerConfig.ui.open), and a count that moves with each ask, so
-   *  the control panel opens it once and then leaves the rail to the person. */
-  open: PanelName | null;
-  openRequest: number;
   footer: boolean;
   fps: boolean;
   themeSwitcher: boolean;
@@ -26,8 +23,8 @@ export interface InteractionConfig {
 }
 
 /** Everything, as in VS Code: what a viewer with no configuration has. */
-export const FULL_UI: Omit<UiConfig, "openRequest"> = {
-  panels: [...ALL_PANELS], open: "scene", footer: true, fps: true, themeSwitcher: true, help: true, keyboard: true,
+export const FULL_UI: UiConfig = {
+  panels: [...ALL_PANELS], footer: true, fps: true, themeSwitcher: true, help: true, keyboard: true,
 };
 export const FULL_INTERACTION: InteractionConfig = { select: true, edit: true, physics: true };
 
