@@ -51,6 +51,20 @@ const webviewConfig = {
   external: ["node:module"],
 };
 
+// The embedding kit (src/embed): embed.js, the SDK a web page loads, and embed-frame.js, the
+// host bridge embed.html installs before webview.js. Both plain scripts, like the viewer.
+const embedConfig = {
+  entryPoints: { embed: "src/embed/sdk.ts", "embed-frame": "src/embed/frame.ts" },
+  bundle: true,
+  outdir: "out",
+  platform: "browser",
+  format: "iife",
+  target: "es2020",
+  minify: true,
+  sourcemap: !prod,
+  define,
+};
+
 // Bundle each test/*.test.ts into out/test/ as a Node CJS module (node builtins
 // are auto-externalized for platform "node"), so `node --test` runs them directly.
 function testConfig() {
@@ -86,8 +100,8 @@ async function run() {
     await ctx.watch();
     console.log("[core] watching webview for changes...");
   } else {
-    await esbuild.build(webviewConfig);
-    console.log("[core] webview built");
+    await Promise.all([esbuild.build(webviewConfig), esbuild.build(embedConfig)]);
+    console.log("[core] webview + embed built");
   }
 }
 

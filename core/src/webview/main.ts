@@ -24,6 +24,8 @@ import { installDropZone } from "./dropZone";
 // bundle runs; we never reference a host-specific API directly.
 const host = getHostBridge();
 const status = document.getElementById("status")!;
+/** Whether the overlay shows an error: an empty scene keeps it rather than its hint. */
+let errorShown = false;
 
 ensureStyles();
 const viewer = new Viewer();
@@ -49,7 +51,7 @@ viewer.onChange = () => {
   panel.render();
   updateStatus();
 };
-viewer.onError = (message) => showStatus(`Error: ${message}`);
+viewer.onError = (message) => showError(message);
 // Async loaders report their phase (download %, "Decoding…") here.
 viewer.onProgress = (message) => showStatus(message, true);
 
@@ -106,7 +108,7 @@ const EMPTY_HINT = isTouchOnly()
 
 // Show the empty scene and its controls immediately, before any content loads.
 panel.render();
-showStatus(EMPTY_HINT);
+updateStatus();
 
 // Keyboard shortcuts map to the same Viewer API the panel uses.
 const TOGGLE_KEYS: Record<string, GlobalToggle> = {
@@ -180,6 +182,7 @@ let statusShape = "";
  *  keeps spinning, signalling progress even without a percentage). While a video
  *  renders it carries a Cancel button — the one way to stop it without a keyboard. */
 function showStatus(message: string, busy = false) {
+  errorShown = false;
   status.style.display = "flex";
   const cancellable = viewer.isRenderingVideo;
   const shape = `${busy}|${cancellable}`;
@@ -208,12 +211,22 @@ function showStatus(message: string, busy = false) {
   statusText.textContent = message;
 }
 
-/** Hide the overlay once the scene has content; otherwise show a prompt. */
+function showError(message: string) {
+  showStatus(`Error: ${message}`);
+  errorShown = true;
+}
+
+/** Hide the overlay once the scene has content; otherwise show the empty-scene hint, where the
+ *  person can add something (interaction.edit), unless an error says why it is empty. */
 function updateStatus() {
-  if (viewer.getState().items.length > 0) {
-    status.style.display = "none";
-  } else {
+  const empty = viewer.getState().items.length === 0;
+  if (empty && errorShown) {
+    return;
+  }
+  if (empty && viewer.settings.interaction.edit) {
     showStatus(EMPTY_HINT);
+  } else {
+    status.style.display = "none";
   }
 }
 
@@ -274,6 +287,7 @@ function handleHostMessage(msg: HostToWebview) {
       break;
     case "configure":
       viewer.configure(msg);
+      updateStatus(); // the empty-scene hint follows interaction.edit
       break;
     // The item and physics messages are the panel's own actions; the panel follows where the
     // viewer call does not re-render it (onChange) itself.
@@ -318,7 +332,7 @@ function handleHostMessage(msg: HostToWebview) {
       else viewer.playPhysics(msg.action === "play");
       break;
     case "error":
-      showStatus(`Error: ${msg.message}`);
+      showError(msg.message);
       break;
   }
 }
@@ -377,7 +391,7 @@ async function toFrame(m: AddItem): Promise<TemporalFrame | undefined> {
   try {
     return { kind: "reconstruction", id, label, data: await loadColmapData(m), source: m.source };
   } catch (err) {
-    showStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    showError(err instanceof Error ? err.message : String(err));
     return undefined;
   }
 }
@@ -420,7 +434,7 @@ function loadColmapModel(m: ColmapModelRef) {
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       host.postMessage({ type: "itemFailed", id: m.id, message });
-      showStatus(`Error: ${message}`);
+      showError(message);
     });
 }
 

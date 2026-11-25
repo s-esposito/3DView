@@ -70,6 +70,10 @@ jobs:
           MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
           mkdir -p "_site/v$MAJOR/dist"
           cp demo/dist/webview.js "_site/v$MAJOR/dist/"
+          # The embedding kit (2.0 on), per major only: /v<major>/embed.html (the iframe page) and
+          # /v<major>/dist/embed.js (the SDK), with the host bridge embed.html loads.
+          cp demo/embed.html "_site/v$MAJOR/"
+          cp demo/dist/embed.js demo/dist/embed-frame.js "_site/v$MAJOR/dist/"
 
       - name: Build older majors' bundles
         # Each older major's last release, rebuilt from its commit (reproducible: npm ci from
