@@ -47,10 +47,13 @@ const nextId = (kind: string) => `dnd-${kind}-${++counter}`;
  * handler the host message channel uses), or — for a drag that carried only URIs —
  * passes those to `onUris` for the host to open by path. Failures (nothing
  * recognised, a read error) are reported as an `error` message through `onContent`.
+ * While `enabled()` is false (the embedder turned `interaction.edit` off) a drop is still caught,
+ * so the browser does not open the file in place of the viewer, and nothing is added.
  */
 export function installDropZone(
   onContent: (msg: HostToWebview) => void,
-  onUris?: (uris: string[]) => void
+  onUris?: (uris: string[]) => void,
+  enabled: () => boolean = () => true
 ): void {
   const overlay = buildOverlay();
   document.body.appendChild(overlay);
@@ -70,13 +73,14 @@ export function installDropZone(
   window.addEventListener("dragenter", (e) => {
     if (!droppable(e.dataTransfer)) return;
     e.preventDefault();
+    if (!enabled()) return;
     depth++;
     overlay.classList.add("active");
   });
   window.addEventListener("dragover", (e) => {
     if (!droppable(e.dataTransfer)) return;
     e.preventDefault(); // required, or the browser navigates to the file instead of firing `drop`
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    if (e.dataTransfer) e.dataTransfer.dropEffect = enabled() ? "copy" : "none";
   });
   window.addEventListener("dragleave", (e) => {
     if (!droppable(e.dataTransfer)) return;
@@ -87,7 +91,7 @@ export function installDropZone(
     if (!e.dataTransfer) return;
     e.preventDefault(); // stop the browser from opening the dropped file
     hide();
-    void handleDrop(e.dataTransfer, onContent, onUris);
+    if (enabled()) void handleDrop(e.dataTransfer, onContent, onUris);
   });
 }
 

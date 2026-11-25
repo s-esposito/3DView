@@ -74,6 +74,7 @@ jobs:
           # /v<major>/dist/embed.js (the SDK), with the host bridge embed.html loads.
           cp demo/embed.html "_site/v$MAJOR/"
           cp demo/dist/embed.js demo/dist/embed-frame.js "_site/v$MAJOR/dist/"
+          cp docs/embedding.md "_site/v$MAJOR/"   # the API reference, beside what it describes
 
       - name: Build older majors' bundles
         # Each older major's last release, rebuilt from its commit (reproducible: npm ci from

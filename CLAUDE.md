@@ -83,7 +83,9 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                          it), shared by drag-drop and the demo's folder picker
     types.ts             Camera/Image/PointCloud + model→params, modelName()
     index.ts             pure public surface
-  src/embed/             The embedding kit for web pages (2.0): published per major on Pages
+  src/embed/             The embedding kit for web pages (2.0): published per major on Pages;
+                         its reference is docs/embedding.md, and test/embeddingDocs.test.ts fails
+                         on any message, config field, URL parameter or SDK method it lacks
     items.ts             EmbedItem ({url} | {colmap} | {sequence}) → the add messages, and
                          parseEmbedParams (embed.html's URL parameters); pure, node-tested
     frame.ts             → out/embed-frame.js: embed.html's host bridge (config from the URL,

@@ -137,6 +137,22 @@ flush the ten-entry list).
 | Toggle grid / axes / upright | **Shift+G** / **A** / **U** |
 | Cycle Gaussians: splats → ellipsoids → points | **E** |
 
+## Embedding in a web page
+
+Put a model on any page with an iframe, no JavaScript:
+
+```html
+<iframe src="https://s-esposito.github.io/3DView/v2/embed.html?asset=https://example.org/mug.glb&preset=presentation"
+        style="width: 640px; height: 480px; border: 0"></iframe>
+```
+
+or drive it from the page with the SDK (`/v2/dist/embed.js`: `ThreeDView.mount(el, {config,
+items})` → `add`, `setTransform`, `getState`, `capture`, events, …). The configuration sets how it
+looks, which panels and controls show, and what a person may do; messages add, place, select and
+animate items; events report what loaded, failed or was selected. The full reference, for people
+and AI agents alike, is [docs/embedding.md](docs/embedding.md), also served at
+`https://s-esposito.github.io/3DView/v2/embedding.md`.
+
 ## Development
 
 ```bash

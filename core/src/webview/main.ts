@@ -454,7 +454,8 @@ window.addEventListener("message", (event: MessageEvent<HostToWebview>) =>
 // only where the host says it can open them (see dropZone.ts).
 installDropZone(
   handleHostMessage,
-  host.opensUris ? (uris) => host.postMessage({ type: "openUris", uris }) : undefined
+  host.opensUris ? (uris) => host.postMessage({ type: "openUris", uris }) : undefined,
+  () => viewer.settings.interaction.edit // a drop adds to the scene: an edit
 );
 
 // Tell the host we are alive and ready to receive content.

@@ -5,8 +5,9 @@ import type { AddAssetMsg, AddGroupMsg, HostToWebview, LoadColmapMsg, ViewerConf
 /**
  * One item to show. URLs may be relative to `base` (the embedding page, for the SDK); the files
  * must be served with CORS when they are on another origin than the viewer.
- * - `{ url }`: one file: a mesh (.glb/.gltf/.obj/.ply), a point cloud (.ply/.pcd/.xyz), 3D Gaussian
- *   splats (.ply/.splat/.spz/.ksplat/.sog), point tracks (.npz).
+ * - `{ url }`: one file: a mesh (.glb/.gltf/.obj/.ply), a point cloud (.ply), 3D Gaussian splats
+ *   (.ply/.splat/.spz/.ksplat), point tracks or a breakable physics object (.npz/.npy); a .ply is
+ *   told apart by what it holds (messages.ts ASSET_KIND_EXTS).
  * - `{ colmap }`: a COLMAP sparse model folder (cameras / images / points3D, `.bin` or `.txt`);
  *   `images`, the folder of its photos, shows them in the camera frustums.
  * - `{ sequence }`: several files as ONE item with a timeline (a capture's timesteps).
