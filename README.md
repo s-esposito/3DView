@@ -46,7 +46,8 @@ and a **browser demo**, over one shared core.
   ([Box3D](https://github.com/erincatto/box3d) in WebAssembly). Every such object shares one
   world, so they collide. The **playback bar** at the bottom runs the clock (play / pause,
   restore all, speed down to 0.1×) and sets what a click does (**Select** / **Shoot** /
-  **Blast**); the **Physics** panel holds gravity; an object's own controls (drop height,
+  **Blast**); the **Physics** panel holds gravity, the **floor** (at the scene's bottom, or
+  none) and the **scene unit** (metres per unit: COLMAP's are arbitrary); an object's own controls (drop height,
   glue, shatter on impact, presets) are in its **Inspector**. The first action calibrates
   each object's welds against its own weight (~1-2 s an object).
 - **Temporal items (4D)** — load several reconstructions, meshes, clouds or splats as the

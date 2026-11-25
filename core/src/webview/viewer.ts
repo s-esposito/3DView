@@ -70,6 +70,9 @@ export interface ItemTransform {
   scale: Vec3;
 }
 
+/** Points or vertices above which building a collision shape is announced (it takes a moment). */
+const BIG_GEOMETRY = 200_000;
+
 /** The gizmo's size, as a share of three's default: Blender's is about half of it on screen. */
 const GIZMO_SIZE = 0.5;
 
@@ -210,6 +213,10 @@ export interface PhysicsView {
   speed: number;
   /** m/s². */
   gravity: number;
+  /** Whether there is a floor (at the scene's bottom). */
+  floor: boolean;
+  /** Metres per scene unit. */
+  unit: number;
   /** Whether the camera follows the object last acted on while its pieces move. */
   follow: boolean;
   /** "2 objects, moving", ... */
@@ -328,10 +335,15 @@ export class Viewer {
   /** Whether the camera follows ``followRun`` (the object last acted on) while its pieces move. */
   private followPhysics = true;
   private followRun?: PhysicsRun;
+  /** Whether the physics has a floor (at the scene's bottom: placeFloor). */
+  private floorOn = true;
   /** The Scene item the Inspector shows. */
   private selectedId: string | null = null;
   /** Items given a body on demand (setPhysicsMode): its run, its node, its holder, its mode. */
   private readonly rigid = new Map<string, { run: PhysicsRun; holder: THREE.Object3D }>();
+  /** setPhysicsMode calls by item id: one awaiting a big voxelization drops out if a later call
+   *  came meanwhile. */
+  private readonly modeCalls = new Map<string, number>();
   /** Pending re-voxelizations of rescaled rigid items (reshapeSoon), by item id. */
   private readonly reshapes = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chunked objects switched off (they take part by default). */
@@ -509,6 +521,8 @@ export class Viewer {
         running: this.physics.running,
         speed: this.physics.speed,
         gravity: this.physics.gravity,
+        floor: this.floorOn,
+        unit: this.physics.unit,
         follow: this.followPhysics,
         status: this.physics.status,
         objects: this.layers.flatMap((l) => {
@@ -879,7 +893,7 @@ export class Viewer {
     clearTimeout(this.reshapes.get(id));
     this.reshapes.set(id, setTimeout(() => {
       this.reshapes.delete(id);
-      if (this.rigid.has(id)) this.setPhysicsMode(id, this.rigidMode(id), false);
+      if (this.rigid.has(id)) void this.setPhysicsMode(id, this.rigidMode(id), false);
     }, 300));
   }
 
@@ -938,6 +952,26 @@ export class Viewer {
   /** m/s², down. */
   setPhysicsGravity(g: number): void {
     this.physics.setGravity(g);
+  }
+
+  /** A floor at the scene's bottom, or none (things fall until they are lost). */
+  setPhysicsFloor(on: boolean): void {
+    this.floorOn = on;
+    this.placeFloor();
+    this.onChange?.();
+  }
+
+  /** Metres per scene unit (COLMAP's units are arbitrary): gravity, drop heights and speeds are
+   *  in metres. The physics is built again in the new units. */
+  setPhysicsUnit(metres: number): void {
+    this.physics.setUnit(metres);
+    this.onChange?.();
+  }
+
+  /** The floor at the bottom of the scene's bounds (data y points down, so its largest y; the
+   *  World's frame is the data frame turned, y up), or none. */
+  private placeFloor(): void {
+    this.physics.setFloor(this.floorOn ? -this.bounds.max[1] : null);
   }
 
   /** Run a physics preset; a volley's five shots come from the camera, through the object's
@@ -1018,11 +1052,14 @@ export class Viewer {
    * dynamic, its content hangs on the body; off, the body goes and the content is back where it
    * was. Turning one on prepares the World, so it joins at once.
    */
-  setPhysicsMode(id: string, mode: PhysicsMode, notify = true): void {
+  async setPhysicsMode(id: string, mode: PhysicsMode, notify = true): Promise<void> {
     const layer = this.byId.get(id);
     if (!layer) {
       return;
     }
+    const call = (this.modeCalls.get(id) ?? 0) + 1;
+    this.modeCalls.set(id, call);
+    let announced = false;
     if (layer instanceof AssetLayer && layer.physics) {
       const run = layer.physics;
       if (mode === "off" && !this.physicsOff.has(id)) {
@@ -1046,6 +1083,17 @@ export class Viewer {
         unmountRigid(old.holder);
         this.rigid.delete(id);
       }
+      const size = mode === "off" ? 0
+        : layer instanceof AssetLayer ? layer.geometrySize : layer instanceof ReconstructionLayer ? layer.pointCount : 0;
+      if (size > BIG_GEOMETRY) {
+        // Reading and voxelizing it runs on this thread: say so, and let that paint first.
+        this.onProgress?.(`${layer.label} — building its collision shape`);
+        announced = true;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        if (this.modeCalls.get(id) !== call || !this.byId.has(id)) {
+          return; // switched again, or removed, meanwhile: the later call decides
+        }
+      }
       const geometry = mode === "off" ? null
         : layer instanceof AssetLayer || layer instanceof ReconstructionLayer ? layer.collisionGeometry() : null;
       if (geometry) {
@@ -1064,8 +1112,8 @@ export class Viewer {
       void this.physics.prepared(); // it joins the World at once
     }
     this.attachGizmo(); // a breakable object's scale locks while its physics is on
-    if (notify) {
-      this.onChange?.();
+    if (notify || announced) {
+      this.onChange?.(); // (also what takes the status message down)
     }
     this.requestRender();
   }
@@ -1547,6 +1595,7 @@ export class Viewer {
       .filter((b): b is Bounds => b != null);
     this.bounds = unionBounds(parts);
     this.frustumScaleMax = diagonalOf(this.bounds) * 0.16;
+    this.placeFloor(); // the floor follows the scene's bottom
   }
 
   private rebuildHelpers(): void {

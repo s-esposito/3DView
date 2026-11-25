@@ -397,7 +397,14 @@ export class ControlPanel {
     gravity.title = "Moon 1.6, Mars 3.7, Earth 9.8. The welds keep the strength calibrated under Earth's";
     const body = document.createElement("div");
     body.className = "viewer-body";
-    body.append(section("World", [gravity]));
+    const floor = checkbox("Floor at the scene's bottom", p.floor, (on) => this.viewer.setPhysicsFloor(on));
+    floor.title = "An endless floor under everything; off, what falls past the scene is lost";
+    // The scene's unit on a log scale, 1 mm to 1 km: COLMAP's units are arbitrary, the physics'
+    // are metres.
+    const unit = slider("Scene unit", -3, 3, 0.1, Math.log10(p.unit), (v) => this.viewer.setPhysicsUnit(10 ** v),
+      { format: (v) => `${Number((10 ** v).toPrecision(2))} m`, parse: (t) => Math.log10(parseFloat(t)), reset: 0 });
+    unit.title = "How many metres one unit of the scene is (gravity, drop heights and shot speeds are in metres)";
+    body.append(section("World", [gravity, floor, unit]));
     return body;
   }
 

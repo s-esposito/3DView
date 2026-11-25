@@ -38,6 +38,11 @@ export class PhysicsRuntime {
   speed = 1;
   /** m/s². */
   gravity = EARTH_GRAVITY;
+  /** Metres per scene unit (World.unit); 1 = the scene is in metres. */
+  unit = 1;
+  /** The floor's top (World y, scene units), or null for none (the Viewer keeps it at the scene's
+   *  bottom). */
+  floor: number | null = 0;
   readonly runs: PhysicsRun[] = [];
   /** Called when the clock starts or stops, or a run's state, settings or progress move. */
   onChange: () => void = () => {};
@@ -67,7 +72,7 @@ export class PhysicsRuntime {
   prepared(): Promise<World> {
     const prepare = async (): Promise<World> => {
       const b3 = await loadBox3d();
-      this.world ??= new World(b3, { gravity: this.gravity });
+      this.world ??= new World(b3, { gravity: this.gravity, unit: this.unit, floor: this.floor });
       for (const run of [...this.runs]) await run.join(b3, this.world); // a run may go meanwhile
       return this.world;
     };
@@ -92,6 +97,27 @@ export class PhysicsRuntime {
 
   setSpeed(speed: number): void {
     this.speed = speed;
+    this.onChange();
+  }
+
+  /** Move the floor (World y, scene units) or take it away (null). */
+  setFloor(y: number | null): void {
+    this.floor = y;
+    this.world?.setFloor(y);
+    this.onChange();
+  }
+
+  /** Metres per scene unit. The World is built again in the new units and every object joins it
+   *  anew, back at rest — a breakable one calibrated again, as its welds' loads are in units. */
+  setUnit(metres: number): void {
+    this.unit = metres;
+    if (this.world) {
+      for (const run of this.runs) run.dispose();
+      this.world.dispose();
+      this.world = undefined;
+      this.setRunning(false);
+      void this.prepared();
+    }
     this.onChange();
   }
 
@@ -225,7 +251,8 @@ export class PhysicsRun {
     }
     this.calibrating = true;
     this.changed();
-    const probe = new Sim(b3, this.scene);
+    const probeWorld = new World(b3, { unit: world.unit }); // calibrated in the scene's units
+    const probe = new Sim(b3, this.scene, {}, probeWorld);
     try {
       const run = probe.calibrating();
       for (let done = false; !done;) {
@@ -244,7 +271,7 @@ export class PhysicsRun {
       this.sim.setStrength(this.strength);
       this.sim.setEnabled(this.enabled);
     } finally {
-      probe.dispose();
+      probeWorld.dispose();
       this.calibrating = false;
     }
     this.reset();
@@ -351,6 +378,7 @@ export class PhysicsRun {
   get status(): string {
     if (this.calibrating) return `calibrating ${Math.round(100 * this.progress)}%`;
     if (!this.sim) return "whole, at rest";
+    if (this.sim.lost.size === this.nodes.length) return "fell out of the scene (Restore brings it back)";
     const sizes = this.sim.pieceSizes();
     const pieces = sizes.length === 1
       ? "whole"
@@ -417,7 +445,7 @@ export class PhysicsRun {
     for (let k = 0; still && k < b.length; k += 7) {
       const turn = 2 * Math.acos(Math.min(1, Math.abs(
         a[k + 3] * b[k + 3] + a[k + 4] * b[k + 4] + a[k + 5] * b[k + 5] + a[k + 6] * b[k + 6])));
-      still = Math.hypot(b[k] - a[k], b[k + 1] - a[k + 1], b[k + 2] - a[k + 2]) < CREEP_DISTANCE
+      still = Math.hypot(b[k] - a[k], b[k + 1] - a[k + 1], b[k + 2] - a[k + 2]) < CREEP_DISTANCE / this.sim.world.unit
         && turn < CREEP_ANGLE;
     }
     a.set(b);

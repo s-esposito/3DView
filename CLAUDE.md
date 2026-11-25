@@ -154,6 +154,13 @@ core/                  @3dview/core — host-agnostic; builds out/webview.js. No
                            rigidObject.geometryShape -> mountRigid (dynamic: AssetLayer.mountOn
                            hangs content + box on the body's holder) -> a PhysicsRun in the
                            runtime; Viewer.runOf(layer) is the one accessor for "its run".
+                           Units (R4): the World runs in scene units; World.unit (metres per
+                           unit, the Physics panel's Scene unit) converts everything given in
+                           metres / m/s — gravity, lifts, speeds, radii, the creep threshold —
+                           at the World/Sim boundary; a new unit rebuilds the World (breakable
+                           objects recalibrate). The floor (World.setFloor) follows the
+                           scene's bottom (Viewer.placeFloor, on every recomputeBounds), or is
+                           off; a body FALL_DEPTH (10 m) under it is lost.
       rigidObject.ts       a rigid asset on one body (roadmap R2): mountRigid puts its content
                            under a node at its shape's centre of mass, under the same 180°
                            turn a chunked object's group has, drawn where it was; the body is a

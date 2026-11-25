@@ -151,3 +151,49 @@ test("a shot at a scaled item goes where the ray points (the World is in metres)
   assert.equal(await run.shoot(from(0.4)), true, "level with its centre: a hit");
   runtime.dispose();
 });
+
+/** A rigid box body of ``w`` scene units at World y ``y`` (its centre), in ``world``. */
+function boxBody(world: World, w: number, y: number): Sim {
+  const s = shapeOf(boxMesh(w, w, [0, -y, 0])); // data frame: y down
+  return new Sim(b3, mountRigid(new THREE.Group(), s).scene, {}, world);
+}
+const centreY = (sim: Sim) => sim.transforms()[1];
+
+test("the floor: a box rests on it where it is; with none, it falls past and is lost under it", () => {
+  const onFloor = new World(b3, { floor: -2 });
+  const a = boxBody(onFloor, 0.4, 1);
+  for (let i = 0; i < 240; i++) onFloor.step();
+  assert.ok(Math.abs(centreY(a) - (-2 + 0.2)) < 0.03, `rests at ${centreY(a)} (expected -1.8)`);
+  onFloor.setFloor(null);
+  for (let i = 0; i < 240; i++) onFloor.step();
+  assert.ok(a.lost.has(0) && centreY(a) < -12 + 0.5, `lost below the old floor: ${centreY(a)}, lost ${a.lost.has(0)}`);
+  onFloor.dispose();
+});
+
+test("a scene in centimetres falls at the same rate in metres as one in metres", () => {
+  // 0.3 s of free fall: 0.5 g t^2 = 0.44 m, whatever the unit.
+  for (const unit of [1, 0.01]) {
+    const world = new World(b3, { unit, floor: null });
+    const box = boxBody(world, 0.4 / unit, 0);
+    for (let i = 0; i < 18; i++) world.step();
+    const fallen = -centreY(box) * unit;
+    assert.ok(Math.abs(fallen - 0.44) < 0.05, `unit ${unit}: fell ${fallen.toFixed(3)} m`);
+    world.dispose();
+  }
+});
+
+test("a new scene unit rebuilds the World: a breakable object joins again, whole, at rest", async () => {
+  const runtime = new PhysicsRuntime();
+  const blob = presetScene({ shape: "blob", radius: 6, chunks: 12, height: 1 });
+  const nodes = blob.chunks.map((c) => { const n = new THREE.Group(); n.position.set(...c.position); return n; });
+  const turn = new THREE.Group();
+  turn.add(...nodes);
+  new THREE.Group().add(turn);
+  const run = new PhysicsRun(blob, nodes);
+  runtime.add(run);
+  await runtime.prepared();
+  runtime.setUnit(0.5);
+  await runtime.prepared();
+  assert.ok(!run.calibrating && /^whole/.test(run.status), run.status);
+  runtime.dispose();
+});

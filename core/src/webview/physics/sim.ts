@@ -63,9 +63,13 @@ const ROT0: Box3dQuat = { x: 0, y: 0, z: 0, w: 1 };
 // the ground is tagged too, since box3d-wasm gives an untagged shape or body a tag from a global
 // counter, which can land on a chunk's.
 const GROUND_TAG = 2 ** 30;
-/** m: a body below this went over the ground's edge (it is 100 m across); nothing would ever stop
- *  its fall, which would keep the world awake, so it is put to sleep there (Sim.lost). */
-const FALL_LIMIT = -10;
+/** m below the floor (or where it was, with none): a body this low went over the ground's edge
+ *  (it is 100 m across) or has nothing under it; nothing would ever stop its fall, which would keep
+ *  the world awake, so it is put to sleep there (Sim.lost). */
+const FALL_DEPTH = 10;
+/** m: the ground's half width, and its thickness's half. */
+const GROUND_HALF_WIDTH = 50;
+const GROUND_HALF_THICKNESS = 0.5;
 const v3 = ([x, y, z]: readonly number[]): Box3dVec3 => ({ x, y, z });
 const norm = (v: Box3dVec3): number => Math.hypot(v.x, v.y, v.z);
 /** Quaternion product a * b. */
@@ -99,21 +103,48 @@ interface Weld { joint: Box3dJoint; area: number; alive: boolean }
 export class World {
   readonly box3d: Box3dWorld;
   readonly objects: Sim[] = [];
+  /** m/s². */
   gravity: number;
   /** Seconds per step, and box3d substeps per step. */
   readonly dt: number;
   readonly substeps: number;
+  /** Metres per World unit (the scene's unit): the World runs in the scene's units, and what this
+   *  file takes in metres or m/s (gravity, lifts, speeds, radii) is converted here; 1 = metres.
+   *  box3d's own tolerances stay in units (fine down to cm and mm scenes; coarse in km ones). */
+  readonly unit: number;
+  /** A body below this World y is lost (Sim.lost): FALL_DEPTH under the floor, or under where it
+   *  last was. */
+  fallLimit: number;
   private nextTag = 1;
+  private ground?: Box3dBody;
+  private readonly friction: number;
 
+  /** ``floor``: the floor's top (World y, units), or null for none. */
   constructor(b3: Box3dModule, { gravity = EARTH_GRAVITY, friction = DEFAULTS.friction,
-    dt = DEFAULTS.dt, substeps = DEFAULTS.substeps } = {}) {
+    dt = DEFAULTS.dt, substeps = DEFAULTS.substeps, unit = 1, floor = 0 as number | null } = {}) {
     this.gravity = gravity;
     this.dt = dt;
     this.substeps = substeps;
-    this.box3d = new b3.World({ gravity: { x: 0, y: -gravity, z: 0 } });
-    const ground = this.box3d.createBody({ type: "static", position: { x: 0, y: -0.5, z: 0 } });
-    ground.createBox({ halfExtents: { x: 50, y: 0.5, z: 50 }, friction, userData: GROUND_TAG });
-    ground.setUserData(GROUND_TAG);
+    this.unit = unit;
+    this.friction = friction;
+    this.fallLimit = -FALL_DEPTH / unit;
+    this.box3d = new b3.World({ gravity: { x: 0, y: -gravity / unit, z: 0 } });
+    this.setFloor(floor);
+  }
+
+  /** The floor: a static slab whose top is at World y ``y`` (units), or none (null). Bodies wake,
+   *  as what they rested on moved. */
+  setFloor(y: number | null): void {
+    this.ground?.destroy();
+    this.ground = undefined;
+    if (y !== null) {
+      const half = GROUND_HALF_THICKNESS / this.unit, wide = GROUND_HALF_WIDTH / this.unit;
+      this.ground = this.box3d.createBody({ type: "static", position: { x: 0, y: y - half, z: 0 } });
+      this.ground.createBox({ halfExtents: { x: wide, y: half, z: wide }, friction: this.friction, userData: GROUND_TAG });
+      this.ground.setUserData(GROUND_TAG);
+      this.fallLimit = y - FALL_DEPTH / this.unit;
+    }
+    for (const sim of this.objects) for (const body of sim.bodies) body.setAwake(true);
   }
 
   /** ``n`` tags for a new object's chunks: the first. */
@@ -133,7 +164,7 @@ export class World {
   /** m/s², down -y. */
   setGravity(g: number): void {
     this.gravity = g;
-    this.box3d.setGravity({ x: 0, y: -g, z: 0 });
+    this.box3d.setGravity({ x: 0, y: -g / this.unit, z: 0 });
     for (const sim of this.objects) for (const body of sim.bodies) body.setAwake(true);
   }
 
@@ -148,21 +179,22 @@ export class World {
 
   /** The first chunk along ``dir`` (unit) from ``origin``, within ``range`` m. */
   cast(origin: V3, dir: V3, range = 100): ChunkHit | null {
-    const hit = this.box3d.castRayClosest(v3(origin), v3(dir.map((d) => d * range)));
+    const hit = this.box3d.castRayClosest(v3(origin), v3(dir.map((d) => (d * range) / this.unit)));
     const owner = hit.hit ? this.owner(hit.bodyUserData) : null;
     return owner && { ...owner, point: [hit.point.x, hit.point.y, hit.point.z] };
   }
 
   /** A shot along ``dir`` (unit) from ``origin``: the chunk it meets first, of whichever object,
-   *  is knocked out and kicked (Sim.knockOut). What it hit. */
+   *  is knocked out and kicked (Sim.knockOut) to ``speed`` m/s, the welds within ``radius`` m
+   *  broken. What it hit. */
   shoot(origin: V3, dir: V3, { speed = 6, radius = 0.1, range = 100 } = {}): ChunkHit | null {
     const hit = this.cast(origin, dir, range);
-    hit?.sim.knockOut(hit.chunk, hit.point, dir, speed, radius);
+    hit?.sim.knockOut(hit.chunk, hit.point, dir, speed / this.unit, radius / this.unit);
     return hit;
   }
 
   /** A blast at ``point``: every object's welds within ``radius`` break, then every shape within
-   *  it is pushed away with ``impulsePerArea`` (Sim.explode picks it). */
+   *  it is pushed away with ``impulsePerArea`` (both in units: Sim.explode converts and picks). */
   explode(point: V3, radius: number, impulsePerArea: number): void {
     for (const sim of this.objects) sim.breakNear(point, radius);
     this.box3d.explode({ position: v3(point), radius, falloff: 0.5 * radius, impulsePerArea });
@@ -187,7 +219,7 @@ export class Sim {
   welds: Weld[] = [];
   /** Welds broken since the last reset. */
   broken = 0;
-  /** Chunks that fell off the ground since the last reset (FALL_LIMIT), asleep where they went. */
+  /** Chunks that fell off the ground since the last reset (World.fallLimit), asleep where they went. */
   lost = new Set<number>();
   /** Each weld's load in the last step, Pa. */
   lastLoad = new Float32Array(0);
@@ -234,7 +266,7 @@ export class Sim {
     const turn = qmul({ x: qx, y: qy, z: qz, w: qw }, { x: 0, y: 0, z: Math.sin(tilt / 2), w: Math.cos(tilt / 2) });
     const place = (p: V3): V3 => {
       const [x, y, z] = rotate(turn, p);
-      return [x + px, y + py + lift, z + pz];
+      return [x + px, y + py + lift / this.world.unit, z + pz];
     };
     const rot = qmul(turn, this.restRotation);
     const shrink = 0.5 * scene.voxelSize * o.gap;
@@ -338,7 +370,7 @@ export class Sim {
     // than lie where they broke.
     if (Number.isFinite(this.o.shatterSpeed))
       for (const hit of hits) {
-        const excess = hit.approachSpeed - this.o.shatterSpeed;
+        const excess = hit.approachSpeed * this.world.unit - this.o.shatterSpeed; // m/s
         if (excess <= 0) continue;
         for (const tag of [hit.shapeUserDataA, hit.shapeUserDataB]) {
           const chunk = tag - this.tag0;
@@ -346,12 +378,12 @@ export class Sim {
           for (const i of this.weldsOf[chunk]) this.breakWeld(i);
           const body = this.bodies[chunk], p = body.getPosition(), v = body.getLinearVelocity();
           const away: V3 = [p.x - hit.point.x, p.y - hit.point.y, p.z - hit.point.z];
-          const k = (this.o.burst * excess) / (Math.hypot(...away) || 1);
+          const k = (this.o.burst * excess) / this.world.unit / (Math.hypot(...away) || 1);
           body.setLinearVelocity({ x: v.x + k * away[0], y: v.y + k * away[1], z: v.z + k * away[2] });
         }
       }
     this.bodies.forEach((body, i) => {
-      if (!this.lost.has(i) && body.getPosition().y < FALL_LIMIT) {
+      if (!this.lost.has(i) && body.getPosition().y < this.world.fallLimit) {
         body.setAwake(false);
         this.lost.add(i);
       }
@@ -373,11 +405,12 @@ export class Sim {
    *  size: a thin shell's pieces fly as fast as a solid's, not faster). Breaking first is what makes
    *  it local: whole, the welds pass the push to the entire object. */
   explode(point: V3, { radius = 0.3, speed = 4 } = {}): void {
-    this.world.explode(point, radius, speed * this.o.density * this.scene.voxelSize);
+    const u = this.world.unit;
+    this.world.explode(point, radius / u, (speed / u) * this.o.density * this.scene.voxelSize);
   }
 
   /** Knock ``chunk`` out where ``point`` was hit along ``dir``: all its welds break, and those
-   *  within ``radius`` of the hit, and it is kicked to about ``speed`` m/s (impulse = speed x its
+   *  within ``radius`` (units) of the hit, and it is kicked to about ``speed`` units/s (impulse = speed x its
    *  mass). */
   knockOut(chunk: number, point: V3, dir: V3, speed: number, radius: number): void {
     const body = this.bodies[chunk];

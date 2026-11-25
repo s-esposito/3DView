@@ -301,6 +301,17 @@ export class AssetLayer implements FrameSource {
     for (const o of [this.current, this.box]) if (o) (holder ?? this.object).add(o);
   }
 
+  /** How many points or vertices collisionGeometry would read (cheap: no copy). */
+  get geometrySize(): number {
+    if (this.cloud) return this.cloud.count;
+    let n = 0;
+    this.current?.traverse((o) => {
+      const g = o instanceof PointCloud ? o.points : (o as THREE.Mesh).geometry;
+      if (o instanceof THREE.Mesh || o instanceof THREE.Points || o instanceof PointCloud) n += g.getAttribute("position").count;
+    });
+    return n;
+  }
+
   /** Its geometry for a collision shape, in the layer's frame: a 3DGS asset's splat centres (the
    *  visibly opaque ones), else a mesh's triangles, else a cloud's points (asked only of those:
    *  Viewer.physicsModes). */
